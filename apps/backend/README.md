@@ -1,10 +1,10 @@
 # Backend
 
-FastAPI and PostgreSQL for the Idea Board. The commands here run the backend services. To include the web app, run `docker compose up --build --wait` from the repository root and open `http://localhost:3000`. Cloud deployment remains planned.
+FastAPI and PostgreSQL for the Idea Board. The repository root has one `docker-compose.yml` for the frontend, backend, migration job, and PostgreSQL. Cloud deployment remains planned.
 
 ## Run locally
 
-Run from this directory with a Docker-compatible engine and Compose support:
+Run from the repository root with a Docker-compatible engine and Compose support:
 
 ```bash
 docker compose up --build --wait
@@ -12,21 +12,21 @@ docker compose up --build --wait
 
 Compose waits for PostgreSQL to be healthy, runs `alembic upgrade head` in the separate `migrate` service, and starts the backend only when that service exits successfully. A failed migration blocks backend startup. The API checks the database and required table columns on startup and exits with an error if either is unavailable. It never runs migrations.
 
-The API is available at `http://127.0.0.1:8000`; interactive API documentation is at `/docs`. PostgreSQL listens on loopback port `55432`. Its credentials in `compose.yaml` are local development values. Use a different database URL and credentials outside this setup.
+The API is available at `http://127.0.0.1:8000`; interactive API documentation is at `/docs`. PostgreSQL listens on loopback port `55432`. Its credentials in the root `docker-compose.yml` are local development values. Use a different database URL and credentials outside this setup.
 
 The database volume survives `docker compose down`; `docker compose down --volumes` deletes local data. To inspect migration failures, run `docker compose logs migrate`.
 
-For development outside the backend container, install uv and Python 3.12, then run:
+For development outside the backend container, install uv and Python 3.12, then run from `apps/backend`:
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait postgres
+docker compose -f ../../docker-compose.yml up -d --wait postgres
 uv sync --locked --all-extras --all-groups
 uv run alembic upgrade head
 uv run uvicorn idea_board.server:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-Stop the Compose backend with `docker compose stop backend` before starting a host process on the same port. Apply migrations before starting either process.
+Stop the Compose backend with `docker compose -f ../../docker-compose.yml stop backend` before starting a host process on the same port. Apply migrations before starting either process.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/ideas \
