@@ -23,7 +23,7 @@ kubectl --context kind-idea-board apply -k gitops/kind
 kubectl --context kind-idea-board --namespace argocd get applications
 ```
 
-The AppProject permits only this repository, the `idea-board` namespace, and Deployments, Services, and Jobs. It cannot manage cluster resources or database Secrets and storage.
+The AppProject permits only this repository, the `idea-board` namespace, and Deployments, ReplicaSets, Pods, Services, and Jobs. ReplicaSets and Pods are included so Argo CD can show the Deployment’s running children in its resource tree. It cannot manage cluster resources or database Secrets and storage.
 
 Argo CD adopts the existing backend and frontend resources. Use Git changes for subsequent releases rather than running Helm upgrades against those workloads. The old Helm release records remain as history.
 
