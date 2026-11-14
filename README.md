@@ -66,9 +66,3 @@ npm run build
 With a disposable Compose stack running, `npm run test:stack` checks the frontend and API together over HTTP. Backend integration tests create and remove a temporary database without changing the development database.
 
 GitHub Actions runs backend and frontend checks, builds both container images with cached layers, starts the Compose stack, runs full-stack HTTP tests, and verifies that migrations can run again.
-
-## Platform roadmap
-
-The application, containers, and CI are implemented. Kubernetes deployment with kind and Argo CD, Terraform for AWS and GCP, DevOps skills, and load testing are planned in the [platform design](docs/platform-design.md).
-
-Local tests will verify application and GitOps behavior. Cloud deployment, IAM, networking, managed databases, and cloud capacity require live AWS and GCP environments; those checks have not run yet.
