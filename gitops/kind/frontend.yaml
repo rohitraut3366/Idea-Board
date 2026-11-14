@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frontend
+  namespace: argocd
+spec:
+  project: idea-board
+  source:
+    repoURL: git@github.com:rohitraut3366/Idea-Board.git
+    targetRevision: rohit-e2e-implementation-plan
+    path: charts/idea-board-frontend
+    helm:
+      releaseName: frontend
+      valueFiles:
+        - ../../gitops/kind/frontend-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: idea-board
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

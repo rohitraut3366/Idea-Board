@@ -123,10 +123,13 @@ jobs:
           version: v4.2.4
       - name: Lint charts
         run: |
-          helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board-database
-          helm lint charts/idea-board-frontend --strict
+          helm lint charts/idea-board-backend --strict -f gitops/kind/backend-values.yaml
+          helm lint charts/idea-board-frontend --strict -f gitops/kind/frontend-values.yaml
+      - name: Render GitOps Applications
+        run: kubectl kustomize gitops/kind
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
+          version: v0.32.0
           cluster_name: idea-board
           node_image: kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
       - name: Load app images and start test database
@@ -137,14 +140,14 @@ jobs:
           kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
       - name: Install charts and test both services
         run: |
-          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board --set databaseSecretName=idea-board-database --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Verify upgrade and repeat migrations
         run: |
-          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board --set databaseSecretName=idea-board-database --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs

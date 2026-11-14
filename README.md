@@ -70,3 +70,5 @@ GitHub Actions runs backend and frontend checks, builds both container images wi
 ## Kubernetes
 
 Separate Helm charts deploy the [backend](charts/idea-board-backend/README.md) and [web app](charts/idea-board-frontend/README.md). The backend chart runs migrations as a separate Job before install and upgrade, using an existing PostgreSQL database and Secret. The frontend chart connects to the backend Service.
+
+[Argo CD setup](gitops/README.md) connects the two charts to Git, with separate Applications, migration hooks, and Git-based rollback.
