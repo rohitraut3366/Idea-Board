@@ -10,12 +10,12 @@ PostgreSQL and an existing Secret containing `IDEA_BOARD_DATABASE_URL` must be p
 helm upgrade --install backend charts/idea-board-backend \
   --namespace idea-board \
   --set databaseSecretName=idea-board-database \
-  --set image.repository=YOUR_REGISTRY/idea-board-backend \
+  --set image.repository=ghcr.io/rohitraut3366/idea-board-backend \
   --set image.tag=YOUR_COMMIT \
   --wait --timeout 5m
 ```
 
-For local kind with the `idea-board-backend:local` image loaded, omit the image overrides and use `--kube-context kind-idea-board`.
+For local kind, use `--kube-context kind-idea-board` and `-f gitops/kind/backend-values.yaml` instead of the image overrides. Those values point to the published GHCR commit tag.
 
 The Service name matches the Helm release name: `backend` in this example. The frontend chart defaults to connecting to `backend:8000` in the same namespace. The charts are separate releases and can be upgraded independently.
 

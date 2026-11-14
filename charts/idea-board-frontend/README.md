@@ -9,13 +9,13 @@ Deploy the backend first, then install the frontend:
 ```bash
 helm upgrade --install frontend charts/idea-board-frontend \
   --namespace idea-board \
-  --set image.repository=YOUR_REGISTRY/idea-board-frontend \
+  --set image.repository=ghcr.io/rohitraut3366/idea-board-frontend \
   --set image.tag=YOUR_COMMIT \
   --set backendUpstream=backend:8000 \
   --wait --timeout 5m
 ```
 
-For local kind with the `idea-board-frontend:local` image loaded, omit the image overrides and use `--kube-context kind-idea-board`.
+For local kind, use `--kube-context kind-idea-board` and `-f gitops/kind/frontend-values.yaml` instead of the image overrides. Those values point to the published GHCR commit tag.
 
 The Service name matches the release name: `frontend` in this example. For local access:
 

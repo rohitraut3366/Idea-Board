@@ -72,3 +72,11 @@ GitHub Actions runs backend and frontend checks, builds both container images wi
 Separate Helm charts deploy the [backend](charts/idea-board-backend/README.md) and [web app](charts/idea-board-frontend/README.md). The backend chart runs migrations as a separate Job before install and upgrade, using an existing PostgreSQL database and Secret. The frontend chart connects to the backend Service.
 
 [Argo CD setup](gitops/README.md) connects the two charts to Git, with separate Applications, migration hooks, and Git-based rollback.
+
+## Container images
+
+GitHub Actions publishes `ghcr.io/rohitraut3366/idea-board-backend` and `ghcr.io/rohitraut3366/idea-board-frontend` after backend, frontend, Compose, and Helm checks pass. Each image supports `linux/amd64` and `linux/arm64` and is tagged with the full source commit SHA.
+
+Publishing runs on pushes to `master` or a manual CI run on a selected branch. Pull-request runs test the code without publishing. The job uses GitHub's built-in token; no registry password is stored in the repository.
+
+Update the image repository and commit tag in `gitops/kind/*-values.yaml` to deploy a published version through Argo CD. Both GHCR packages must be public for the local cluster to pull without credentials.

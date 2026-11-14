@@ -16,7 +16,7 @@ For a private repository, provision an Argo CD repository Secret with a read-onl
 
 ## Connect the services
 
-Before applying the Applications, the `idea-board` namespace must have a ready PostgreSQL instance and a Secret named `idea-board-database` containing `IDEA_BOARD_DATABASE_URL`. The application images named in `kind/*-values.yaml` must be available on the kind nodes.
+Before applying the Applications, the `idea-board` namespace must have a ready PostgreSQL instance and a Secret named `idea-board-database` containing `IDEA_BOARD_DATABASE_URL`. The application images named in `kind/*-values.yaml` must be published in GHCR and publicly readable. The node pulls the pinned commit tags directly; manually loading application images into kind is not required.
 
 ```bash
 kubectl --context kind-idea-board apply -k gitops/kind
