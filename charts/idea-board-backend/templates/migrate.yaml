@@ -1,9 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "idea-board.name" . }}-migrate
+  name: {{ .Release.Name }}-migrate
   labels:
-    {{- include "idea-board.labels" . | nindent 4 }}
+    {{- include "idea-board-backend.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
@@ -27,18 +27,18 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: {{ printf "%s:%s" .Values.backend.image.repository .Values.backend.image.tag | quote }}
-          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: [alembic, upgrade, head]
           env:
             - name: IDEA_BOARD_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "backend.databaseSecretName must reference an existing database Secret" .Values.backend.databaseSecretName | quote }}
+                  name: {{ required "databaseSecretName must reference an existing database Secret" .Values.databaseSecretName | quote }}
                   key: IDEA_BOARD_DATABASE_URL
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
           resources:
-            {{- toYaml .Values.backend.resources | nindent 12 }}
+            {{- toYaml .Values.resources | nindent 12 }}

@@ -1,0 +1,13 @@
+# The database Secret must exist before installing this chart.
+image:
+  repository: idea-board-backend
+  tag: local
+  pullPolicy: IfNotPresent
+replicas: 1
+databaseSecretName: ''
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

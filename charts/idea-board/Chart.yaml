@@ -1,6 +1,0 @@
-apiVersion: v2
-name: idea-board
-description: Idea Board backend, web app, and database migration job
-type: application
-version: 0.1.0
-appVersion: "0.1.0"

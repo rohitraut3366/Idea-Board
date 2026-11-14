@@ -121,8 +121,10 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: v4.2.4
-      - name: Lint chart
-        run: helm lint charts/idea-board --strict --set backend.databaseSecretName=idea-board-database
+      - name: Lint charts
+        run: |
+          helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board-database
+          helm lint charts/idea-board-frontend --strict
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: idea-board
@@ -131,16 +133,20 @@ jobs:
         run: |
           kind load docker-image idea-board-backend:local idea-board-frontend:local --name idea-board
           kubectl --context kind-idea-board create namespace idea-board
-          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board/tests/postgres.yaml
+          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board-backend/tests/postgres.yaml
           kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
-      - name: Install chart and test both services
+      - name: Install charts and test both services
         run: |
-          helm --kube-context kind-idea-board upgrade --install board charts/idea-board --namespace idea-board --set backend.databaseSecretName=idea-board-database --wait --timeout 5m
-          helm --kube-context kind-idea-board test board --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board --set databaseSecretName=idea-board-database --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board --wait --timeout 5m
+          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Verify upgrade and repeat migrations
         run: |
-          helm --kube-context kind-idea-board upgrade board charts/idea-board --namespace idea-board --set backend.databaseSecretName=idea-board-database --wait --timeout 5m
-          helm --kube-context kind-idea-board test board --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board --set databaseSecretName=idea-board-database --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board --wait --timeout 5m
+          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs
         if: failure()
         run: |
@@ -149,7 +155,7 @@ jobs:
           docker compose logs --no-color >artifacts/compose.log 2>&1
           if kubectl config get-contexts kind-idea-board --no-headers >/dev/null 2>&1; then
             kubectl --context kind-idea-board --namespace idea-board get pods,jobs,events >artifacts/kind-status.txt 2>&1 || true
-            kubectl --context kind-idea-board --namespace idea-board logs --all-containers --prefix --selector app.kubernetes.io/instance=board >artifacts/kind-app.log 2>&1 || true
+            kubectl --context kind-idea-board --namespace idea-board logs --all-containers --prefix --selector app.kubernetes.io/component >artifacts/kind-app.log 2>&1 || true
             kubectl --context kind-idea-board --namespace idea-board logs deployment/postgres >artifacts/kind-postgres.log 2>&1 || true
           fi
       - name: Upload failure logs

@@ -69,4 +69,4 @@ GitHub Actions runs backend and frontend checks, builds both container images wi
 
 ## Kubernetes
 
-The [Helm chart](charts/idea-board/README.md) deploys the backend and web app, with a separate migration Job before install and upgrade. It uses an existing PostgreSQL database and Secret. The chart README includes a local kind setup and smoke-test commands.
+Separate Helm charts deploy the [backend](charts/idea-board-backend/README.md) and [web app](charts/idea-board-frontend/README.md). The backend chart runs migrations as a separate Job before install and upgrade, using an existing PostgreSQL database and Secret. The frontend chart connects to the backend Service.
