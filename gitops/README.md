@@ -40,7 +40,7 @@ kubectl --context kind-idea-board --namespace idea-board logs job/backend-migrat
 
 To restore a prior configuration, revert the faulty commit and push the revert. Argo CD reconciles the reverted configuration. This restores application configuration; it does not reverse database migrations, so migrations must remain compatible with the previous application version.
 
-CI runs backend smoke checks for health and create/read/delete, and frontend checks for the page and API proxy. Argo CD skips those Helm test Pods during sync.
+CI runs backend smoke checks for health and create/read/delete, and frontend checks for the page and API proxy. Both Applications set `helm.skipTests: true`, excluding Helm test Pods from Argo CD’s desired manifests and resource trees. CI still runs them with `helm test`.
 
 ## Local access
 
