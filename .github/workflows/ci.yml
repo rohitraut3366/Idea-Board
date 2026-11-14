@@ -140,14 +140,14 @@ jobs:
           kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
       - name: Install charts and test both services
         run: |
-          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Verify upgrade and repeat migrations
         run: |
-          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs
@@ -171,3 +171,62 @@ jobs:
       - name: Stop stack
         if: always()
         run: docker compose down --volumes --remove-orphans
+
+  publish:
+    name: Publish images to GHCR
+    if: github.event_name != 'pull_request'
+    needs: [backend, frontend, compose]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend_image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/rohitraut3366/idea-board-backend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+      - name: Publish frontend
+        id: frontend_image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/rohitraut3366/idea-board-frontend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+      - name: Record published images
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          BACKEND_DIGEST: ${{ steps.backend_image.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend_image.outputs.digest }}
+        run: |
+          {
+            echo "Backend: ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG"
+            echo "Backend digest: $BACKEND_DIGEST"
+            echo "Frontend: ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
+            echo "Frontend digest: $FRONTEND_DIGEST"
+          } >>"$GITHUB_STEP_SUMMARY"
