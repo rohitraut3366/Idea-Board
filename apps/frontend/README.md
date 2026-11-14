@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-Vite prints the local address and proxies `/api` to `http://127.0.0.1:8000`. Start the backend through Compose or follow the backend README. No CORS configuration or build-time API URL is needed.
+Vite prints the local address and proxies `/api` to `http://127.0.0.1:8000`. Start the backend through Compose or follow the backend README. No CORS configuration or build-time API URL is needed. The Nginx container reads `BACKEND_UPSTREAM` at startup; it defaults to `backend:8000` for Compose, and Helm supplies the backend Service address.
 
 ## Behavior
 

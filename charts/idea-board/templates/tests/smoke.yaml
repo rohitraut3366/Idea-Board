@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "idea-board.name" . }}-smoke
+  labels:
+    {{- include "idea-board.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smoke
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: Skip
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: smoke
+      image: {{ printf "%s:%s" .Values.backend.image.repository .Values.backend.image.tag | quote }}
+      imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+      command:
+        - python
+        - -c
+        - |
+          {{- .Files.Get "tests/smoke.py" | nindent 10 }}
+      env:
+        - name: BACKEND_URL
+          value: {{ printf "http://%s-backend:8000" (include "idea-board.name" .) | quote }}
+        - name: FRONTEND_URL
+          value: {{ printf "http://%s-frontend" (include "idea-board.name" .) | quote }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          memory: 128Mi

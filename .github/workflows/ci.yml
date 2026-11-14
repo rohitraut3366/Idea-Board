@@ -84,7 +84,7 @@ jobs:
         run: npm test
 
   compose:
-    name: Container and full-stack checks
+    name: Container, full-stack, and Helm checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -118,12 +118,40 @@ jobs:
         run: npm --prefix apps/frontend run test:stack
       - name: Verify migration can run again
         run: docker compose run --rm migrate
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.4
+      - name: Lint chart
+        run: helm lint charts/idea-board --strict --set backend.databaseSecretName=idea-board-database
+      - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: idea-board
+          node_image: kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
+      - name: Load app images and start test database
+        run: |
+          kind load docker-image idea-board-backend:local idea-board-frontend:local --name idea-board
+          kubectl --context kind-idea-board create namespace idea-board
+          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board/tests/postgres.yaml
+          kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
+      - name: Install chart and test both services
+        run: |
+          helm --kube-context kind-idea-board upgrade --install board charts/idea-board --namespace idea-board --set backend.databaseSecretName=idea-board-database --wait --timeout 5m
+          helm --kube-context kind-idea-board test board --namespace idea-board --logs --timeout 2m
+      - name: Verify upgrade and repeat migrations
+        run: |
+          helm --kube-context kind-idea-board upgrade board charts/idea-board --namespace idea-board --set backend.databaseSecretName=idea-board-database --wait --timeout 5m
+          helm --kube-context kind-idea-board test board --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs
         if: failure()
         run: |
           mkdir -p artifacts
-          docker compose ps --all > artifacts/compose-status.txt
-          docker compose logs --no-color > artifacts/compose.log 2>&1
+          docker compose ps --all >artifacts/compose-status.txt
+          docker compose logs --no-color >artifacts/compose.log 2>&1
+          if kubectl config get-contexts kind-idea-board --no-headers >/dev/null 2>&1; then
+            kubectl --context kind-idea-board --namespace idea-board get pods,jobs,events >artifacts/kind-status.txt 2>&1 || true
+            kubectl --context kind-idea-board --namespace idea-board logs --all-containers --prefix --selector app.kubernetes.io/instance=board >artifacts/kind-app.log 2>&1 || true
+            kubectl --context kind-idea-board --namespace idea-board logs deployment/postgres >artifacts/kind-postgres.log 2>&1 || true
+          fi
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

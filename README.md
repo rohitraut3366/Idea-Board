@@ -66,3 +66,7 @@ npm run build
 With a disposable Compose stack running, `npm run test:stack` checks the frontend and API together over HTTP. Backend integration tests create and remove a temporary database without changing the development database.
 
 GitHub Actions runs backend and frontend checks, builds both container images with cached layers, starts the Compose stack, runs full-stack HTTP tests, and verifies that migrations can run again.
+
+## Kubernetes
+
+The [Helm chart](charts/idea-board/README.md) deploys the backend and web app, with a separate migration Job before install and upgrade. It uses an existing PostgreSQL database and Secret. The chart README includes a local kind setup and smoke-test commands.
