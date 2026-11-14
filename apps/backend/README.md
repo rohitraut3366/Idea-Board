@@ -19,7 +19,7 @@ The database volume survives `docker compose down`; `docker compose down --volum
 For development outside the backend container, install uv and Python 3.12, then run from `apps/backend`:
 
 ```bash
-cp .env.example .env
+export IDEA_BOARD_DATABASE_URL=postgresql+psycopg://idea_board:idea_board_local@127.0.0.1:55432/idea_board
 docker compose -f ../../docker-compose.yml up -d --wait postgres
 uv sync --locked --all-extras --all-groups
 uv run alembic upgrade head
@@ -57,9 +57,9 @@ The API permits anonymous submissions and deletion. Any visitor can delete an id
 
 ## Configuration
 
-Settings load from the process environment and an optional `.env` in the current working directory. Environment variables take precedence. `IDEA_BOARD_DATABASE_URL` is the only required setting. Use a `postgresql+psycopg://` URL, as shown in `.env.example`. SQLAlchemy manages the connection pool with its defaults.
+The backend and migration job read `IDEA_BOARD_DATABASE_URL` directly from the process environment in every environment. Compose supplies it locally; when running on the host, export it as shown above. Use a `postgresql+psycopg://` URL. SQLAlchemy manages the connection pool with its defaults.
 
-Use URL query parameters such as `sslmode=verify-full` and `sslrootcert` when connecting to a remote database. The local Compose database does not enable TLS. A missing database URL fails configuration loading. Startup also fails if the database or required schema is unavailable. Run one worker initially; each additional worker creates another pool.
+Use URL query parameters such as `sslmode=verify-full` and `sslrootcert` when connecting to a remote database. The local Compose database does not enable TLS. A missing database URL fails startup. Startup also fails if the database or required schema is unavailable. Run one worker initially; each additional worker creates another pool.
 
 ## Tests and checks
 

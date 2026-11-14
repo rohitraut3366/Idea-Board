@@ -346,7 +346,6 @@ docs/
 .github/workflows/          # CI, delivery, skill evaluation and cleanup
 Makefile                    # Thin wrappers for repeatable local and test commands
 docker-compose.yml
-.env.example
 ```
 
 Tests follow the code they verify. Frontend browser journeys belong in `apps/frontend/tests/` and run against Compose, kind, or cloud URLs through configuration. API integration tests and k6 API workloads belong in `apps/backend/tests/`; agent tests belong in `apps/agent/tests/`. Chart tests, Terraform module tests, policy and release-logic tests, and skill evaluations stay with those components. `tests/platform/` holds only scenarios and orchestration that exercise several components together; it invokes app-owned tests instead of duplicating them.
@@ -643,7 +642,7 @@ docker compose up --build --wait
 
 Compose orders PostgreSQL readiness, a one-shot migration service, backend startup, and frontend startup. A failed migration blocks the backend. The frontend is available at `http://localhost:3000`, with `/api` proxied to the backend. PostgreSQL is also exposed on loopback port `55432` for host development and backend integration tests. The backend API is available directly on loopback port `8000`. The database volume survives `docker compose down`; adding `--volumes` deletes local data.
 
-Compose contains local development credentials. Host backend settings are documented in `apps/backend/.env.example`; the frontend uses same-origin API requests and needs no environment file. Production secret wiring remains a platform step. Production secrets never go in development files or in git.
+Compose contains local development credentials. The backend and migration job read `IDEA_BOARD_DATABASE_URL` from the process environment; see `apps/backend/README.md` for running on the host. The frontend uses same-origin API requests. Production secret wiring remains a platform step. Production secrets never go in development files or in git.
 
 The full platform path also requires Make and the pinned kind, kubectl, Helm, and Argo CD CLI versions. A thin Makefile will wrap the checked-in bootstrap and test scripts:
 

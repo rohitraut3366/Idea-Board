@@ -6,12 +6,10 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from pydantic import SecretStr
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
-from idea_board.config import Settings
 from idea_board.database import create_database_engine
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -36,9 +34,7 @@ def database_url() -> Iterator[str]:
             connection.exec_driver_sql(f'CREATE DATABASE "{database_name}"')
 
         test_url = admin_url.set(database=database_name).render_as_string(hide_password=False)
-        migration_engine = create_database_engine(
-            Settings(_env_file=None, database_url=SecretStr(test_url))
-        )
+        migration_engine = create_engine(test_url)
         try:
             with migration_engine.begin() as connection:
                 config = Config(str(BACKEND_ROOT / "alembic.ini"))
@@ -53,14 +49,14 @@ def database_url() -> Iterator[str]:
         admin_engine.dispose()
 
 
-@pytest.fixture
-def settings(database_url: str) -> Settings:
-    return Settings(_env_file=None, database_url=SecretStr(database_url))
+@pytest.fixture(autouse=True)
+def database_environment(database_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", database_url)
 
 
 @pytest.fixture
-def database_engine(settings: Settings) -> Iterator[Engine]:
-    engine = create_database_engine(settings)
+def database_engine(database_environment: None) -> Iterator[Engine]:
+    engine = create_database_engine()
     try:
         yield engine
     finally:

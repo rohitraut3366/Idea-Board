@@ -5,7 +5,6 @@ from alembic import context
 from alembic.util import CommandError
 from sqlalchemy import Connection, text
 
-from idea_board.config import Settings
 from idea_board.database import create_database_engine
 from idea_board.models import Base
 
@@ -34,7 +33,7 @@ def run_migrations() -> None:
         run_with_connection(cast(Connection, provided_connection))
         return
 
-    engine = create_database_engine(Settings())
+    engine = create_database_engine()
     try:
         with engine.connect() as connection:
             run_with_connection(connection)

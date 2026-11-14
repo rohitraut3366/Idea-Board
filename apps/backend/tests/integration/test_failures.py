@@ -1,29 +1,25 @@
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 from sqlalchemy.exc import OperationalError
 
-from idea_board.config import Settings
 from idea_board.server import create_app
 
 
-def test_unavailable_database_fails_startup() -> None:
-    settings = Settings(
-        _env_file=None,
-        database_url=SecretStr(
-            "postgresql+psycopg://idea_board:private-password@127.0.0.1:1/unavailable"
-        ),
+def test_unavailable_database_fails_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "IDEA_BOARD_DATABASE_URL",
+        "postgresql+psycopg://idea_board:private-password@127.0.0.1:1/unavailable",
     )
     with pytest.raises(RuntimeError, match="Database or schema unavailable") as error:
-        with TestClient(create_app(settings)):
+        with TestClient(create_app()):
             pytest.fail("Startup should fail before serving requests")
     assert "private-password" not in str(error.value)
 
 
 def test_database_failure_after_startup_returns_safe_errors(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app = create_app(settings)
+    app = create_app()
     with TestClient(app) as client:
 
         def fail_connection(*args: object, **kwargs: object) -> None:

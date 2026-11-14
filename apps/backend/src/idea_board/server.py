@@ -10,19 +10,16 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.responses import JSONResponse
 
 from idea_board.api import router
-from idea_board.config import Settings
 from idea_board.database import create_database_engine
 from idea_board.models import Idea
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    app_settings = settings if settings is not None else Settings()
-
+def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_database_engine(app_settings)
+        engine = create_database_engine()
         app.state.engine = engine
         try:
             try:

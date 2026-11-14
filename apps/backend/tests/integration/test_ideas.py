@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, insert, select
 from sqlalchemy.exc import IntegrityError
 
-from idea_board.config import Settings
 from idea_board.models import Idea
 from idea_board.server import create_app
 
@@ -87,11 +86,11 @@ def test_concurrent_acknowledged_writes_are_present_once(
         assert connection.scalar(select(func.count()).select_from(Idea)) == 20
 
 
-def test_data_survives_a_new_application_instance(settings: Settings) -> None:
-    with TestClient(create_app(settings)) as first_client:
+def test_data_survives_a_new_application_instance() -> None:
+    with TestClient(create_app()) as first_client:
         response = first_client.post("/api/ideas", json={"content": "Keep this after restart"})
         assert response.status_code == 201
-    with TestClient(create_app(settings)) as second_client:
+    with TestClient(create_app()) as second_client:
         assert second_client.get("/api/ideas").json() == [response.json()]
 
 
