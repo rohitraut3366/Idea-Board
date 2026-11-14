@@ -12,7 +12,9 @@ from idea_board.server import create_app
 def settings() -> Settings:
     return Settings(
         _env_file=None,
-        database_url=SecretStr("postgresql://idea_board:test-password@127.0.0.1:1/unavailable"),
+        database_url=SecretStr(
+            "postgresql+psycopg://idea_board:test-password@127.0.0.1:1/unavailable"
+        ),
     )
 
 

@@ -49,7 +49,7 @@ curl 'http://127.0.0.1:8000/api/ideas?limit=50'
 
 Both list variants return JSON arrays. IDs are decimal strings; timestamps are in UTC. New submissions do not shift older pages because pagination uses IDs rather than offsets. Pagination is not a snapshot across requests.
 
-Content is trimmed and must contain 1–2,000 characters. Exact duplicate text is rejected after trimming; comparison is case-sensitive. PostgreSQL enforces this through a hash exclusion constraint, which supports long Unicode text without a B-tree index-key limit. Concurrent duplicate requests create one row and return `409` for the others. Blank content, NUL characters, invalid Unicode, extra fields, and invalid pagination return `422`. Request bodies above 16 KiB return `413`. `limit` accepts 1–100; `before_id` requires a limit and must fit a positive PostgreSQL bigint.
+Content is trimmed and must contain 1–2,000 characters. Exact duplicate text is rejected after trimming; comparison is case-sensitive. PostgreSQL enforces this through a hash exclusion constraint, which supports long Unicode text without a B-tree index-key limit. Concurrent duplicate requests create one row and return `409` for the others. Blank content, NUL characters, invalid Unicode, extra fields, and invalid pagination return `422`. `limit` accepts 1–100; `before_id` requires a limit and must fit a positive PostgreSQL bigint.
 
 Database connection failures, query timeouts, and pool exhaustion return `503` without database details or submitted content. A failed POST response or a client timeout does not establish whether a write committed. Clients must not automatically retry writes; this API does not provide idempotency keys.
 
@@ -57,17 +57,9 @@ The API permits anonymous submissions and deletion. Any visitor can delete an id
 
 ## Configuration
 
-Settings load from the process environment and an optional `.env` in the current working directory. Environment variables take precedence. `IDEA_BOARD_DATABASE_URL` is required; the remaining values have defaults matching `.env.example`.
+Settings load from the process environment and an optional `.env` in the current working directory. Environment variables take precedence. `IDEA_BOARD_DATABASE_URL` is the only required setting. Use a `postgresql+psycopg://` URL, as shown in `.env.example`. SQLAlchemy manages the connection pool with its defaults.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `IDEA_BOARD_DATABASE_URL` | Required | PostgreSQL URL; accepts `postgresql://` or `postgresql+psycopg://` |
-| `IDEA_BOARD_DATABASE_POOL_SIZE` | `5` | Maximum connections per process; overflow is disabled |
-| `IDEA_BOARD_DATABASE_POOL_TIMEOUT_SECONDS` | `2` | Maximum wait for a pool connection |
-| `IDEA_BOARD_DATABASE_CONNECT_TIMEOUT_SECONDS` | `3` | Connection establishment timeout |
-| `IDEA_BOARD_DATABASE_STATEMENT_TIMEOUT_MS` | `3000` | PostgreSQL statement timeout |
-
-Use URL query parameters such as `sslmode=verify-full` and `sslrootcert` when connecting to a remote database. The local Compose database does not enable TLS. An invalid or missing configuration fails startup without printing the database URL. Run one worker initially; each additional worker creates another pool.
+Use URL query parameters such as `sslmode=verify-full` and `sslrootcert` when connecting to a remote database. The local Compose database does not enable TLS. A missing database URL fails configuration loading. Startup also fails if the database or required schema is unavailable. Run one worker initially; each additional worker creates another pool.
 
 ## Tests and checks
 
@@ -87,6 +79,6 @@ uv run pytest tests/unit
 uv run pytest tests/integration
 ```
 
-The integration suite covers API behavior, keyset pagination, concurrent writes, persistence across application restarts, the migration lifecycle, duplicate rejection under concurrent writes, long Unicode content, deletion, pool exhaustion, and an unavailable database. The full cloud scale tests remain a separate implementation step.
+The integration suite covers API behavior, keyset pagination, concurrent writes, persistence across application restarts, the migration lifecycle, duplicate rejection under concurrent writes, long Unicode content, deletion, and an unavailable database. The full cloud scale tests remain a separate implementation step.
 
 The Docker build installs locked runtime dependencies before copying the README and application code. It reuses a uv download cache and copies only the installed environment and migration files into the runtime stage. Documentation and migration edits do not reinstall third-party dependencies.

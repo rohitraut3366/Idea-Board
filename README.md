@@ -76,7 +76,7 @@ Exact versions will be pinned during implementation. Before adopting the gateway
 
 1. The browser loads static assets over HTTPS.
 2. The frontend calls `/api/ideas` on the same hostname. The gateway routes API requests to the backend, avoiding a separate cross-origin configuration.
-3. The backend validates the request and uses a bounded connection pool to reach PostgreSQL over a private network with TLS.
+3. The backend validates the request and uses a connection pool to reach PostgreSQL over a private network with TLS.
 4. PostgreSQL commits the idea before the API returns success.
 5. The frontend updates the list only after a successful response. Failed writes retain the draft and display a useful error.
 
@@ -97,13 +97,13 @@ The full-list endpoint cannot have a fixed latency guarantee as the table grows 
 
 The `ideas` table contains `id`, `content`, and `created_at`. Use a PostgreSQL bigint identity primary key, text content, and a timezone-aware timestamp with a database default. Serialize the ID as a decimal string to avoid JavaScript integer precision problems. Return timestamps in UTC. The primary key supports the descending keyset query. A hash exclusion constraint prevents exact duplicate content while supporting the full Unicode text limit.
 
-Trim leading and trailing whitespace, reject blank content, and allow at most 2,000 characters. Limit request bodies to 16 KiB. Render content as text, never as HTML. These limits belong in API validation and tests, not only in the form. Invalid content returns `422`; an oversized body returns `413`; a database outage returns a bounded `503` response without database details.
+Trim leading and trailing whitespace, reject blank content, and allow at most 2,000 characters. Render content as text, never as HTML. Content validation belongs in the API and its tests, not only in the form. Invalid content returns `422`; database connection failures return `503` without database details. Request-body size limits will be enforced at the ingress when public routing is added.
 
 The application allows anonymous submissions and deletion. The UI confirms deletion before sending the request. Exact duplicate text is rejected after trimming, with case-sensitive comparison. HTTPS, body limits, explicit write-rate limits, database capacity alerts, and a short public demo lifetime are therefore part of the deployment. Rate-limit behavior is tested separately from capacity. Login, editing, voting, and moderation remain outside the scope.
 
 ### Runtime behavior
 
-Run one API worker per pod initially. Scale through replicas so connection use and resource consumption remain easy to account for. Set explicit database connect, pool-acquisition, statement, and HTTP request timeouts. Keep the combined database wait and execution budget below the HTTP deadline, and leave time to return a useful error before the gateway times out.
+Run one API worker per pod initially. Scale through replicas so connection use and resource consumption remain easy to account for. The backend currently uses SQLAlchemy’s pool defaults. Before public deployment, choose database and HTTP timeouts from measured request latency. Keep the combined database wait and execution budget below the HTTP deadline, and leave time to return a useful error before the gateway times out.
 
 The backend checks database access and required table columns before serving requests; startup fails if that check fails. Migrations run as a separate job before the backend starts. Use the single `/health` endpoint for readiness. Startup and liveness probes check the listening TCP port, so a database outage stops traffic without creating an API restart loop. On termination, stop accepting new work, drain requests, and close the pool within the Kubernetes termination window. Rolling updates use `maxUnavailable: 0` and a small, explicit surge allowance.
 
@@ -491,7 +491,7 @@ Tests need to cover correctness and platform behavior, not only whether containe
 | Layer | Test owner | Required cases | When it runs |
 | --- | --- | --- | --- |
 | API unit tests | `apps/backend/tests/` | Content validation, response serialization, pagination parameters, error mapping | Every relevant PR |
-| Database integration | `apps/backend/tests/` | Migration from empty and prior schema, persistence, ordering, pagination boundaries, concurrent writes, pool exhaustion | Every relevant PR against real PostgreSQL |
+| Database integration | `apps/backend/tests/` | Migration from empty and prior schema, persistence, ordering, pagination boundaries, concurrent writes, database failures | Every relevant PR against real PostgreSQL |
 | Frontend | `apps/frontend/tests/` | Loading, empty list, validation, failed submission, retry behavior, safe rendering of hostile content | Every relevant PR |
 | Browser E2E | `apps/frontend/tests/` | Create and read an idea, reload persistence, multiple pages, two concurrent users, API unavailable, database unavailable | Compose on app PRs; kind on platform changes; core smoke suite on each cloud |
 | Agent runtime | `apps/agent/tests/` | Tool authorization, schema validation, evidence references, deadlines, cancellation, provider errors | Every runner or adapter PR |

@@ -12,7 +12,6 @@ from starlette.responses import JSONResponse
 from idea_board.api import router
 from idea_board.config import Settings
 from idea_board.database import create_database_engine
-from idea_board.middleware import RequestBodyLimitMiddleware
 from idea_board.models import Idea
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine.dispose()
 
     app = FastAPI(title="Idea Board API", version="0.1.0", lifespan=lifespan)
-    app.add_middleware(RequestBodyLimitMiddleware)
     app.include_router(router)
 
     async def database_error_handler(request: Request, error: Exception) -> JSONResponse:

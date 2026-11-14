@@ -95,17 +95,6 @@ def test_data_survives_a_new_application_instance(settings: Settings) -> None:
         assert second_client.get("/api/ideas").json() == [response.json()]
 
 
-def test_body_at_the_byte_limit_is_accepted(client: TestClient) -> None:
-    body = b'{"content":"At the limit"}'
-    body += b" " * (16 * 1024 - len(body))
-    assert (
-        client.post(
-            "/api/ideas", content=body, headers={"Content-Type": "application/json"}
-        ).status_code
-        == 201
-    )
-
-
 @pytest.mark.parametrize("content", ["", "x" * 2001])
 def test_database_also_enforces_content_length(database_engine: Engine, content: str) -> None:
     with pytest.raises(IntegrityError), database_engine.begin() as connection:

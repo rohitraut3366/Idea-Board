@@ -55,15 +55,6 @@ def test_only_one_health_endpoint_is_exposed(client: TestClient) -> None:
     assert {path for path in paths if path.startswith("/health")} == {"/health"}
 
 
-def test_oversized_request_is_rejected_even_with_a_false_content_length(client: TestClient) -> None:
-    response = client.post(
-        "/api/ideas",
-        content=b"x" * (16 * 1024 + 1),
-        headers={"Content-Length": "1", "Content-Type": "application/json"},
-    )
-    assert response.status_code == 413
-
-
 def test_openapi_describes_ids_as_strings(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     assert schema["components"]["schemas"]["IdeaResponse"]["properties"]["id"]["type"] == "string"
