@@ -4,7 +4,7 @@ Argo CD manages the backend and frontend as separate Applications in `kind-idea-
 
 ## Install Argo CD
 
-The upstream installation is pinned to v3.6.1:
+The upstream installation is pinned to v3.6.1. The local overlay reuses cached versioned images with `IfNotPresent` to avoid repeated registry pulls on kind:
 
 ```bash
 kubectl --context kind-idea-board create namespace argocd
