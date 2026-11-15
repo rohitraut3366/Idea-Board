@@ -190,7 +190,7 @@ The result shows:
 
 The command fails if requests or cleanup fail. Set `LOAD_MAX_P95_MS` to also fail when responses exceed your chosen p95 time limit.
 
-### What runs automatically
+### PR workflows
 
 GitHub Actions runs these checks for pull requests and pushes to `master`:
 
