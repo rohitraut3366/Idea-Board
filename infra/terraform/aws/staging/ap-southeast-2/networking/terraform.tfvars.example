@@ -1,2 +1,0 @@
-name = "idea-board-staging"
-availability_zones = ["ap-southeast-2a", "ap-southeast-2b"]

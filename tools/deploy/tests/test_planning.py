@@ -34,7 +34,7 @@ def test_generated_sizing_uses_existing_terraform_inputs(cloud, tmp_path):
         definitions = (root / project / "variables.tf").read_text()
         for key in values:
             assert f'variable "{key}"' in definitions
-        assert f"PROJECT={cloud}/production/YOUR_REGION/{project}" in plan
+        assert f"--working-dir infra/terraform/{cloud}/production/YOUR_REGION/{project}" in plan
     applications = json.loads((tmp_path / "applications.json").read_text())["items"]
     assert applications == manifests(target, proposal)
     assert "terraform" in (tmp_path / "plan.md").read_text()
@@ -65,7 +65,7 @@ def test_invalid_configuration_fails_before_rendering(mutation):
     elif mutation == "order":
         proposal["steps"].reverse()
     elif mutation == "cloud":
-        proposal["infrastructure"]["node_size"] = "t3.medium"
+        proposal["infrastructure"]["node_size"] = "c7i-flex.large"
     elif mutation == "zones":
         proposal["infrastructure"]["node_count"] = 3
     elif mutation == "availability":

@@ -39,7 +39,7 @@ charts/external-secrets/
 
 1. Apply `networking` and `cluster` using the [Terraform instructions](../../infra/terraform/README.md).
 2. Set `GITHUB_TOKEN` with repository Contents read/write permission. Terraform uses it to publish generated values to `master`.
-3. Plan and apply the cloud's `cluster-core-services` project. The root watches `master`; set `gitops_revision` in that project's `terraform.tfvars` to select another pushed branch, tag or commit.
+3. Plan and apply the cloud's `cluster-core-services` project. The root watches `master`; set `gitops_revision` in that project's Terragrunt `inputs` to select another pushed branch, tag or commit.
 4. Select the cloud cluster context and wait for the root to sync, then for the service to become ready:
 
 ```bash
@@ -60,13 +60,15 @@ Edit the umbrella chart's `values.yaml` or dependency version, then merge the ch
 
 To add a service, give it its own umbrella chart directory under `charts/`, add an entry under `applications` in this directory's `values.yaml`, and allow its namespace and resource types in the bootstrap project.
 
-For environment-specific overrides, set `external_secrets_values` in the cloud's `cluster-core-services/terraform.tfvars`. For example, to attach an existing IRSA role on EKS:
+For environment-specific overrides, set `external_secrets_values` in the `inputs` block of the cloud's `cluster-core-services/terragrunt.hcl`. For example, to attach an existing IRSA role on EKS:
 
 ```hcl
-external_secrets_values = {
-  serviceAccount = {
-    annotations = {
-      "eks.amazonaws.com/role-arn" = "arn:aws:iam::ACCOUNT_ID:role/external-secrets"
+inputs = {
+  external_secrets_values = {
+    serviceAccount = {
+      annotations = {
+        "eks.amazonaws.com/role-arn" = "arn:aws:iam::ACCOUNT_ID:role/external-secrets"
+      }
     }
   }
 }

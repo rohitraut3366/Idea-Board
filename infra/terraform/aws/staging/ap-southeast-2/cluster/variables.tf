@@ -14,14 +14,15 @@ variable "kubernetes_version" {
 }
 
 variable "admin_role_arn" {
-  description = "Existing IAM role for Kubernetes administration."
+  description = "Optional Kubernetes administrator role; defaults to the logged-in IAM role."
   type        = string
+  default     = null
 }
 
 variable "node_instance_type" {
   description = "x86_64 EC2 worker instance type."
   type        = string
-  default     = "t3.medium"
+  default     = "c7i-flex.large"
 }
 
 variable "node_count" {
@@ -36,11 +37,11 @@ variable "state_bucket" {
 }
 
 variable "state_prefix" {
-  description = "Repository-relative environment path, supplied by the project command."
+  description = "Repository-relative environment path, supplied by Terragrunt."
   type        = string
 }
 
 variable "state_region" {
-  description = "AWS region containing the state bucket, supplied by the project command."
+  description = "AWS region containing the state bucket, supplied by Terragrunt."
   type        = string
 }

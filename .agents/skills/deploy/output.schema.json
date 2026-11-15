@@ -83,8 +83,8 @@
             "node_size": {
               "type": "string",
               "enum": [
-                "t3.medium",
-                "t3.large",
+                "c7i-flex.large",
+                "m7i-flex.large",
                 "e2-standard-2",
                 "e2-standard-4"
               ]

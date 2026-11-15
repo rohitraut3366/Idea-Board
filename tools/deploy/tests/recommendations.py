@@ -7,7 +7,7 @@ def recommendation(cloud="kind", environment="staging"):
     if cloud != "kind" and environment != "preview":
         infrastructure = {
             "node_count": 2,
-            "node_size": "t3.medium" if cloud == "aws" else "e2-standard-2",
+            "node_size": "c7i-flex.large" if cloud == "aws" else "e2-standard-2",
             "database_size": "db.t4g.micro" if cloud == "aws" else "db-custom-1-3840",
             "database_storage_gb": 20,
             "database_high_availability": environment == "production",

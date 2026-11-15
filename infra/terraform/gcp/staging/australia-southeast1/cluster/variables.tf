@@ -53,11 +53,11 @@ variable "state_bucket" {
 }
 
 variable "state_prefix" {
-  description = "Repository-relative environment path, supplied by the project command."
+  description = "Repository-relative environment path, supplied by Terragrunt."
   type        = string
 }
 
 variable "state_region" {
-  description = "AWS region containing the state bucket, supplied by the project command."
+  description = "AWS region containing the state bucket, supplied by Terragrunt."
   type        = string
 }
