@@ -80,3 +80,7 @@ GitHub Actions publishes `ghcr.io/rohitraut3366/idea-board-backend` and `ghcr.io
 Publishing runs on pushes to `master` or a manual CI run on a selected branch. Pull-request runs test the code without publishing. The job uses GitHub's built-in token; no registry password is stored in the repository.
 
 Update the image repository and commit tag in `gitops/kind/*-values.yaml` to deploy a published version through Argo CD. Both GHCR packages must be public for the local cluster to pull without credentials.
+
+## Cloud infrastructure
+
+[Terraform](infra/terraform/README.md) provisions networking, Kubernetes, and managed PostgreSQL on AWS or GCP through separate `network`, `cluster`, and `psql` modules. The guide covers configuration, state, credentials, capacity, and validation. AWS deployment, application checks through Argo CD, and teardown have passed in Sydney. GCP has schema validation and mocked tests; a live deployment is still pending.

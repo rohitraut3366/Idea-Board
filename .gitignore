@@ -12,3 +12,13 @@ htmlcov/
 dist/
 build/
 node_modules/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+backend.hcl
+crash.log
+crash.*.log
+infra/terraform/modules/**/.terraform.lock.hcl
