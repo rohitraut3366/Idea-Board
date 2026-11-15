@@ -150,9 +150,11 @@ def main():
             restored_backend = staging_cluster.get(
                 "application", f"{staging.namespace}-backend", "argocd"
             )
-            sync_resources = restored_backend["status"]["operationState"]["syncResult"].get(
-                "resources", []
-            )
+            operation = restored_backend["status"]["operationState"]
+            assert operation["phase"] == "Succeeded"
+            assert operation["operation"]["sync"]["syncStrategy"] == {"apply": {}}
+            assert restored_backend["spec"]["syncPolicy"]["automated"]["enabled"] is False
+            sync_resources = operation["syncResult"].get("resources", [])
             assert not any(resource.get("hookType") == "PreSync" for resource in sync_resources), (
                 "rollback ran a migration hook"
             )

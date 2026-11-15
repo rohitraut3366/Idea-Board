@@ -88,6 +88,14 @@ class Cluster:
                 if not current:
                     continue
                 status = current.get("status", {})
+                if "operation" in expected:
+                    operation_state = status.get("operationState", {})
+                    if (
+                        operation_state.get("operation", {}).get("info")
+                        != expected["operation"]["info"]
+                        or operation_state.get("phase") != "Succeeded"
+                    ):
+                        continue
                 source = expected["spec"]["source"]
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (

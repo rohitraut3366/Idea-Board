@@ -2,6 +2,7 @@
 
 import json
 from copy import deepcopy
+from uuid import uuid4
 
 from config import REPOSITORY
 
@@ -83,17 +84,26 @@ def rollback(cluster, target, schema_compatible):
             raise ValueError(
                 "Application changed since the failed attempt; inspect before rollback"
             )
-        if current.get("status", {}).get("operationState", {}).get("phase") in {
+        phase = current.get("status", {}).get("operationState", {}).get("phase")
+        if current.get("operation") or phase in {
             "Running",
             "Terminating",
         }:
             raise ValueError("Argo sync is still running; terminate it in Argo CD before rollback")
-        # Selective sync skips hooks, including the previous chart's migration job.
-        # The operator must first confirm backward-compatible database changes.
-        application["spec"]["syncPolicy"]["syncOptions"] = ["ApplyOutOfSyncOnly=true"]
+        # Automatic sync runs hooks. Keep it paused until the next regular release.
+        application["spec"]["syncPolicy"]["automated"]["enabled"] = False
+        application["operation"] = {
+            "info": [{"name": "idea-board/rollback-id", "value": str(uuid4())}],
+            "sync": {
+                "revision": source["targetRevision"],
+                "syncStrategy": {"apply": {}},
+            },
+        }
     for application in restored:
         cluster.apply(application)
         cluster.wait([application])
+        # An operation is a one-time request, not part of a release checkpoint.
+        del application["operation"]
     cluster.verify()
     if target.cloud != "kind":
         cluster.public_url()

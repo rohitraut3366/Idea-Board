@@ -83,7 +83,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py rollback \
   --context kind-idea-board --schema-compatible
 ```
 
-Rollback restores both Argo sources and Helm values, so Argo keeps reconciling to the restored release. It uses `ApplyOutOfSyncOnly=true` to skip hooks, including old migrations, and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Later regular releases remove the selective-sync setting and run migrations normally.
+Rollback restores both Argo sources and Helm values, pauses automatic sync, and requests an explicit Argo apply sync that skips hooks, including old migrations. It waits for that specific operation to succeed and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Automatic sync stays paused until the next regular release, which enables it again and runs migrations normally.
 
 The tool checks both Applications before changing either. It refuses a mismatched failed SHA, an Application changed since the attempt, a missing predecessor, or an active Argo operation. Terminate a stuck sync in Argo CD and inspect its hooks before retrying. A partial rollback remains visible and can be retried after the underlying problem is resolved. GitHub Actions exposes the same operation as `operation=rollback` with `schema_compatible=true`; it uses the target's existing deployment Environment rules.
 

@@ -87,6 +87,41 @@ def test_matching_healthy_release_passes(monkeypatch):
     cluster.wait([app], timeout=1)
 
 
+@pytest.mark.parametrize("phase", [None, "Running", "Failed", "Succeeded"])
+@pytest.mark.parametrize("matching_operation", [False, True])
+def test_rollback_waits_for_its_own_successful_operation(monkeypatch, phase, matching_operation):
+    app, status, deployment = release_state()
+    app["operation"] = {
+        "info": [{"name": "idea-board/rollback-id", "value": "current-rollback"}],
+        "sync": {"revision": SHA, "syncStrategy": {"apply": {}}},
+    }
+    if phase:
+        status["operationState"] = {
+            "phase": phase,
+            "operation": deepcopy(app["operation"]),
+        }
+        if not matching_operation:
+            status["operationState"]["operation"]["info"][0]["value"] = "previous-sync"
+    cluster = Cluster("kind-test", "idea-board-staging")
+    monkeypatch.setattr(
+        cluster,
+        "get",
+        Mock(
+            side_effect=lambda kind, *args: (
+                {"status": status} if kind == "application" else deployment
+            )
+        ),
+    )
+    clock = iter(range(20))
+    monkeypatch.setattr("cluster.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("cluster.time.sleep", lambda _: None)
+    if phase == "Succeeded" and matching_operation:
+        cluster.wait([app], timeout=3)
+    else:
+        with pytest.raises(TimeoutError):
+            cluster.wait([app], timeout=3)
+
+
 def test_existing_unrelated_namespace_is_not_adopted(monkeypatch):
     cluster = Cluster("kind-test", "idea-board-staging")
     monkeypatch.setattr(
