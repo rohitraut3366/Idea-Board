@@ -1,10 +1,12 @@
 # Deployment tool
 
-The tool turns Codex recommendations into Helm values, a Terraform sizing proposal, and a release plan. It deploys the two services through Argo CD, gathers rollout evidence, and supports restoring the last verified application release.
+The tool turns validated AI recommendations into Helm values, a Terraform sizing proposal, and a release plan. It deploys the two services through Argo CD, gathers rollout evidence, and supports restoring the last verified application release.
 
 ## Plan a release locally
 
-Install Python 3.12, uv, Helm, kubectl, Node.js, and Codex CLI. Use an existing Kubernetes cluster with Argo CD and publicly readable application images. Run commands from the repository root:
+Install Python 3.12, uv, Helm, kubectl, Node.js, and an AI runner. The runner must follow the deployment skill and return JSON matching the supplied schema. The examples below use Codex CLI, which is also the runner currently configured in GitHub Actions. Another compatible runner can produce the same JSON files for the deployment tool.
+
+Use an existing Kubernetes cluster with Argo CD and publicly readable application images. Run commands from the repository root:
 
 ```bash
 export IMAGE_TAG=FULL_40_CHARACTER_IMAGE_COMMIT_SHA
@@ -110,4 +112,4 @@ uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
 
 It refuses existing staging/test-preview resources, creates isolated test databases and namespaces, checks staging and preview redeployment, removes the preview, injects an unpublished frontend image, checks failure evidence, restores the verified release, reruns HTTP checks, and removes only resources it created. The chart commit must be publicly reachable because Argo fetches it from Git. CI repeats the flow with its newly published images.
 
-The integration test uses explicit recommendation fixtures, independently of model availability. A live Codex CLI run tests the skill separately. Hosted Codex authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.
+The integration test uses explicit recommendation fixtures, independently of model availability. A live AI runner invocation tests the skill separately. Hosted runner authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.

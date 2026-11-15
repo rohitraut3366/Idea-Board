@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Plan Idea Board releases, propose application and cloud sizing, and diagnose rollout evidence with Codex.
+description: Plan Idea Board releases, propose application and cloud sizing, and diagnose rollout evidence.
 ---
 
 # Idea Board deployment

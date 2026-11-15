@@ -1,4 +1,4 @@
-"""Prepare the diagnosis prompt or validate and publish Codex's evidence-backed advice."""
+"""Prepare the diagnosis prompt or validate and publish the model's evidence-backed advice."""
 
 import argparse
 import json

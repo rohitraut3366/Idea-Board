@@ -1,4 +1,4 @@
-"""Explicit model-output fixtures; these do not represent live Codex calls."""
+"""Explicit model-output fixtures; these do not represent live model calls."""
 
 
 def recommendation(cloud="kind", environment="staging"):
