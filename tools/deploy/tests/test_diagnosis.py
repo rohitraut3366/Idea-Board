@@ -70,7 +70,15 @@ def test_collection_keeps_secrets_and_application_content_out_of_artifacts():
                 }
             ],
         },
-        "spec": {"containers": [{"env": [{"value": secret}]}]},
+        "spec": {
+            "containers": [
+                {
+                    "name": "backend",
+                    "env": [{"value": secret}],
+                    "resources": {"limits": {"memory": "256Mi"}},
+                }
+            ]
+        },
     }
 
     def run(*arguments):
@@ -97,6 +105,7 @@ def test_collection_keeps_secrets_and_application_content_out_of_artifacts():
     )
     assert "database_authentication_failed" in serialized and "metrics-server" in serialized
     assert '"restarts": 2' in serialized
+    assert '"memory": "256Mi"' in serialized
 
 
 def test_unavailable_api_still_provides_check_failure_and_evidence_gaps():

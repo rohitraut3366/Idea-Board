@@ -243,7 +243,7 @@ CI runs a small concurrency check and, after image publication, exercises stagin
 | Compose and local kind | Full-stack HTTP checks passed; both local Argo Applications reached Synced and Healthy |
 | AWS infrastructure and app | Applied in Sydney; pods and HTTP checks passed through a port-forward; second Terraform plan had no changes; stack and retained state storage were deleted afterward |
 | GCP Terraform | Schema validation and mocked tests passed; live plan/apply pending |
-| Codex and cloud release workflows | Implemented; local validation/tests cover their helpers; hosted execution and OIDC configuration still need live verification |
+| Codex and cloud release workflows | Helpers and local rollout/rollback verified; live Codex CLI check hit transport errors before returning JSON; hosted model calls and cloud OIDC still need verification |
 | Public application URLs | No AWS or GCP application is currently hosted; URLs are produced only after a successful public reachability check |
 
 The local Argo release and rollback check used published image commit `34e9b27` and chart revision `f60da49`. CI is configured to repeat the flow against the source commit it publishes. A local Compose load run completed 100 cycles (300 requests) at concurrency 10 with no request or cleanup errors; p95 request latency was 37.64 ms. These numbers describe one run on a local machine.
