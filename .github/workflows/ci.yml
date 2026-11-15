@@ -136,6 +136,7 @@ jobs:
           version: v4.2.4
       - name: Lint charts
         run: |
+          helm repo add external-secrets https://charts.external-secrets.io
           helm dependency build charts/external-secrets
           helm lint charts/idea-board-backend --strict -f gitops/kind/backend-values.yaml
           helm lint charts/idea-board-frontend --strict -f gitops/kind/frontend-values.yaml
@@ -292,7 +293,10 @@ jobs:
       - run: uv run --no-sync ruff check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync ruff format --check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
-      - run: helm dependency build ../../charts/external-secrets
+      - name: Build External Secrets chart dependencies
+        run: |
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm dependency build ../../charts/external-secrets
       - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests
 
   publish:

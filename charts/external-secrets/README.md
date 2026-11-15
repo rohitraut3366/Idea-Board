@@ -3,6 +3,7 @@
 This umbrella chart pins the upstream operator in `Chart.yaml`. Our defaults live in `values.yaml`, under `external-secrets:`. Use that key for upstream settings such as service-account annotations, resources and replica counts.
 
 ```bash
+helm repo add external-secrets https://charts.external-secrets.io
 helm dependency build charts/external-secrets
 helm lint charts/external-secrets --strict
 helm template external-secrets charts/external-secrets --namespace external-secrets
