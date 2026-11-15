@@ -133,8 +133,8 @@ docker compose up --build --wait
 From the repository root, run:
 
 ```bash
-npm --prefix apps/frontend ci
-npm --prefix apps/frontend run test:stack
+npm --prefix apps/frontend ci             # Install dependencies
+npm --prefix apps/frontend run test:stack # Test the running stack
 ```
 
 These commands require Node.js 24.
@@ -154,8 +154,8 @@ docker compose logs frontend backend migrate
 From the repository root:
 
 ```bash
-npm --prefix apps/frontend ci
-npm --prefix apps/frontend test
+npm --prefix apps/frontend ci   # Install dependencies
+npm --prefix apps/frontend test # Run frontend tests
 ```
 
 **Backend tests** check request validation, database changes, and API behavior. These commands require Python 3.12 and uv.
