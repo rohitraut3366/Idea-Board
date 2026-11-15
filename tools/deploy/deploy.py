@@ -60,6 +60,17 @@ def release(cluster, target, recommendation):
     phase = "database"
     rollback_available = False
     try:
+        if target.cloud == "aws":
+            phase = "ingress_controller"
+            cluster.run(
+                "--namespace",
+                "kube-system",
+                "rollout",
+                "status",
+                "deployment/aws-load-balancer-controller",
+                "--timeout=3m",
+            )
+            phase = "database"
         cluster.ensure_namespace(target.environment)
         rollback_available = bool(state(cluster)["healthy"])
         if target.environment == "preview":
@@ -119,7 +130,8 @@ def cleanup(cluster, target):
     namespace = cluster.get("namespace", target.namespace)
     if namespace:
         cluster.ensure_namespace("preview")
-    for service in ("backend", "frontend"):
+    # Delete the Ingress owner first so cloud backends can detach before Service cleanup.
+    for service in ("frontend", "backend"):
         cluster.run(
             "--namespace",
             "argocd",
@@ -128,7 +140,7 @@ def cleanup(cluster, target):
             f"{target.namespace}-{service}",
             "--ignore-not-found",
             "--wait=true",
-            "--timeout=5m",
+            "--timeout=10m",
         )
     preview_database(cluster, target, delete=True)
     if namespace:

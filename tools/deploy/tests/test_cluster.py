@@ -1,5 +1,5 @@
 from copy import deepcopy
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, call
 
 import pytest
 from recommendations import recommendation
@@ -8,6 +8,45 @@ from cluster import Cluster
 from config import Target, manifests
 
 SHA = "a" * 40
+
+
+@pytest.mark.parametrize("address", [{"hostname": "alb.example.com"}, {"ip": "203.0.113.10"}])
+def test_public_checks_follow_the_ingress_address_and_check_page_and_api(monkeypatch, address):
+    cluster = Cluster("test", "idea-board-pr-42")
+    get = Mock(return_value={"status": {"loadBalancer": {"ingress": [address]}}})
+    monkeypatch.setattr(cluster, "get", get)
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.read.return_value = "[]"
+    request = Mock(return_value=response)
+    monkeypatch.setattr("cluster.urlopen", request)
+    origin = "http://" + next(iter(address.values()))
+    assert cluster.public_url() == origin
+    get.assert_called_once_with("ingress", "frontend", "idea-board-pr-42")
+    assert request.call_args_list == [
+        call(origin, timeout=10),
+        call(origin + "/api/ideas?limit=1", timeout=10),
+    ]
+
+
+def test_public_page_without_a_working_api_cannot_pass_release(monkeypatch):
+    cluster = Cluster("test", "idea-board-staging")
+    monkeypatch.setattr(
+        cluster,
+        "get",
+        Mock(return_value={"status": {"loadBalancer": {"ingress": [{"ip": "203.0.113.10"}]}}}),
+    )
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.read.return_value = '{"error": "wrong route"}'
+    monkeypatch.setattr("cluster.urlopen", Mock(return_value=response))
+    clock = iter(range(20))
+    monkeypatch.setattr("cluster.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("cluster.time.sleep", lambda _: None)
+    with pytest.raises(TimeoutError):
+        cluster.public_url(timeout=3)
 
 
 def release_state():
@@ -148,6 +187,19 @@ def test_cleanup_cannot_delete_production(monkeypatch):
     with pytest.raises(ValueError, match="restricted to previews"):
         cleanup(cluster, Target("kind", "production", SHA, SHA))
     run.assert_not_called()
+
+
+def test_preview_cleanup_removes_ingress_owner_before_backend(monkeypatch):
+    from deploy import cleanup
+
+    cluster = Cluster("test", "idea-board-pr-42")
+    monkeypatch.setattr(cluster, "get", Mock(return_value=None))
+    run = Mock()
+    monkeypatch.setattr(cluster, "run", run)
+    monkeypatch.setattr("deploy.preview_database", Mock())
+    cleanup(cluster, Target("gcp", "preview", SHA, SHA, 42))
+    deleted = [entry.args[4] for entry in run.call_args_list if entry.args[3] == "application"]
+    assert deleted == ["idea-board-pr-42-frontend", "idea-board-pr-42-backend"]
 
 
 def test_pr_closing_during_rollout_triggers_cleanup(monkeypatch):

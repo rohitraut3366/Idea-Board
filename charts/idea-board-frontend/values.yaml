@@ -12,8 +12,15 @@ resources:
     memory: 128Mi
 # Empty uses backend.<release namespace>.svc.cluster.local:8000.
 backendUpstream: ""
+gcpBackendConfig: false
+
+ingress:
+  enabled: false
+  className: ''
+  annotations: {}
+  backendServiceName: backend
+  backendServicePort: 8000
 
 service:
   type: ClusterIP
   annotations: {}
-  loadBalancerClass: ""
