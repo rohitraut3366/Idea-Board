@@ -234,6 +234,7 @@ jobs:
             "modules/$CLOUD/cluster"
             "modules/$CLOUD/psql"
             "modules/argocd"
+            "modules/github/helm-values"
           )
           if [[ "$CLOUD" == aws ]]; then
             directories+=(modules/aws/load-balancer-controller)

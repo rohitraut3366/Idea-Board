@@ -10,7 +10,7 @@ variable "gitops_revision" {
 }
 
 variable "external_secrets_values" {
-  description = "External Secrets chart overrides, including service account annotations for IAM."
+  description = "Non-secret External Secrets overrides published to the cluster's generated values file."
   type        = any
   default     = {}
 }

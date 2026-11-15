@@ -65,6 +65,8 @@ AWS needs an existing cluster administrator role. Apply core services as that ro
 
 GCP needs a billed project with Service Usage enabled. Each project enables its required APIs. Core services require `gke-gcloud-auth-plugin` and cluster administrator permissions. Helm uses Application Default Credentials.
 
+For `cluster-core-services`, set `GITHUB_TOKEN` with Contents read/write access to this repository. The GitHub provider publishes each cluster's generated Helm values directly to `master`.
+
 Terraform state and saved plans can contain credentials. Restrict access to both.
 
 ## Configure the shared state bucket
@@ -119,7 +121,9 @@ make output PROJECT=aws/staging/ap-southeast-2/cluster ARGS=-json
 
 Use an absolute path for files passed through `ARGS`; Terraform runs inside the selected project directory. To select a different Terraform executable, set `TERRAFORM=/path/to/terraform`.
 
-`cluster-core-services` installs Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and bootstraps the `cluster-core-services` root Application. The root renders child Applications from `gitops/cluster-core-services` and installs the External Secrets umbrella chart as its first child. Set `gitops_revision` in the core-services project's variables to select a pushed branch, tag or commit; it defaults to `master`. Set `external_secrets_values` for environment overrides such as service-account annotations.
+`cluster-core-services` installs Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and bootstraps the `cluster-core-services` root Application. The root renders child Applications from `gitops/cluster-core-services` and installs the External Secrets umbrella chart as its first child. Set `gitops_revision` in the core-services project's variables to select a pushed branch, tag or commit; it defaults to `master`.
+
+Set `external_secrets_values` for overrides such as service-account annotations. Terraform writes them to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. Argo CD selects provider and cluster files automatically and ignores missing ones. Keep the root on `master` to receive newly generated values. The file contains non-secret configuration; database credentials stay in the secret manager. Destroying the core-services project removes its generated file from GitHub.
 
 Terraform waits for its Helm releases. Wait for each child Application to become Synced and Healthy before using its service; see [cluster services](../../gitops/cluster-core-services/README.md#deploy). Argo CD manages the operator's installation and updates from Git.
 

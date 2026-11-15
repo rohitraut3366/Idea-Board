@@ -10,8 +10,12 @@ variable "gitops_revision" {
   default     = "master"
 }
 
-variable "external_secrets_values" {
-  description = "Overrides for the upstream External Secrets chart, such as service account annotations."
-  type        = any
-  default     = {}
+variable "cloud" {
+  description = "Cloud name used to select service values files."
+  type        = string
+}
+
+variable "cluster_name" {
+  description = "Cluster name used to select service values files."
+  type        = string
 }

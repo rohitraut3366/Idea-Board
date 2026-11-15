@@ -12,4 +12,15 @@ python3 -m unittest discover -s charts/external-secrets/tests
 
 After changing the dependency version, run `helm dependency update charts/external-secrets --skip-refresh` and commit `Chart.yaml` with `Chart.lock`.
 
-The [cluster services root Application](../../gitops/cluster-core-services/README.md) deploys this chart and passes environment overrides from the core-services Terraform project.
+The [cluster services root Application](../../gitops/cluster-core-services/README.md) selects values in this order, with later files overriding earlier ones:
+
+```text
+values.yaml
+values/<cloud>/values.yaml
+values/<cloud>/<cluster-name>/values.yaml
+values/<cloud>/<cluster-name>/values-terraform.yaml
+```
+
+Missing files are ignored. Terraform publishes `values-terraform.yaml` directly to `master` when the core-services project is applied. It contains settings such as IAM role annotations. Keep credentials in the secret manager.
+
+For automatic updates, the root and child Applications track `master`. A pinned commit uses only the values files present in that commit.

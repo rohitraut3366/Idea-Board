@@ -13,11 +13,8 @@ spec:
       valuesObject:
         repositoryURL: {{ .Values.repositoryURL | quote }}
         targetRevision: {{ .Values.targetRevision | quote }}
-        applications:
-          external-secrets:
-            values:
-              external-secrets:
-                {{- toYaml .Values.externalSecrets | nindent 16 }}
+        cloud: {{ .Values.cloud | quote }}
+        clusterName: {{ .Values.clusterName | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Release.Namespace }}

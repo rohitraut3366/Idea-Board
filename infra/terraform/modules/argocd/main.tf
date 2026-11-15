@@ -21,8 +21,9 @@ resource "helm_release" "core_services" {
   atomic    = true
   wait      = true
   values = [yamlencode({
-    repositoryURL   = var.repository_url
-    targetRevision  = var.gitops_revision
-    externalSecrets = var.external_secrets_values
+    repositoryURL  = var.repository_url
+    targetRevision = var.gitops_revision
+    cloud          = var.cloud
+    clusterName    = var.cluster_name
   })]
 }
