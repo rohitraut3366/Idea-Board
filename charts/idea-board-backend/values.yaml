@@ -6,6 +6,9 @@ image:
 replicas: 1
 databaseSecretName: ''
 databaseRevision: ''
+gcpBackendConfig: false
+service:
+  annotations: {}
 resources:
   requests:
     cpu: 100m

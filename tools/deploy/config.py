@@ -143,6 +143,12 @@ def manifests(target, recommendation):
                 {"group": "apps", "kind": "ReplicaSet"},
                 *[{"group": "", "kind": kind} for kind in ("Pod", "Service")],
                 {"group": "batch", "kind": "Job"},
+                {"group": "networking.k8s.io", "kind": "Ingress"},
+                *(
+                    [{"group": "cloud.google.com", "kind": "BackendConfig"}]
+                    if target.cloud == "gcp"
+                    else []
+                ),
             ],
         },
     }
@@ -166,13 +172,39 @@ def manifests(target, recommendation):
         if service == "backend":
             values["databaseSecretName"] = "idea-board-database"
         else:
-            values["service"] = {"type": "ClusterIP" if target.cloud == "kind" else "LoadBalancer"}
-        if service == "frontend" and target.cloud == "aws":
-            values["service"]["loadBalancerClass"] = "service.k8s.aws/nlb"
-            values["service"]["annotations"] = {
-                "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-                "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip",
+            values["service"] = {"type": "ClusterIP"}
+        if target.cloud == "aws":
+            values["service"] = {
+                "annotations": {
+                    "alb.ingress.kubernetes.io/healthcheck-path": "/health"
+                    if service == "backend"
+                    else "/"
+                }
             }
+            if service == "frontend":
+                values["service"]["type"] = "ClusterIP"
+                values["ingress"] = {
+                    "enabled": True,
+                    "className": "alb",
+                    "annotations": {
+                        "alb.ingress.kubernetes.io/scheme": "internet-facing",
+                        "alb.ingress.kubernetes.io/target-type": "ip",
+                    },
+                }
+        elif target.cloud == "gcp":
+            values["gcpBackendConfig"] = True
+            values["service"] = {
+                "annotations": {
+                    "cloud.google.com/neg": json.dumps({"ingress": True}),
+                    "cloud.google.com/backend-config": json.dumps({"default": service}),
+                }
+            }
+            if service == "frontend":
+                values["service"]["type"] = "ClusterIP"
+                values["ingress"] = {
+                    "enabled": True,
+                    "annotations": {"kubernetes.io/ingress.class": "gce"},
+                }
         applications.append(
             {
                 "apiVersion": "argoproj.io/v1alpha1",

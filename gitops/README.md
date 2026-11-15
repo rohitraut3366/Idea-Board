@@ -4,7 +4,9 @@ Cloud clusters use a [cluster services app-of-apps](cluster-core-services/README
 
 Argo CD manages the backend and frontend as separate Applications in `kind-idea-board`. Each Application renders its Helm chart using the values in `kind/` and watches `rohit-e2e-implementation-plan`. PostgreSQL, its persistent volume, and the database Secret are provisioned separately.
 
-## Install Argo CD
+For cloud clusters, the Terraform `cluster-core-services` project installs Argo CD. The commands below set up local kind.
+
+## Install Argo CD in kind
 
 The upstream installation is pinned to v3.6.1. The local overlay reuses cached versioned images with `IfNotPresent` to avoid repeated registry pulls on kind:
 

@@ -133,7 +133,7 @@ AWS Load Balancer Controller chart `3.6.3` is installed by Terraform. Upgrade it
 
 1. Read `cluster_name` from the cluster project's outputs.
 2. Read `database_host`, `database_port`, `database_name`, `database_username`, and `database_credential_secret_id` from the application project's outputs.
-3. Configure the GitHub deployment Environment using the [deployment instructions](../../README.md#deploy-through-github-actions).
+3. Configure the GitHub deployment Environment using the [deployment instructions](../../README.md#3-configure-github-actions).
 4. Run the Deploy workflow for the tested image commit.
 
 The database module owns PostgreSQL and its credential secret together. AWS uses RDS-managed credentials; GCP stores the username and password in Secret Manager. The deployment tool supplies the Kubernetes database Secret. Migrations run in the backend's separate pre-start job.

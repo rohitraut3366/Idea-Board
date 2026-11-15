@@ -68,9 +68,6 @@ metadata:
     app.kubernetes.io/component: frontend
 spec:
   type: {{ .Values.service.type }}
-  {{- with .Values.service.loadBalancerClass }}
-  loadBalancerClass: {{ . | quote }}
-  {{- end }}
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: frontend

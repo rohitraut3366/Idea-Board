@@ -113,3 +113,9 @@ uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
 It refuses existing staging/test-preview resources, creates isolated test databases and namespaces, checks staging and preview redeployment, removes the preview, injects an unpublished frontend image, checks failure evidence, restores the verified release, reruns HTTP checks, and removes only resources it created. The chart commit must be publicly reachable because Argo fetches it from Git. CI repeats the flow with its newly published images.
 
 The integration test uses explicit recommendation fixtures, independently of model availability. A live AI runner invocation tests the skill separately. Hosted runner authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.
+
+## Public routing
+
+Follow the [public routing setup](../../infra/ingress/README.md) before cloud releases. AWS uses the AWS Load Balancer Controller; GCP uses GKE's built-in Ingress controller. The tool generates provider-specific annotations, GCP BackendConfig resources, and an Ingress routing to both ClusterIP Services. Previews use the same model in their own namespaces; no Terraform updates or preconfigured target-group IDs are needed per preview.
+
+The final public check reads `Ingress/frontend` in the release namespace and verifies both the page and API at its reported hostname/IP. Controllers must remain available during preview cleanup so deleting the Ingress also removes its cloud resources. Local kind keeps Ingress disabled and uses its existing port-forward.
