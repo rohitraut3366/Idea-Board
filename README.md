@@ -230,7 +230,11 @@ infra/terraform/
         └── psql/         # Private Cloud SQL PostgreSQL
 ```
 
-Before running Terraform, sign in to your cloud account and create a storage bucket for **Terraform state**. State records which cloud resources Terraform manages. Protect the bucket with encryption and versioning, and give staging and production separate state locations and stack names.
+Before running Terraform:
+
+1. Sign in to your AWS or GCP account.
+2. Create a Terraform state bucket with encryption and versioning enabled.
+3. Use separate state paths and stack names for staging and production.
 
 For AWS, start from the repository root:
 
