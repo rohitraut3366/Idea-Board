@@ -39,9 +39,9 @@ variable "database_skip_final_snapshot" {
 }
 
 variable "database_backup_retention_days" {
-  description = "RDS automated backup retention in days; Free Plan accounts may require a shorter period."
+  description = "RDS automated backup retention in days; 0 disables automated backups."
   type        = number
-  default     = 7
+  default     = 0
 }
 
 variable "state_bucket" {
