@@ -219,10 +219,10 @@ Terraform manages four projects for each cloud. Each project can be planned and 
 
 ```text
 infra/terraform/
+├── backend.json.example                 # Shared S3 bucket settings for both clouds
 ├── aws/
 │   └── staging/
 │       └── ap-southeast-2/
-│           ├── backend.json.example     # Shared state bucket settings
 │           ├── networking/              # VPC, subnets, routing, NAT
 │           ├── cluster/                 # EKS and workers
 │           ├── cluster-core-services/   # Argo CD and AWS load-balancer controller
@@ -231,7 +231,6 @@ infra/terraform/
 ├── gcp/
 │   └── staging/
 │       └── australia-southeast1/
-│           ├── backend.json.example
 │           ├── networking/              # VPC, subnet, routing, NAT
 │           ├── cluster/                 # GKE and workers
 │           ├── cluster-core-services/   # Argo CD
@@ -245,23 +244,31 @@ The directory identifies the cloud, environment, region, and project. Production
 Before running Terraform:
 
 1. Install Terraform 1.17.x, Make, Python 3, and your cloud CLI.
-2. Sign in to your AWS or GCP account. GCP requires a billed project and Application Default Credentials.
-3. Create a Terraform state bucket with encryption, versioning, and restricted access. State records the resources Terraform manages.
-4. Copy the region's `backend.json.example` to `backend.json` and enter the state bucket settings.
+2. Sign in to AWS for Terraform state access. For GCP deployments, also configure Application Default Credentials in a billed GCP project.
+3. Create one S3 bucket with encryption, versioning, Block Public Access, and restricted access. It stores Terraform state for both clouds. State records the resources Terraform manages.
+4. Copy `infra/terraform/backend.json.example` to `infra/terraform/backend.json`. Set `bucket` to the S3 bucket name and `region` to its AWS region.
 5. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in its settings. Use one stack name across the four projects, and a different name for each environment or region.
 
-For example, start AWS configuration from the repository root:
+Run from the repository root:
 
 ```bash
-cp infra/terraform/aws/staging/ap-southeast-2/backend.json.example \
-  infra/terraform/aws/staging/ap-southeast-2/backend.json
+cp infra/terraform/backend.json.example infra/terraform/backend.json
 cp infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars.example \
   infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars
 ```
 
-For GCP, use `infra/terraform/gcp/staging/australia-southeast1`. Supply `TF_VAR_database_password` through your environment when planning its application project.
+The `.example` file is the template; `backend.json` holds your local bucket settings. This one configuration serves every cloud, environment, and region. The state bucket's AWS region can differ from the deployment region.
 
-The Makefile calculates the state location from the project path. AWS networking, for example, uses `infra/terraform/aws/staging/ap-southeast-2/networking.tfstate` in the configured bucket. Dependencies use the same convention to read the projects they need.
+For GCP project settings, use the directories under `infra/terraform/gcp/staging/australia-southeast1`. GCP Terraform commands use AWS credentials for state access and GCP credentials for provisioning. Supply `TF_VAR_database_password` through your environment when planning its application project.
+
+The Makefile calculates a separate state key from each project path and stores it in the shared bucket:
+
+```text
+infra/terraform/aws/staging/ap-southeast-2/networking.tfstate
+infra/terraform/gcp/staging/australia-southeast1/networking.tfstate
+```
+
+Dependencies use the same configuration to read the projects they need. For existing state, follow the [migration steps](infra/terraform/README.md#move-existing-regional-or-gcs-state) before planning changes.
 
 From the repository root, initialize networking, check it, and create its plan:
 
