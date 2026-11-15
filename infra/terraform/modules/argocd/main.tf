@@ -13,3 +13,16 @@ resource "helm_release" "this" {
     server = { service = { type = "ClusterIP" } }
   })]
 }
+
+resource "helm_release" "core_services" {
+  name      = "cluster-core-services"
+  namespace = helm_release.this.namespace
+  chart     = "${path.module}/bootstrap"
+  atomic    = true
+  wait      = true
+  values = [yamlencode({
+    repositoryURL   = var.repository_url
+    targetRevision  = var.gitops_revision
+    externalSecrets = var.external_secrets_values
+  })]
+}

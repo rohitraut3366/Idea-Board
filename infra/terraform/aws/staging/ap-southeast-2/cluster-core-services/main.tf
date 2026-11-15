@@ -40,7 +40,9 @@ provider "helm" {
 }
 
 module "argocd" {
-  source = "../../../../modules/argocd"
+  source                  = "../../../../modules/argocd"
+  gitops_revision         = var.gitops_revision
+  external_secrets_values = var.external_secrets_values
 }
 
 module "load_balancer_controller" {

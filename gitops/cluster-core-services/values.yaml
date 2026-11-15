@@ -1,0 +1,7 @@
+repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
+targetRevision: master
+applications:
+  external-secrets:
+    path: charts/external-secrets
+    namespace: external-secrets
+    values: {}

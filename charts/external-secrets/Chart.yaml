@@ -1,0 +1,9 @@
+apiVersion: v2
+name: external-secrets
+description: External Secrets Operator with Idea Board defaults.
+type: application
+version: 0.1.0
+dependencies:
+  - name: external-secrets
+    version: 2.15.0
+    repository: https://charts.external-secrets.io

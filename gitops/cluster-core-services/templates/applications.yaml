@@ -1,0 +1,28 @@
+{{- range $name, $application := .Values.applications }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  project: cluster-core-services
+  source:
+    repoURL: {{ $.Values.repositoryURL | quote }}
+    path: {{ $application.path | quote }}
+    targetRevision: {{ $.Values.targetRevision | quote }}
+    helm:
+      releaseName: {{ $name }}
+      skipTests: true
+      valuesObject:
+        {{- toYaml ($application.values | default dict) | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $application.namespace }}
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

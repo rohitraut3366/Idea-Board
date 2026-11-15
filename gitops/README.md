@@ -1,5 +1,7 @@
 # GitOps
 
+Cloud clusters use a [cluster services app-of-apps](cluster-core-services/README.md) to install shared services, starting with External Secrets Operator. Terraform bootstraps its root Application after installing Argo CD.
+
 Argo CD manages the backend and frontend as separate Applications in `kind-idea-board`. Each Application renders its Helm chart using the values in `kind/` and watches `rohit-e2e-implementation-plan`. PostgreSQL, its persistent volume, and the database Secret are provisioned separately.
 
 ## Install Argo CD
