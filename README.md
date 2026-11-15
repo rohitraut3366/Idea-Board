@@ -211,21 +211,24 @@ Deployment has two stages:
 1. **Set up a place to run the app:** create the cloud network, Kubernetes cluster, database, and deployment access.
 2. **Release an app version:** build its containers and tell the cluster to run them.
 
-Kubernetes runs the app's containers on cloud machines. A **cluster** is the group of machines it manages; a **pod** is a running unit that contains a container.
-
 Follow steps 1–3 to set up an environment. Use step 4 whenever you want to release an app version.
 
 ### 1. Create the cloud resources
 
-Terraform reads configuration files and creates cloud resources. Each cloud has its own folder, with three smaller modules. A module is a reusable group of resources:
-
-| Module    | AWS                        | GCP                             |
-| --------- | -------------------------- | ------------------------------- |
-| `network` | VPC, subnets, routing, NAT | VPC, subnet, routing, Cloud NAT |
-| `cluster` | EKS and managed workers    | GKE and worker pool             |
-| `psql`    | Private RDS PostgreSQL     | Private Cloud SQL PostgreSQL    |
-
-The network connects the services. The cluster runs the frontend and backend. The database stores the ideas and is reachable through the private network.
+```text
+infra/terraform/
+├── aws/                  # AWS stack: calls the AWS modules
+├── gcp/                  # GCP stack: calls the GCP modules
+└── modules/
+    ├── aws/
+    │   ├── network/      # VPC, subnets, routing, NAT
+    │   ├── cluster/      # EKS and managed workers
+    │   └── psql/         # Private RDS PostgreSQL
+    └── gcp/
+        ├── network/      # VPC, subnet, routing, Cloud NAT
+        ├── cluster/      # GKE and worker pool
+        └── psql/         # Private Cloud SQL PostgreSQL
+```
 
 Before running Terraform, sign in to your cloud account and create a storage bucket for **Terraform state**. State records which cloud resources Terraform manages. Protect the bucket with encryption and versioning, and give staging and production separate state locations and stack names.
 
