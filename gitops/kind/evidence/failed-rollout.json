@@ -1,0 +1,160 @@
+{
+  "namespace": "idea-board-staging",
+  "evidence": [
+    {
+      "id": "e1",
+      "kind": "checks",
+      "facts": {
+        "outcome": "failed",
+        "phase": "rollout",
+        "rollback_available": true
+      }
+    },
+    {
+      "id": "e2",
+      "kind": "pod",
+      "facts": {
+        "name": "backend-54b485d9f4-fg8xr",
+        "phase": "Running",
+        "containers": [
+          {
+            "name": "backend",
+            "ready": true,
+            "restarts": 0,
+            "resources": {
+              "limits": {
+                "memory": "256Mi"
+              },
+              "requests": {
+                "cpu": "125m",
+                "memory": "128Mi"
+              }
+            },
+            "reason": null,
+            "last_exit_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "e3",
+      "kind": "log_signatures",
+      "facts": {
+        "pod": "backend-54b485d9f4-fg8xr",
+        "container": "backend",
+        "previous": false,
+        "matches": {
+          "database_connection_refused": 0,
+          "database_authentication_failed": 0,
+          "missing_database_relation": 0,
+          "migration_revision_missing": 0,
+          "python_import_failure": 0,
+          "nginx_upstream_unresolved": 0,
+          "out_of_memory": 0
+        }
+      }
+    },
+    {
+      "id": "e4",
+      "kind": "pod",
+      "facts": {
+        "name": "frontend-6bb4bcbf8-gqh5b",
+        "phase": "Running",
+        "containers": [
+          {
+            "name": "frontend",
+            "ready": true,
+            "restarts": 0,
+            "resources": {
+              "limits": {
+                "memory": "128Mi"
+              },
+              "requests": {
+                "cpu": "50m",
+                "memory": "32Mi"
+              }
+            },
+            "reason": null,
+            "last_exit_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "e5",
+      "kind": "log_signatures",
+      "facts": {
+        "pod": "frontend-6bb4bcbf8-gqh5b",
+        "container": "frontend",
+        "previous": false,
+        "matches": {
+          "database_connection_refused": 0,
+          "database_authentication_failed": 0,
+          "missing_database_relation": 0,
+          "migration_revision_missing": 0,
+          "python_import_failure": 0,
+          "nginx_upstream_unresolved": 0,
+          "out_of_memory": 0
+        }
+      }
+    },
+    {
+      "id": "e6",
+      "kind": "pod",
+      "facts": {
+        "name": "frontend-6c569bd7d6-tjxkd",
+        "phase": "Pending",
+        "containers": [
+          {
+            "name": "frontend",
+            "ready": false,
+            "restarts": 0,
+            "resources": {
+              "limits": {
+                "memory": "128Mi"
+              },
+              "requests": {
+                "cpu": "50m",
+                "memory": "32Mi"
+              }
+            },
+            "reason": "ImagePullBackOff",
+            "last_exit_reason": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "e7",
+      "kind": "unavailable",
+      "facts": {
+        "source": "logs"
+      }
+    },
+    {
+      "id": "e8",
+      "kind": "events",
+      "facts": {
+        "Scheduled": 6,
+        "Pulled": 5,
+        "Created": 5,
+        "Started": 5,
+        "SuccessfulCreate": 6,
+        "Killing": 1,
+        "SuccessfulDelete": 1,
+        "Pulling": 3,
+        "Completed": 2,
+        "ScalingReplicaSet": 5,
+        "Failed": 3,
+        "BackOff": 1
+      }
+    },
+    {
+      "id": "e9",
+      "kind": "unavailable",
+      "facts": {
+        "source": "metrics-server"
+      }
+    }
+  ]
+}

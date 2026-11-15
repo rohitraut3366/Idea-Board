@@ -1,0 +1,34 @@
+{
+  "reason": "This demo shares one kind node with Argo CD and PostgreSQL. Start with one replica per service to keep the local footprint small. Reserve more memory for the Python backend than the static frontend. Test 10, 25, and 50 concurrent request cycles before drawing conclusions about local capacity. A single node provides no host-failure redundancy; cloud capacity is unmeasured.",
+  "backend": {
+    "replicas": 1,
+    "cpu_millicores": 100,
+    "memory_request_mib": 128,
+    "memory_limit_mib": 256
+  },
+  "frontend": {
+    "replicas": 1,
+    "cpu_millicores": 50,
+    "memory_request_mib": 32,
+    "memory_limit_mib": 128
+  },
+  "infrastructure": null,
+  "steps": [
+    {
+      "action": "render",
+      "reason": "Validate the recommendation and inspect both Argo CD Applications against the requested image and chart commits."
+    },
+    {
+      "action": "sync_backend",
+      "reason": "Run the separate migration Job against the staging database, then wait for the backend to become Synced and Healthy."
+    },
+    {
+      "action": "sync_frontend",
+      "reason": "Deploy the frontend after the backend Service is available."
+    },
+    {
+      "action": "verify",
+      "reason": "Check the requested images, Argo CD status, page assets, and API operations before recording a verified release."
+    }
+  ]
+}

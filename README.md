@@ -202,9 +202,15 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | Terraform            | AWS and GCP configuration and module tests using simulated cloud responses                    |
 | Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
 
-Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker. Terraform tests run without cloud accounts. Real cloud permissions, load balancers, and public access are verified through a cloud deployment.
+Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker. Terraform tests use simulated cloud responses. Cloud permissions, managed databases, and public routing require verification in the target accounts.
 
-## Deployment
+## Local Kubernetes deployment
+
+The Kubernetes demo runs in **kind**, with Argo CD, the frontend, backend, PostgreSQL, and External Secrets Operator. Follow the [kind guide](gitops/README.md) to start it and open the app at [localhost:3001](http://localhost:3001).
+
+The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
+
+## Cloud deployment
 
 Deployment has two stages:
 
@@ -416,6 +422,17 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 ## What has been tested
 
-Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. CI also verifies the cluster services root and External Secrets Operator become Synced and Healthy in kind. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage. Terragrunt declarations are rendered and checked for shared inputs, dependency order, and unchanged state keys.
+The local Kubernetes demonstration is verified in kind:
 
-Provider and cluster values selection, generated-file contents, and IAM annotation rendering have automated test coverage. Publishing a generated file through a live Terraform apply and connecting External Secrets to database credentials remain pending. Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
+| Check | Result |
+| --- | --- |
+| App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts |
+| Argo CD | App services, cluster services root, and External Secrets Operator became Synced and Healthy |
+| Preview lifecycle | Separate database/login, redeployment, and cleanup passed |
+| Rollback | Failed-image detection and recovery passed; schema and test data were preserved |
+| Load and scaling | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md) |
+| AI integration | Session-generated recommendation and diagnosis passed the tool's validation |
+
+The [kind guide](gitops/README.md) contains the commands to reproduce the demo. The [recorded evidence](gitops/kind/verification.md) distinguishes the AI session from automated checks using fixed recommendations.
+
+AWS and GCP infrastructure has Terraform validation and provider-mock coverage. Live deployment of the independent cloud projects, cloud ingress, hosted AI runner authentication, and External Secrets access to database credentials remain unverified. There are no current hosted application URLs.

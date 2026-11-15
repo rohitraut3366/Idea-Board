@@ -1,0 +1,11 @@
+{
+  "assessment": "unhealthy",
+  "summary": "The attempted frontend rollout is blocked: the new frontend container is not ready and is in ImagePullBackOff. An older frontend pod and the backend remain ready. The rollout check failed and a verified previous release is available. Restore that release after confirming schema compatibility. The evidence does not establish whether the image tag, registry access, or connectivity caused the pull failure. Resource metrics are unavailable.",
+  "evidence_ids": ["e1", "e2", "e4", "e6", "e9"],
+  "action": "rollback",
+  "next_steps": [
+    "Confirm the previous application supports the current schema, then use the deployment tool's explicit rollback operation.",
+    "Check the failed frontend image tag exists in GHCR and can be pulled by kind before retrying the release.",
+    "Verify both Argo CD Applications and the page/API checks after recovery. Collect resource metrics separately before making capacity claims."
+  ]
+}

@@ -6,7 +6,7 @@ metadata:
 spec:
   description: Idea Board services in the local kind cluster
   sourceRepos:
-    - git@github.com:rohitraut3366/Idea-Board.git
+    - https://github.com/rohitraut3366/Idea-Board.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: idea-board
