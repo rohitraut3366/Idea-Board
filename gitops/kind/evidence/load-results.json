@@ -1,0 +1,72 @@
+[
+  {
+    "cycles": 1000,
+    "concurrency": 10,
+    "requests": 3000,
+    "failedRequests": 0,
+    "failedCycles": 0,
+    "cleanupFailures": 0,
+    "elapsedSeconds": 7.627,
+    "requestsPerSecond": 393.32,
+    "p95RequestMs": 44.43,
+    "latencyLimitMs": null,
+    "errors": [],
+    "backendReplicas": 1
+  },
+  {
+    "cycles": 1000,
+    "concurrency": 25,
+    "requests": 3000,
+    "failedRequests": 0,
+    "failedCycles": 0,
+    "cleanupFailures": 0,
+    "elapsedSeconds": 8.155,
+    "requestsPerSecond": 367.87,
+    "p95RequestMs": 113.61,
+    "latencyLimitMs": null,
+    "errors": [],
+    "backendReplicas": 1
+  },
+  {
+    "cycles": 1000,
+    "concurrency": 50,
+    "requests": 3000,
+    "failedRequests": 0,
+    "failedCycles": 0,
+    "cleanupFailures": 0,
+    "elapsedSeconds": 7.478,
+    "requestsPerSecond": 401.18,
+    "p95RequestMs": 204.25,
+    "latencyLimitMs": null,
+    "errors": [],
+    "backendReplicas": 1
+  },
+  {
+    "cycles": 1000,
+    "concurrency": 50,
+    "requests": 3000,
+    "failedRequests": 0,
+    "failedCycles": 0,
+    "cleanupFailures": 0,
+    "elapsedSeconds": 5.226,
+    "requestsPerSecond": 574.09,
+    "p95RequestMs": 138.66,
+    "latencyLimitMs": null,
+    "errors": [],
+    "backendReplicas": 2
+  },
+  {
+    "cycles": 10000,
+    "concurrency": 50,
+    "requests": 30000,
+    "failedRequests": 0,
+    "failedCycles": 0,
+    "cleanupFailures": 0,
+    "elapsedSeconds": 55.282,
+    "requestsPerSecond": 542.68,
+    "p95RequestMs": 144.14,
+    "latencyLimitMs": null,
+    "errors": [],
+    "backendReplicas": 2
+  }
+]

@@ -6,8 +6,8 @@ metadata:
 spec:
   project: idea-board
   source:
-    repoURL: git@github.com:rohitraut3366/Idea-Board.git
-    targetRevision: rohit-e2e-implementation-plan
+    repoURL: https://github.com/rohitraut3366/Idea-Board.git
+    targetRevision: master
     path: charts/idea-board-frontend
     helm:
       releaseName: frontend
