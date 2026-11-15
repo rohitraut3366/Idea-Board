@@ -3,11 +3,18 @@ mock_provider "google" {
 
 }
 
+mock_provider "random" {
+  override_during = plan
+
+  mock_resource "random_password" {
+    defaults = { result = "test-only-generated-password-123!" }
+  }
+}
+
 variables {
   name       = "idea-board-test"
   region     = "us-central1"
   network_id = "projects/test-project/global/networks/test"
-  password   = "mock-test-password-only"
 }
 
 run "configuration" {
@@ -29,7 +36,12 @@ run "configuration" {
   }
 
   assert {
-    condition     = jsondecode(google_secret_manager_secret_version.database.secret_data).password == var.password && jsondecode(google_secret_manager_secret_version.database.secret_data).username == google_sql_user.this.name
+    condition     = random_password.database.length == 32 && random_password.database.special && google_sql_user.this.password == random_password.database.result
+    error_message = "Generate the SQL user's password with the Random provider."
+  }
+
+  assert {
+    condition     = jsondecode(google_secret_manager_secret_version.database.secret_data).password == google_sql_user.this.password && jsondecode(google_secret_manager_secret_version.database.secret_data).username == google_sql_user.this.name
     error_message = "The stored credentials must match the SQL user."
   }
 }

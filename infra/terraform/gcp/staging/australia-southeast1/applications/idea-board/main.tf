@@ -27,7 +27,6 @@ module "psql" {
   tier                = var.database_tier
   storage_gb          = var.database_storage_gb
   regional            = var.database_regional
-  password            = var.database_password
   deletion_protection = var.deletion_protection
   depends_on          = [google_project_service.required]
 }

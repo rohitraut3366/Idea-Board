@@ -1,3 +1,8 @@
+resource "random_password" "database" {
+  length  = 32
+  special = true
+}
+
 resource "google_sql_database_instance" "this" {
   name                = "${var.name}-postgres"
   region              = var.region
@@ -35,7 +40,7 @@ resource "google_sql_database" "this" {
 resource "google_sql_user" "this" {
   name     = "idea_board_admin"
   instance = google_sql_database_instance.this.name
-  password = var.password
+  password = random_password.database.result
 }
 
 resource "google_secret_manager_secret" "database" {
@@ -49,6 +54,6 @@ resource "google_secret_manager_secret_version" "database" {
   secret = google_secret_manager_secret.database.id
   secret_data = jsonencode({
     username = google_sql_user.this.name
-    password = var.password
+    password = random_password.database.result
   })
 }

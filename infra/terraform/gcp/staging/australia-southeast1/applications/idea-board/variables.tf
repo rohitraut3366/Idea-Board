@@ -31,12 +31,6 @@ variable "database_regional" {
   default     = false
 }
 
-variable "database_password" {
-  description = "Initial database owner password; supply through TF_VAR_database_password."
-  type        = string
-  sensitive   = true
-}
-
 variable "deletion_protection" {
   description = "Protect the cluster and database from accidental deletion."
   type        = bool
