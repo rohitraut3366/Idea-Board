@@ -13,10 +13,14 @@ def prepare(target, recommendation, directory, recommendation_path):
         json.dumps({"apiVersion": "v1", "kind": "List", "items": documents}, indent=2) + "\n"
     )
     sizing = terraform_variables(target, recommendation)
-    if sizing is not None:
-        (directory / "sizing.tfvars.json").write_text(json.dumps(sizing, indent=2) + "\n")
-    else:
-        (directory / "sizing.tfvars.json").unlink(missing_ok=True)
+    (directory / "sizing.tfvars.json").unlink(missing_ok=True)
+    for project in ("cluster", "applications/idea-board"):
+        path = directory / "terraform" / project / "sizing.tfvars.json"
+        if sizing is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(sizing[project], indent=2) + "\n")
     plan = [
         f"# Release plan: {target.namespace}",
         f"Cloud: {target.cloud}. Image: `{target.image_tag}`. Charts: `{target.revision}`.",
@@ -73,19 +77,26 @@ def prepare(target, recommendation, directory, recommendation_path):
         plan += [
             "## Infrastructure proposal",
             recommendation["infrastructure"]["reason"],
-            "The release command does not apply this file. "
-            "Compare it to the current stack before deployment. "
+            "The release command does not apply infrastructure changes. "
+            "Compare each proposal to its current project before deployment. "
             "Database sizes may not be supported in every region; "
             "storage cannot be reduced in place. "
             "GCP node_count assumes two node_zones; adjust to your actual zone count.",
             "",
-            "From an initialized Terraform root, with credentials and the existing state backend:",
-            "",
-            "```bash",
-            f"terraform -chdir=infra/terraform/{target.cloud} plan -var-file=YOUR_STACK.tfvars "
-            f"-var-file={shlex.quote(str((directory / 'sizing.tfvars.json').resolve()))}",
-            "```",
-            "Review the real plan before applying. This file does not replace network, "
-            "identity, or database protection settings.",
+            "From the repository root, with each project's terraform.tfvars "
+            "and state backend configured, replace YOUR_REGION with the target region "
+            "and initialize each project first:",
+        ]
+        for project in ("cluster", "applications/idea-board"):
+            path = directory / "terraform" / project / "sizing.tfvars.json"
+            plan += [
+                "```bash",
+                f"make plan PROJECT={target.cloud}/{target.environment}/YOUR_REGION/{project} "
+                f"ARGS={shlex.quote('-var-file=' + shlex.quote(str(path.resolve())))}",
+                "```",
+            ]
+        plan += [
+            "Review and apply each project separately. The proposals do not replace network, "
+            "identity, or database protection settings."
         ]
     (directory / "plan.md").write_text("\n\n".join(plan) + "\n")

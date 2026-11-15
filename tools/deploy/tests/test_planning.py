@@ -16,14 +16,25 @@ def test_generated_sizing_uses_existing_terraform_inputs(cloud, tmp_path):
     target = Target(cloud, "production", SHA, SHA)
     proposal = recommendation(cloud, "production")
     prepare(target, proposal, tmp_path, Path("recommendation.json"))
-    generated = json.loads((tmp_path / "sizing.tfvars.json").read_text())
-    assert generated["node_count"] == 2
-    assert generated["database_multi_az" if cloud == "aws" else "database_regional"] is True
-    assert len(generated) == 5  # No credentials, identity, networking, or deletion-policy inputs.
-    root = Path(__file__).resolve().parents[3] / "infra/terraform" / cloud
-    definitions = (root / "variables.tf").read_text()
-    for key in generated:
-        assert f'variable "{key}"' in definitions
+    generated = terraform_variables(target, proposal)
+    assert generated["cluster"]["node_count"] == 2
+    assert (
+        generated["applications/idea-board"][
+            "database_multi_az" if cloud == "aws" else "database_regional"
+        ]
+        is True
+    )
+    assert sum(len(values) for values in generated.values()) == 5
+    region = "ap-southeast-2" if cloud == "aws" else "australia-southeast1"
+    root = Path(__file__).resolve().parents[3] / "infra/terraform" / cloud / "staging" / region
+    plan = (tmp_path / "plan.md").read_text()
+    for project, values in generated.items():
+        path = tmp_path / "terraform" / project / "sizing.tfvars.json"
+        assert json.loads(path.read_text()) == values
+        definitions = (root / project / "variables.tf").read_text()
+        for key in values:
+            assert f'variable "{key}"' in definitions
+        assert f"PROJECT={cloud}/production/YOUR_REGION/{project}" in plan
     applications = json.loads((tmp_path / "applications.json").read_text())["items"]
     assert applications == manifests(target, proposal)
     assert "terraform" in (tmp_path / "plan.md").read_text()
@@ -68,11 +79,17 @@ def test_invalid_configuration_fails_before_rendering(mutation):
 
 
 def test_preview_does_not_generate_shared_infrastructure(tmp_path):
+    prepare(
+        Target("aws", "staging", SHA, SHA),
+        recommendation("aws"),
+        tmp_path,
+        Path("recommendation.json"),
+    )
     target = Target("aws", "preview", SHA, SHA, 42)
     proposal = recommendation("aws", "preview")
     assert terraform_variables(target, proposal) is None
     prepare(target, proposal, tmp_path, Path("recommendation.json"))
-    assert not (tmp_path / "sizing.tfvars.json").exists()
+    assert not list(tmp_path.rglob("*.tfvars.json"))
     invalid = deepcopy(proposal)
     invalid["infrastructure"] = recommendation("aws")["infrastructure"]
     with pytest.raises(ValueError, match="shared infrastructure"):

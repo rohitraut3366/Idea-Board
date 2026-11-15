@@ -25,6 +25,11 @@ run "configuration" {
   command = plan
 
   assert {
+    condition     = !google_container_cluster.this.addons_config[0].http_load_balancing[0].disabled
+    error_message = "Enable the GKE Ingress controller."
+  }
+
+  assert {
     condition     = google_container_cluster.this.private_cluster_config[0].enable_private_nodes
     error_message = "Worker nodes must have private addresses."
   }

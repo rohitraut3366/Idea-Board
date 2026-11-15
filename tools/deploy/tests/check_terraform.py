@@ -19,7 +19,8 @@ def main():
     parser.add_argument("--cloud", required=True, choices=("aws", "gcp"))
     parser.add_argument("--terraform", default="terraform")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[3] / "infra/terraform" / args.cloud
+    region = "ap-southeast-2" if args.cloud == "aws" else "australia-southeast1"
+    root = Path(__file__).resolve().parents[3] / "infra/terraform" / args.cloud / "staging" / region
     with tempfile.TemporaryDirectory(prefix="idea-board-sizing-") as directory:
         for environment in ("staging", "production"):
             proposal = recommendation(args.cloud, environment)
@@ -31,11 +32,13 @@ def main():
                     database_storage_gb=40,
                 )
             target = Target(args.cloud, environment, "a" * 40, "a" * 40)
-            variables = Path(directory) / "sizing.tfvars.json"
-            variables.write_text(json.dumps(terraform_variables(target, proposal)))
-            subprocess.run(
-                [args.terraform, f"-chdir={root}", "test", f"-var-file={variables}"], check=True
-            )
+            for project, values in terraform_variables(target, proposal).items():
+                variables = Path(directory) / f"{project.replace('/', '-')}.tfvars.json"
+                variables.write_text(json.dumps(values))
+                subprocess.run(
+                    [args.terraform, f"-chdir={root / project}", "test", f"-var-file={variables}"],
+                    check=True,
+                )
 
 
 if __name__ == "__main__":

@@ -217,14 +217,34 @@ jobs:
         run: |
           export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugins"
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          for directory in "$CLOUD" "modules/$CLOUD/network" "modules/$CLOUD/cluster" "modules/$CLOUD/psql"; do
-            if [[ "$directory" == modules/* ]]; then
-              cp "$CLOUD/.terraform.lock.hcl" "$directory/.terraform.lock.hcl"
+          directories=()
+          for backend in "$CLOUD"/*/*/*/backend.tf "$CLOUD"/*/*/applications/*/backend.tf; do
+            if [[ -f "$backend" ]]; then
+              directories+=("${backend%/backend.tf}")
             fi
-            terraform -chdir="$directory" init -backend=false -input=false -lockfile=readonly
+          done
+          locks=("$CLOUD"/*/*/cluster-core-services/.terraform.lock.hcl)
+          directories+=(
+            "modules/$CLOUD/network"
+            "modules/$CLOUD/cluster"
+            "modules/$CLOUD/psql"
+            "modules/argocd"
+          )
+          if [[ "$CLOUD" == aws ]]; then
+            directories+=(modules/aws/load-balancer-controller)
+          fi
+          for directory in "${directories[@]}"; do
+            if [[ "$directory" == modules/* ]]; then
+              cp "${locks[0]}" "$directory/.terraform.lock.hcl"
+              terraform -chdir="$directory" init -backend=false -input=false
+            else
+              terraform -chdir="$directory" init -backend=false -input=false -lockfile=readonly
+            fi
             terraform -chdir="$directory" validate
             terraform -chdir="$directory" test
           done
+      - name: Test project commands and state paths
+        run: python3 -m unittest discover -s ../../tools/terraform/tests
       - name: Plan generated application sizing with provider mocks
         run: |
           uv run --project ../../tools/deploy --locked python ../../tools/deploy/tests/check_terraform.py --cloud "$CLOUD"
@@ -265,8 +285,8 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check .
-      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync ruff check . ../terraform
+      - run: uv run --no-sync ruff format --check . ../terraform
       - run: uv run --no-sync mypy . --check-untyped-defs --ignore-missing-imports
       - run: uv run --no-sync pytest
 

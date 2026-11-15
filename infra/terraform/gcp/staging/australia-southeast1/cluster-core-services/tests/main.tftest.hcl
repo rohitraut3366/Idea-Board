@@ -1,0 +1,33 @@
+mock_provider "google" {
+  override_during = plan
+
+  mock_data "google_container_cluster" {
+    defaults = { endpoint = "127.0.0.1", master_auth = [{ cluster_ca_certificate = "bW9jay1jYQ==" }] }
+  }
+}
+
+mock_provider "helm" {}
+override_data {
+  target = data.terraform_remote_state.cluster
+  values = { outputs = { cluster_name = "idea-board-test", node_security_group_id = "sg-11111111" } }
+}
+
+variables {
+  state_prefix = "infra/terraform/gcp/staging/australia-southeast1"
+  name         = "idea-board-test"
+  region       = "us-central1"
+  project_id   = "test-project"
+  state_bucket = "test-state-bucket"
+}
+
+run "configuration" {
+  command = plan
+  assert {
+    condition     = output.argocd_namespace == "argocd"
+    error_message = "Install the shared Argo CD module."
+  }
+  assert {
+    condition     = data.terraform_remote_state.cluster.config.bucket == var.state_bucket && data.terraform_remote_state.cluster.config.prefix == "infra/terraform/gcp/staging/australia-southeast1/cluster"
+    error_message = "Read the cluster state from the same environment."
+  }
+}

@@ -1,5 +1,0 @@
-name               = "idea-board-staging"
-region             = "us-east-1"
-availability_zones = ["us-east-1a", "us-east-1b"]
-kubernetes_version = "REPLACE_WITH_SUPPORTED_EKS_VERSION"
-admin_role_arn     = "arn:aws:iam::123456789012:role/idea-board-admin"
