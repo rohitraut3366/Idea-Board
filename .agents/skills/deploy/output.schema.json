@@ -1,9 +1,169 @@
 {
   "type": "object",
   "properties": {
-    "profile": {"type": "string", "enum": ["small", "standard", "resilient"]},
-    "reason": {"type": "string"}
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "cpu_millicores": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 1000
+        },
+        "memory_request_mib": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 1024
+        },
+        "memory_limit_mib": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2048
+        }
+      },
+      "required": [
+        "replicas",
+        "cpu_millicores",
+        "memory_request_mib",
+        "memory_limit_mib"
+      ],
+      "additionalProperties": false
+    },
+    "frontend": {
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "cpu_millicores": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 1000
+        },
+        "memory_request_mib": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 1024
+        },
+        "memory_limit_mib": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2048
+        }
+      },
+      "required": [
+        "replicas",
+        "cpu_millicores",
+        "memory_request_mib",
+        "memory_limit_mib"
+      ],
+      "additionalProperties": false
+    },
+    "infrastructure": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "node_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6
+            },
+            "node_size": {
+              "type": "string",
+              "enum": [
+                "t3.medium",
+                "t3.large",
+                "e2-standard-2",
+                "e2-standard-4"
+              ]
+            },
+            "database_size": {
+              "type": "string",
+              "enum": [
+                "db.t4g.micro",
+                "db.t4g.small",
+                "db.t4g.medium",
+                "db-custom-1-3840",
+                "db-custom-2-7680"
+              ]
+            },
+            "database_storage_gb": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 200
+            },
+            "database_high_availability": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "node_count",
+            "node_size",
+            "database_size",
+            "database_storage_gb",
+            "database_high_availability",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "render",
+              "sync_backend",
+              "sync_frontend",
+              "verify"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "action",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
   },
-  "required": ["profile", "reason"],
+  "required": [
+    "reason",
+    "backend",
+    "frontend",
+    "infrastructure",
+    "steps"
+  ],
   "additionalProperties": false
 }

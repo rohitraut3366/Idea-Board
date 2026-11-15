@@ -211,11 +211,3 @@ class Cluster:
                         pass  # Cloud load balancers can publish an address before serving traffic.
             time.sleep(5)
         raise TimeoutError("frontend did not become publicly reachable")
-
-    def diagnostics(self):
-        # Events and status are enough to locate failed hooks and image or scheduling failures.
-        # Application logs are intentionally excluded: they may contain submitted ideas or secrets.
-        return {
-            kind: self.run("--namespace", self.namespace, "get", kind, "-o", "json")
-            for kind in ("pods", "jobs", "events")
-        }

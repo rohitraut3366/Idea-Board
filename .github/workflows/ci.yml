@@ -203,6 +203,9 @@ jobs:
         with:
           terraform_version: 1.17.2
           terraform_wrapper: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
       - name: Check Terraform formatting
         run: terraform fmt -check -recursive
       - name: Validate and test root and modules without cloud credentials
@@ -217,6 +220,9 @@ jobs:
             terraform -chdir="$directory" validate
             terraform -chdir="$directory" test
           done
+      - name: Plan generated application sizing with provider mocks
+        run: |
+          uv run --project ../../tools/deploy --locked python ../../tools/deploy/tests/check_terraform.py --cloud "$CLOUD"
 
   deployment:
     name: Deployment tool checks

@@ -27,3 +27,7 @@ infra/terraform/modules/**/.terraform.lock.hcl
 /applications.json
 /recommendation.json
 /deployment-prompt.md
+/release-plan/
+/diagnosis.json
+/diagnosis.md
+/diagnosis-prompt.md

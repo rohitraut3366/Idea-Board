@@ -52,10 +52,16 @@ def cleanup_closed_preview(cluster, target):
 
 def release(cluster, target, recommendation):
     from database import managed_database_url
+    from diagnosis import collect
+    from rollback import checkpoint, record_healthy, state
 
     documents = manifests(target, recommendation)
+    outcome = "failed"
+    phase = "database"
+    rollback_available = False
     try:
         cluster.ensure_namespace(target.environment)
+        rollback_available = bool(state(cluster)["healthy"])
         if target.environment == "preview":
             url = json.loads(preview_database(cluster, target))
         else:
@@ -67,18 +73,24 @@ def release(cluster, target, recommendation):
         Path("applications.json").write_text(
             json.dumps({"apiVersion": "v1", "kind": "List", "items": documents}, indent=2) + "\n"
         )
+        checkpoint(cluster, target, documents[1:])
         cluster.apply(documents[0])
         # The frontend resolves the backend Service at startup.
         for application in documents[1:]:
+            phase = application["spec"]["source"]["helm"]["releaseName"]
             cluster.apply(application)
             cluster.wait([application])
+        phase = "http"
         cluster.verify()
+        phase = "public_http" if target.cloud != "kind" else "http"
         url = cluster.public_url() if target.cloud != "kind" else None
-    except Exception:
-        # Keep the failed release for inspection. Reverting the app cannot undo a migration.
-        Path("deployment-diagnostics.json").write_text(json.dumps(cluster.diagnostics(), indent=2))
-        raise
+        record_healthy(cluster, documents[1:])
+        outcome = "healthy"
     finally:
+        # Collect facts even when credentials or the API are unavailable; no raw logs are saved.
+        Path("deployment-diagnostics.json").write_text(
+            json.dumps(collect(cluster, outcome, rollback_available, phase), indent=2) + "\n"
+        )
         closed = cleanup_closed_preview(cluster, target)
     if closed:
         raise RuntimeError("PR closed during release; preview resources were cleaned up")
@@ -86,7 +98,7 @@ def release(cluster, target, recommendation):
         "namespace": target.namespace,
         "image_tag": target.image_tag,
         "chart_revision": target.revision,
-        "profile": recommendation["profile"],
+        "resources": {service: recommendation[service] for service in ("backend", "frontend")},
         "reason": recommendation["reason"],
         "status": "healthy",
         "url": url,
@@ -133,7 +145,9 @@ def cleanup(cluster, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prompt", "render", "release", "cleanup"))
+    parser.add_argument(
+        "command", choices=("prompt", "render", "prepare", "release", "cleanup", "rollback")
+    )
     parser.add_argument("--cloud", choices=("kind", "aws", "gcp"), required=True)
     parser.add_argument(
         "--environment", choices=("preview", "staging", "production"), required=True
@@ -144,6 +158,8 @@ def main():
     parser.add_argument("--request", default=os.environ.get("DEPLOY_REQUEST", ""))
     parser.add_argument("--recommendation", type=Path)
     parser.add_argument("--context")
+    parser.add_argument("--output-dir", type=Path, default=Path("release-plan"))
+    parser.add_argument("--schema-compatible", action="store_true")
     arguments = parser.parse_args()
     target = Target(
         arguments.cloud,
@@ -155,14 +171,27 @@ def main():
     if arguments.command == "prompt":
         print(prompt(target, arguments.request))
         return
+    if arguments.command == "rollback":
+        from rollback import rollback
+
+        result = rollback(
+            Cluster(arguments.context, target.namespace), target, arguments.schema_compatible
+        )
+        Path("deployment-result.json").write_text(json.dumps(result, indent=2) + "\n")
+        print(json.dumps(result, indent=2))
+        return
     if arguments.command == "cleanup":
         cleanup(Cluster(arguments.context, target.namespace), target)
         return
     if not arguments.recommendation:
-        parser.error("--recommendation is required for render and release")
+        parser.error("--recommendation is required for render, prepare, and release")
     recommendation = json.loads(arguments.recommendation.read_text())
-    validate_recommendation(recommendation, target.environment)
-    if arguments.command == "render":
+    validate_recommendation(recommendation, target.environment, target.cloud)
+    if arguments.command == "prepare":
+        from planning import prepare
+
+        prepare(target, recommendation, arguments.output_dir, arguments.recommendation)
+    elif arguments.command == "render":
         print(
             json.dumps(
                 {"apiVersion": "v1", "kind": "List", "items": manifests(target, recommendation)},

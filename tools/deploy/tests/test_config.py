@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from recommendations import recommendation
 
 from config import Target, manifests, prompt, validate_recommendation
 
@@ -11,19 +12,23 @@ SHA = "a" * 40
 
 
 def test_environment_and_image_cannot_come_from_model_response():
+    data = recommendation()
+    data["namespace"] = "kube-system"
     with pytest.raises(ValueError):
-        validate_recommendation(
-            {"profile": "small", "reason": "test", "namespace": "kube-system"}, "staging"
-        )
-    for profile in ("$(touch /tmp/invalid)", ["unexpected"], None):
+        validate_recommendation(data, "staging", "kind")
+    for value in ("$(touch /tmp/invalid)", ["unexpected"], None, True):
+        data = recommendation()
+        data["backend"]["replicas"] = value
         with pytest.raises(ValueError):
-            validate_recommendation({"profile": profile, "reason": "test"}, "staging")
+            validate_recommendation(data, "staging", "kind")
 
 
-@pytest.mark.parametrize("environment,profile", [("production", "small"), ("preview", "resilient")])
-def test_environment_constraints_override_model_choice(environment, profile):
+@pytest.mark.parametrize("environment,replicas", [("production", 1), ("preview", 2)])
+def test_environment_constraints_override_model_choice(environment, replicas):
+    data = recommendation(environment=environment)
+    data["backend"]["replicas"] = replicas
     with pytest.raises(ValueError):
-        validate_recommendation({"profile": profile, "reason": "requested"}, environment)
+        validate_recommendation(data, environment, "kind")
 
 
 @pytest.mark.parametrize("pr", [None, 0, -1, True, "3", 1000000000])
@@ -34,7 +39,7 @@ def test_invalid_preview_numbers_cannot_become_namespaces(pr):
 
 def test_preview_has_its_own_project_namespace_and_both_services():
     target = Target("gcp", "preview", SHA, SHA, 42)
-    project, backend, frontend = manifests(target, {"profile": "small", "reason": "short lived"})
+    project, backend, frontend = manifests(target, recommendation("gcp", "preview"))
     assert project["spec"]["clusterResourceWhitelist"] == []
     assert project["spec"]["destinations"][0]["namespace"] == "idea-board-pr-42"
     assert (
@@ -52,7 +57,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
 )
 def test_chart_render_matches_cloud_exposure(cloud, service_type):
     target = Target(cloud, "staging", SHA, SHA)
-    application = manifests(target, {"profile": "standard", "reason": "redundancy"})[2]
+    application = manifests(target, recommendation(cloud))[2]
     values = application["spec"]["source"]["helm"]["valuesObject"]
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
@@ -80,8 +85,10 @@ def test_prompt_keeps_operator_input_as_data():
 
 
 def test_cli_rejects_invalid_model_output_before_writing_manifests(tmp_path):
-    recommendation = tmp_path / "recommendation.json"
-    recommendation.write_text('{"profile":"small","reason":"one replica"}')
+    recommendation_file = tmp_path / "recommendation.json"
+    data = recommendation("aws", "production")
+    data["backend"]["replicas"] = 1
+    recommendation_file.write_text(json.dumps(data))
     tool = Path(__file__).resolve().parents[1] / "deploy.py"
     result = subprocess.run(
         [
@@ -97,7 +104,7 @@ def test_cli_rejects_invalid_model_output_before_writing_manifests(tmp_path):
             "--revision",
             SHA,
             "--recommendation",
-            str(recommendation),
+            str(recommendation_file),
         ],
         capture_output=True,
         text=True,

@@ -2,6 +2,7 @@ from copy import deepcopy
 from unittest.mock import Mock
 
 import pytest
+from recommendations import recommendation
 
 from cluster import Cluster
 from config import Target, manifests
@@ -10,7 +11,7 @@ SHA = "a" * 40
 
 
 def release_state():
-    app = manifests(Target("kind", "staging", SHA, SHA), {"profile": "small", "reason": "test"})[1]
+    app = manifests(Target("kind", "staging", SHA, SHA), recommendation())[1]
     status = {
         "sync": {
             "status": "Synced",

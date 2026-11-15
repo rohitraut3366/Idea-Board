@@ -25,8 +25,12 @@ on:
         type: number
       operation:
         type: choice
-        options: [release, cleanup]
+        options: [release, cleanup, rollback]
         default: release
+      schema_compatible:
+        description: For rollback, confirm the previous code supports the current database schema
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       cloud:
@@ -47,6 +51,9 @@ on:
       operation:
         type: string
         default: release
+      schema_compatible:
+        type: boolean
+        default: false
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -74,6 +81,10 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.7'
+      - run: uv sync --project tools/deploy --locked --no-dev
       - name: Check CI result and preview ownership
         working-directory: tools/deploy
         env:
@@ -84,8 +95,8 @@ jobs:
         env:
           DEPLOY_REQUEST: ${{ inputs.request }}
         run: |
-          python tools/deploy/deploy.py prompt --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" >deployment-prompt.md
-      - name: Choose a deployment profile
+          uv run --project tools/deploy --no-sync python tools/deploy/deploy.py prompt --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" >deployment-prompt.md
+      - name: Plan application and infrastructure sizing
         uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -96,21 +107,28 @@ jobs:
           permission-profile: ':read-only'
           safety-strategy: drop-sudo
           codex-args: '["--ephemeral"]'
+      - name: Validate and render the release plan
+        run: |
+          uv run --project tools/deploy --no-sync python tools/deploy/deploy.py prepare --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --recommendation recommendation.json
       - name: Preserve the recommendation
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deployment-recommendation-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}
-          path: recommendation.json
+          path: |
+            recommendation.json
+            release-plan/
           if-no-files-found: error
           retention-days: 7
 
   deploy:
     needs: plan
-    if: always() && (inputs.operation == 'cleanup' || needs.plan.result == 'success')
+    if: always() && (inputs.operation == 'cleanup' || inputs.operation == 'rollback' || needs.plan.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    outputs:
+      evidence_available: ${{ steps.evidence.outputs.available }}
     concurrency:
-      group: deploy-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}-${{ inputs.operation }}
+      group: deploy-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}
       cancel-in-progress: false
     environment: ${{ inputs.cloud }}-${{ inputs.environment == 'preview' && 'staging' || inputs.environment }}
     permissions:
@@ -185,10 +203,27 @@ jobs:
         if: inputs.operation == 'release'
         run: |
           uv run --project tools/deploy --no-sync python tools/deploy/deploy.py release --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --recommendation recommendation.json --context idea-board-deploy
+      - name: Restore the previous verified release
+        if: inputs.operation == 'rollback'
+        env:
+          SCHEMA_COMPATIBLE: ${{ inputs.schema_compatible }}
+        run: |
+          if [[ "$SCHEMA_COMPATIBLE" != true ]]; then
+            echo 'Confirm database schema compatibility before rollback.' >&2
+            exit 1
+          fi
+          uv run --project tools/deploy --no-sync python tools/deploy/deploy.py rollback --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --context idea-board-deploy --schema-compatible
       - name: Delete a closed PR preview
         if: inputs.operation == 'cleanup'
         run: |
           uv run --project tools/deploy --no-sync python tools/deploy/deploy.py cleanup --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --context idea-board-deploy
+      - name: Check for rollout evidence
+        id: evidence
+        if: always()
+        run: |
+          if [[ -f deployment-diagnostics.json ]]; then
+            echo 'available=true' >>"$GITHUB_OUTPUT"
+          fi
       - name: Save release results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -199,4 +234,49 @@ jobs:
             deployment-diagnostics.json
             applications.json
           if-no-files-found: ignore
+          retention-days: 7
+
+  diagnose:
+    needs: deploy
+    if: always() && needs.deploy.outputs.evidence_available == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.7'
+      - run: uv sync --project tools/deploy --locked --no-dev
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: deployment-result-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}
+      - name: Prepare evidence for diagnosis
+        run: |
+          uv run --project tools/deploy --no-sync python tools/deploy/analyze.py prompt --evidence deployment-diagnostics.json >diagnosis-prompt.md
+      - name: Diagnose rollout evidence
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: diagnosis-prompt.md
+          output-schema-file: .agents/skills/deploy/diagnosis.schema.json
+          output-file: diagnosis.json
+          codex-version: '0.169.0'
+          permission-profile: ':read-only'
+          safety-strategy: drop-sudo
+          codex-args: '["--ephemeral"]'
+      - name: Validate the diagnosis
+        run: |
+          uv run --project tools/deploy --no-sync python tools/deploy/analyze.py report --evidence deployment-diagnostics.json --diagnosis diagnosis.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rollout-diagnosis-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}
+          path: |
+            diagnosis.json
+            diagnosis.md
+          if-no-files-found: error
           retention-days: 7

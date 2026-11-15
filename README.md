@@ -13,7 +13,11 @@ Browser → Nginx / React → FastAPI → PostgreSQL
 
 GitHub Actions → tests → GHCR images tagged with a commit SHA
        ↓
-Codex deployment skill → validated Helm values → Argo CD → Kubernetes
+Codex deployment skill → release plan + Helm values + Terraform sizing
+                                   ↓
+                            Argo CD → Kubernetes
+                                   ↓
+                        rollout evidence → Codex diagnosis
 ```
 
 The frontend serves static assets and proxies `/api` to the backend, so the browser uses one origin. FastAPI owns validation and database requests. PostgreSQL persists ideas and enforces duplicate rejection under concurrent writes.
@@ -146,7 +150,7 @@ The credential secret reference is configuration, not the password. The runner f
 
 1. Run CI on the source branch and wait for every job, including image publication, to succeed. Copy the full source commit SHA from the run.
 2. Open **Actions → Deploy → Run workflow**, select the cloud and environment, paste the image SHA, and describe the intended workload. For example: `Staging for a few reviewers; keep resource use small`.
-3. The skill selects a profile and explains it. The deployment job validates the response and then authenticates to the selected cloud. Production approval follows the GitHub Environment rules you configured.
+3. Codex proposes independent service resources, cloud sizing, and an ordered release plan. The plan job validates the response and uploads the recommendation, rendered Applications, `plan.md`, and (for cloud staging/production) `sizing.tfvars.json`. Review these before approving the deployment Environment. Infrastructure sizing is a proposal: use the generated file with your existing Terraform inputs and state to review a real plan and apply any needed capacity changes separately. The release job only deploys the application.
 4. The tool creates the target namespace and database Secret, then submits separate backend and frontend Applications to Argo CD. It pins both charts and images to the selected source commit. Secrets stay outside the Application manifests and CI artifacts.
 5. The backend must be healthy before the workflow submits the frontend release. The workflow waits for the requested Argo source and values to be Synced and Healthy, then checks that the running Deployment generation, images, and available replicas match. An old healthy release cannot satisfy this check. It verifies backend health and runs the frontend's full-stack HTTP test through a port-forward.
 6. For cloud releases, it waits for a public frontend address and checks the page and API at that address. Only then does it publish the working URL in the run summary and `deployment-result` artifact.
@@ -163,7 +167,11 @@ gh workflow run deploy.yml --ref master \
 
 Use `cloud=gcp` to target GCP. Workflows must be present on the selected branch; automatic preview events require them on the repository's default branch.
 
-If a release fails, the workflow fails and saves pod, Job, and event diagnostics for inspection. It leaves the failed release in place. To restore application code, rerun Deploy with a previously successful commit. This does not reverse database migrations; migrations must remain compatible with the preceding release. The cloud workflow records generated Applications in its artifacts and Kubernetes; it does not commit environment changes back to Git. Existing local Applications continue to follow their configured Git branch.
+If a release fails, its job stays failed. A separate Codex job analyzes the collected evidence and saves a diagnosis with cited observations and suggested next steps. It cannot mark a failed health check healthy or execute its advice. Failures before the tool starts, such as cloud authentication errors, have no rollout evidence and need inspection in the failed job.
+
+To restore the preceding verified release, run Deploy with `operation=rollback`, the **failed** image SHA, the same cloud/environment/PR, and `schema_compatible=true`. Confirm first that the preceding application code supports the current database schema. The tool checks the release checkpoint and current Applications, restores both Argo sources, skips migration hooks through selective sync, and reruns rollout and HTTP checks. It refuses rollback if another release changed the Applications, no previous verified release exists, or Argo still has a running sync; terminate a stuck sync in Argo CD and inspect its hooks before retrying. It does not reverse database changes or restore credentials.
+
+The cloud workflow records generated Applications in its artifacts and Kubernetes; it does not commit environment changes back to Git. Existing local Applications continue to follow their configured Git branch.
 
 ### PR previews
 
@@ -181,19 +189,25 @@ Fork PRs never receive deployment credentials or previews. The privileged previe
 
 ## AI integration
 
-The [deployment skill](.agents/skills/deploy/SKILL.md) runs with Codex. It converts an operator's description of an environment into a resource profile and a short explanation. For example, a staging request for occasional reviewer access can use one replica per service, while a production request for replica redundancy needs at least two.
+The [deployment skill](.agents/skills/deploy/SKILL.md) uses Codex twice: once to plan a release from a workload description, and once to explain what happened after the rollout. The model runs in separate jobs without cloud credentials. Local use can reuse the operator's Codex CLI sign-in; GitHub Actions uses `OPENAI_API_KEY` with the official [Codex Action](https://developers.openai.com/codex/github-action/).
 
-| Profile | Replicas per service | Backend memory limit | Frontend memory limit |
-| --- | --- | --- | --- |
-| `small` | 1 | 256 MiB | 128 MiB |
-| `standard` | 2 | 256 MiB | 128 MiB |
-| `resilient` | 3 | 512 MiB | 128 MiB |
+| Capability | What gets produced | How it is used |
+| --- | --- | --- |
+| Release planning | Ordered steps with reasons and a command assembled from validated inputs | Operators can review the exact target and execution order before deploying |
+| Application sizing | Independent replicas, CPU requests, memory requests, and limits for each service | Converted to Helm values in the two Argo Applications |
+| Infrastructure configuration | Cloud-specific worker count/type, database tier/storage, and standby setting | Written as Terraform JSON variables against the existing modules; reviewed and applied separately |
+| Rollout diagnosis | Assessment, evidence IDs, explanation, and suggested next steps | Saved as a validated run artifact, including on failed deployments |
+| Controlled rollback | A recommendation when evidence supports reverting the release | An operator explicitly restores the previous verified Argo sources after checking schema compatibility |
 
-The model returns only `profile` and `reason`. It does not generate shell commands or change Terraform. The [deployment tool](tools/deploy/README.md) rejects unknown fields, invalid profiles, large preview profiles, and a single-replica production recommendation before cloud authentication. The trusted workflow inputs determine the cloud, namespace, PR number, chart revision, and image tag.
+For example, a request for inexpensive reviewer access can produce one small backend and frontend with a single-zone database. A request to remain available during a node failure should produce additional application replicas, multiple workers, and a standby database, with the cost tradeoff explained. The recommendations are starting points: replica counts do not guarantee node placement or measured capacity. Run the load test against the proposed setup and use the results to adjust sizing.
 
-This gives developers a way to express workload needs without memorizing Helm values, while keeping sizing changes bounded and explaining the tradeoff in the run artifacts. Fixed profiles also make responses reviewable and straightforward to test. The skill explains when a request needs separate node or database sizing work; it cannot promise capacity from replica counts alone.
+The model chooses actual settings rather than selecting a fixed profile. JSON Schema and Python checks bound each value, reject additional fields, require memory limits to cover requests, limit previews to one small replica per service, and require at least two replicas per service plus multiple workers and a standby database for production proposals. AWS/GCP machine names must belong to the selected cloud. Trusted workflow inputs own the namespace, image, revision, and cloud. Model text never becomes executable shell code. The [deployment tool](tools/deploy/README.md) writes the release command from those validated inputs and enforces backend-before-frontend deployment.
 
-Deployment health is checked by Argo CD, Kubernetes, and HTTP tests. Model text cannot declare a failed rollout healthy. The workflow stops if Codex fails or returns an invalid recommendation; there is no silent fallback presented as an AI decision. Tests use explicit recommendation fixtures to verify the parser and deployment behavior without spending model tokens. A live Codex action run still requires the Actions secret and remains a separate verification step.
+Terraform generation deliberately stops at supported sizing inputs. It reuses the maintained network, cluster, and PostgreSQL modules; it does not invent resource blocks, credentials, or security settings. A real Terraform plan still needs the account, region, existing stack variables, and state. The pipeline does not silently resize a shared cluster or database during an application release. PR previews share staging infrastructure and receive no Terraform sizing file.
+
+The diagnosis receives bounded pod readiness/restarts/exit reasons, Job status, event reason counts, recognized error signatures from recent/current and previous container logs, and CPU/memory snapshots when Metrics Server is available. Raw logs, event messages, environment variables, and Secrets are excluded. Missing sources appear as evidence gaps. These are deployment observations, not a historical monitoring system. The response must cite collected evidence, and it cannot override the deterministic rollout or HTTP checks. Suggested next steps are never executed. Rollback uses a per-namespace checkpoint saved by the deployment tool after a verified release; existing manually deployed environments have no checkpoint until their first successful tool-managed release.
+
+CI tests the configuration contract, generated Helm values, generated Terraform sizing with provider mocks, evidence filtering, and rollback guards. Its kind integration check exercises staging, preview persistence and cleanup, then injects an image pull failure and restores the preceding Argo release. Explicit fixtures keep those checks repeatable without requiring model credentials. A live Codex CLI check and local kind verification are separate from cloud OIDC, managed database permissions, and public load balancer verification. No active cloud deployment or permanent public URL is maintained by these tests.
 
 ## Cloud-agnostic approach
 
@@ -222,7 +236,7 @@ LOAD_CYCLES=100 LOAD_CONCURRENCY=10 npm --prefix apps/frontend run test:load
 
 Use `IDEA_BOARD_BASE_URL` to test a port-forward or cloud URL. Set `LOAD_MAX_P95_MS` when the environment has an agreed request-latency target. The test reports request count, errors, elapsed time, throughput, and p95 request latency. It creates uniquely named ideas and deletes the IDs it receives, including after read failures. It exits unsuccessfully for request errors, failed cleanup, or an exceeded latency target.
 
-CI runs a small concurrency check and, after image publication, exercises staging, preview redeployment, and cleanup through Argo CD in kind. For a capacity test, run the load generator outside the cluster, increase concurrency in steps, and record pod CPU/memory, database CPU/connections, and saturation alongside latency and errors. Keep the image commit, worker/database sizes, replica counts, and test parameters with the results. A port-forward or a local Docker engine can become the bottleneck; local throughput is not a cloud capacity result.
+CI runs a small concurrency check and, after image publication, exercises staging, preview redeployment/cleanup, image failure detection, and rollback through Argo CD in kind. For a capacity test, run the load generator outside the cluster, increase concurrency in steps, and record pod CPU/memory, database CPU/connections, and saturation alongside latency and errors. Keep the image commit, worker/database sizes, replica counts, and test parameters with the results. A port-forward or a local Docker engine can become the bottleneck; local throughput is not a cloud capacity result.
 
 | Area | Verification |
 | --- | --- |
@@ -232,6 +246,6 @@ CI runs a small concurrency check and, after image publication, exercises stagin
 | Codex and cloud release workflows | Implemented; local validation/tests cover their helpers; hosted execution and OIDC configuration still need live verification |
 | Public application URLs | No AWS or GCP application is currently hosted; URLs are produced only after a successful public reachability check |
 
-The local Argo release check used existing published images and chart revision `49229bb`; changed chart options were checked with Helm rendering. CI is configured to repeat the flow against the source commit it publishes. A local Compose load run completed 100 cycles (300 requests) at concurrency 10 with no request or cleanup errors; p95 request latency was 37.64 ms. These numbers describe one run on a local machine.
+The local Argo release and rollback check used published image commit `34e9b27` and chart revision `f60da49`. CI is configured to repeat the flow against the source commit it publishes. A local Compose load run completed 100 cycles (300 requests) at concurrency 10 with no request or cleanup errors; p95 request latency was 37.64 ms. These numbers describe one run on a local machine.
 
 Two working cloud URLs require two running cloud deployments. Local testing covers application behavior and the release mechanics available locally; it cannot establish cloud permissions, managed-service compatibility, or public routing.
