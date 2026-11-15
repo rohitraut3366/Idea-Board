@@ -48,3 +48,7 @@ helm test frontend --namespace idea-board --logs --timeout 2m
 ```
 
 The smoke test checks the frontend page and reads ideas through the API proxy. GitHub Actions installs and upgrades this chart alongside the backend chart and runs both charts' smoke tests.
+
+## Public cloud access
+
+The Service defaults to `ClusterIP`. Set `service.type: LoadBalancer` for public cloud access. `service.annotations` and `service.loadBalancerClass` pass provider-specific settings to the Service. AWS deployment values select an internet-facing NLB managed by an already installed AWS Load Balancer Controller; GKE uses its standard Service integration. The chart does not install cloud controllers or provision their IAM permissions. The resulting endpoint serves HTTP; a custom domain and TLS certificate require separate routing configuration.

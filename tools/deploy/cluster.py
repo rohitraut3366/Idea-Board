@@ -1,0 +1,221 @@
+"""Argo CD deployment and verification with an explicit Kubernetes context."""
+
+import base64
+import json
+import os
+import re
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+from urllib.request import urlopen
+
+
+class Cluster:
+    def __init__(self, context, namespace):
+        if not context:
+            raise ValueError("an explicit Kubernetes context is required")
+        self.context = context
+        self.namespace = namespace
+
+    def run(self, *arguments, data=None):
+        result = subprocess.run(
+            ["kubectl", "--context", self.context, *arguments],
+            input=data if isinstance(data, str) else json.dumps(data) if data is not None else None,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode:
+            # Do not include stdin: it may contain database credentials.
+            raise RuntimeError(f"kubectl {arguments[0]} failed: {result.stderr.strip()}")
+        return result.stdout
+
+    def get(self, kind, name, namespace=None):
+        arguments = ["get", kind, name, "--ignore-not-found", "-o", "json"]
+        if namespace:
+            arguments += ["--namespace", namespace]
+        output = self.run(*arguments)
+        return json.loads(output) if output.strip() else None
+
+    def apply(self, document):
+        self.run(
+            "apply", "--server-side", "--field-manager=idea-board-deploy", "-f", "-", data=document
+        )
+
+    def ensure_namespace(self, environment):
+        existing = self.get("namespace", self.namespace)
+        labels = {
+            "app.kubernetes.io/part-of": "idea-board",
+            "idea-board/environment": environment,
+        }
+        if existing:
+            actual = existing["metadata"].get("labels", {})
+            if any(actual.get(key) != value for key, value in labels.items()):
+                raise ValueError("namespace is not owned by this deployment tool")
+        else:
+            self.apply(
+                {
+                    "apiVersion": "v1",
+                    "kind": "Namespace",
+                    "metadata": {"name": self.namespace, "labels": labels},
+                }
+            )
+
+    def database_url(self):
+        secret = self.get("secret", "idea-board-database", self.namespace)
+        if not secret:
+            return None
+        return base64.b64decode(secret["data"]["IDEA_BOARD_DATABASE_URL"]).decode()
+
+    def set_database_url(self, url):
+        self.apply(
+            {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": "idea-board-database", "namespace": self.namespace},
+                "type": "Opaque",
+                "stringData": {"IDEA_BOARD_DATABASE_URL": url},
+            }
+        )
+
+    def wait(self, applications, timeout=600):
+        deadline = time.monotonic() + timeout
+        pending = applications.copy()
+        while pending and time.monotonic() < deadline:
+            for expected in pending.copy():
+                name = expected["metadata"]["name"]
+                current = self.get("application", name, "argocd")
+                if not current:
+                    continue
+                status = current.get("status", {})
+                source = expected["spec"]["source"]
+                compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
+                same_source = (
+                    all(
+                        compared.get(key) == source[key]
+                        for key in (
+                            "repoURL",
+                            "targetRevision",
+                            "path",
+                        )
+                    )
+                    and compared.get("helm", {}).get("valuesObject")
+                    == source["helm"]["valuesObject"]
+                )
+                if (
+                    not same_source
+                    or status.get("sync", {}).get("revision") != source["targetRevision"]
+                ):
+                    continue
+                if (
+                    status.get("sync", {}).get("status") != "Synced"
+                    or status.get("health", {}).get("status") != "Healthy"
+                ):
+                    continue
+                release = source["helm"]["releaseName"]
+                deployment = self.get("deployment", release, self.namespace)
+                if not deployment:
+                    continue
+                spec = deployment["spec"]
+                values = source["helm"]["valuesObject"]
+                expected_image = f"{values['image']['repository']}:{values['image']['tag']}"
+                running_image = spec["template"]["spec"]["containers"][0]["image"]
+                observed = deployment.get("status", {})
+                if (
+                    running_image == expected_image
+                    and observed.get("observedGeneration", 0)
+                    >= deployment["metadata"]["generation"]
+                    and observed.get("updatedReplicas", 0) == values["replicas"]
+                    and observed.get("availableReplicas", 0) == values["replicas"]
+                ):
+                    pending.remove(expected)
+            if pending:
+                time.sleep(3)
+        if pending:
+            names = ", ".join(app["metadata"]["name"] for app in pending)
+            raise TimeoutError(f"Applications did not reach the requested healthy release: {names}")
+
+    def verify(self):
+        # Readiness includes /health; also check it directly inside the backend pod.
+        self.run(
+            "--namespace",
+            self.namespace,
+            "exec",
+            "deployment/backend",
+            "--",
+            "python",
+            "-c",
+            "from urllib.request import urlopen; "
+            "assert urlopen('http://127.0.0.1:8000/health', timeout=10).status == 200",
+        )
+        with tempfile.TemporaryFile(mode="w+") as log:
+            forward = subprocess.Popen(
+                [
+                    "kubectl",
+                    "--context",
+                    self.context,
+                    "--namespace",
+                    self.namespace,
+                    "port-forward",
+                    "service/frontend",
+                    "0:80",
+                    "--address=127.0.0.1",
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if forward.poll() is not None:
+                        raise RuntimeError("frontend port-forward exited")
+                    log.seek(0)
+                    match = re.search(r"Forwarding from 127\.0\.0\.1:(\d+)", log.read())
+                    if match:
+                        break
+                    time.sleep(0.2)
+                else:
+                    raise TimeoutError("frontend port-forward did not start")
+                environment = os.environ.copy()
+                environment["IDEA_BOARD_BASE_URL"] = f"http://127.0.0.1:{match.group(1)}"
+                test = Path(__file__).resolve().parents[2] / "apps/frontend/tests/stack.mjs"
+                subprocess.run(["node", "--test", str(test)], env=environment, check=True)
+            finally:
+                forward.terminate()
+                try:
+                    forward.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    forward.kill()
+                    forward.wait()
+
+    def public_url(self, timeout=300):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            service = self.get("service", "frontend", self.namespace)
+            addresses = (service or {}).get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            if addresses:
+                address = addresses[0].get("hostname") or addresses[0].get("ip")
+                if address:
+                    url = f"http://{address}"
+                    try:
+                        with urlopen(url, timeout=10) as response:
+                            if response.status == 200:
+                                with urlopen(
+                                    url + "/api/ideas?limit=1", timeout=10
+                                ) as api_response:
+                                    if api_response.status == 200 and isinstance(
+                                        json.load(api_response), list
+                                    ):
+                                        return url
+                    except OSError:
+                        pass  # Cloud load balancers can publish an address before serving traffic.
+            time.sleep(5)
+        raise TimeoutError("frontend did not become publicly reachable")
+
+    def diagnostics(self):
+        # Events and status are enough to locate failed hooks and image or scheduling failures.
+        # Application logs are intentionally excluded: they may contain submitted ideas or secrets.
+        return {
+            kind: self.run("--namespace", self.namespace, "get", kind, "-o", "json")
+            for kind in ("pods", "jobs", "events")
+        }

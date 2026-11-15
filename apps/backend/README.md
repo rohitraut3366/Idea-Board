@@ -1,6 +1,6 @@
 # Backend
 
-FastAPI and PostgreSQL for the Idea Board. The repository root has one `docker-compose.yml` for the frontend, backend, migration job, and PostgreSQL. Cloud deployment remains planned.
+FastAPI and PostgreSQL for the Idea Board. The repository root has one `docker-compose.yml` for the frontend, backend, migration job, and PostgreSQL. See the root README for cloud deployment.
 
 ## Run locally
 
@@ -79,6 +79,6 @@ uv run pytest tests/unit
 uv run pytest tests/integration
 ```
 
-The integration suite covers API behavior, keyset pagination, concurrent writes, persistence across application restarts, the migration lifecycle, duplicate rejection under concurrent writes, long Unicode content, deletion, and an unavailable database. The full cloud scale tests remain a separate implementation step.
+The integration suite covers API behavior, keyset pagination, concurrent writes, persistence across application restarts, the migration lifecycle, duplicate rejection under concurrent writes, long Unicode content, deletion, and an unavailable database. See the root README for the repeatable load runner. Cloud capacity measurements still require a live deployment.
 
 The Docker build installs locked runtime dependencies before copying the README and application code. It reuses a uv download cache and copies only the installed environment and migration files into the runtime stage. Documentation and migration edits do not reinstall third-party dependencies.

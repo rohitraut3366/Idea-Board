@@ -22,3 +22,8 @@ backend.hcl
 crash.log
 crash.*.log
 infra/terraform/modules/**/.terraform.lock.hcl
+/deployment-result.json
+/deployment-diagnostics.json
+/applications.json
+/recommendation.json
+/deployment-prompt.md

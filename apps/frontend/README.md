@@ -42,8 +42,12 @@ npm run build
 npm run format:check
 ```
 
-Tests live in `tests/` and exercise the rendered app with simulated API responses. They cover submissions, failed writes, read retries, pagination, plain-text rendering, large IDs, character limits, duplicate messages, deletion confirmation, and failed deletion. `npm run typecheck` checks the application and test code; `npm run build` produces the static assets. Browser E2E and scale testing remain later steps; these component tests do not establish cloud capacity.
+Tests live in `tests/` and exercise the rendered app with simulated API responses. They cover submissions, failed writes, read retries, pagination, plain-text rendering, large IDs, character limits, duplicate messages, deletion confirmation, and failed deletion. `npm run typecheck` checks the application and test code; `npm run build` produces the static assets. The full-stack HTTP and load checks are separate from the component suite; none of these local tests establish cloud capacity. Browser-driven E2E testing remains pending.
 
 With a running stack, `npm run test:stack` checks the built assets, API proxy, writes, validation, pagination, duplicate rejection, and deletion over HTTP. It creates two ideas and deletes them on success; use a disposable test stack. Set `IDEA_BOARD_BASE_URL` to target a different address.
 
 The Docker build excludes tests and installs dependencies before copying application code. Editing a test does not rebuild the production image. Local builds reuse an npm download cache; GitHub Actions also restores the image layers and the frontend test job’s npm cache.
+
+## Concurrency checks
+
+With a running Compose stack, run `npm run test:load`. Set `LOAD_CYCLES`, `LOAD_CONCURRENCY`, and `IDEA_BOARD_BASE_URL` to choose the workload and target. `LOAD_MAX_P95_MS` optionally enforces a request-latency target. The command reports errors, throughput, p95 request latency, and cleanup failures. It deletes the ideas it created and received IDs for, even after a subsequent read fails. The load runner's own tests exercise successful runs and injected read failures.

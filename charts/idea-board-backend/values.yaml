@@ -5,6 +5,7 @@ image:
   pullPolicy: IfNotPresent
 replicas: 1
 databaseSecretName: ''
+databaseRevision: ''
 resources:
   requests:
     cpu: 100m

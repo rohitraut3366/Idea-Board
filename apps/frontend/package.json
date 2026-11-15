@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:stack": "node --test tests/stack.mjs",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:load": "node tests/load.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

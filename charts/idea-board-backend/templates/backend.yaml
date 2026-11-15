@@ -13,6 +13,10 @@ spec:
       app.kubernetes.io/component: backend
   template:
     metadata:
+      {{- with .Values.databaseRevision }}
+      annotations:
+        checksum/database: {{ . | quote }}
+      {{- end }}
       labels:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: backend

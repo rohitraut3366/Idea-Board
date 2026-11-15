@@ -1,0 +1,54 @@
+name: PR previews
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      enabled: ${{ steps.select.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Never check out PR code in this privileged event.
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_CLOUD: ${{ vars.PREVIEW_CLOUD }}
+        run: python tools/deploy/github.py
+  preview:
+    needs: select
+    if: needs.select.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      cloud: ${{ matrix.cloud }}
+      environment: preview
+      image_tag: ${{ matrix.image_tag }}
+      pr: ${{ matrix.pr }}
+      operation: ${{ matrix.operation }}
+    secrets: inherit

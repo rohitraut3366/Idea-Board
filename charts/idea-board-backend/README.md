@@ -47,3 +47,5 @@ helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board
 ```
 
 GitHub Actions installs this chart into kind, runs the smoke test, upgrades it to rerun migrations, and repeats the smoke test. `tests/postgres.yaml` is an ephemeral database fixture for those CI tests; it is not installed by the chart and is not a persistent development database.
+
+The deployment tool sets `databaseRevision` to a hash of the database connection configuration. A changed credential Secret then changes the pod template and rolls out backend pods so they read the current environment value. The Secret value itself is not included in the Application or Helm values.

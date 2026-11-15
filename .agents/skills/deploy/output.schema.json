@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "profile": {"type": "string", "enum": ["small", "standard", "resilient"]},
+    "reason": {"type": "string"}
+  },
+  "required": ["profile", "reason"],
+  "additionalProperties": false
+}

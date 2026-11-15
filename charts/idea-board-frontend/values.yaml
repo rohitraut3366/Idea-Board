@@ -11,3 +11,8 @@ resources:
   limits:
     memory: 128Mi
 backendUpstream: backend:8000
+
+service:
+  type: ClusterIP
+  annotations: {}
+  loadBalancerClass: ""
