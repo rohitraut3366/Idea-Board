@@ -39,11 +39,11 @@ flowchart LR
     API --> DB
 ```
 
-The browser first loads React's static files from the frontend. React then makes separate API requests through the same public address. Ingress routes those requests directly to FastAPI; they do not pass through frontend Nginx. Keeping one origin avoids a separate browser API URL and CORS setup.
+The browser loads React's static files from the frontend. React sends API requests to the same public address, and Ingress routes `/api/*` to FastAPI.
 
 The AWS Load Balancer Controller or GKE's built-in Ingress controller creates the public load balancer and registers backends. Terraform owns the cluster and required controller identity; Argo CD owns the Kubernetes routing configuration. The frontend and backend each retain their own Service, Deployment, and Helm chart.
 
-Local Compose and kind use Nginx's `/api/` proxy instead of a cloud load balancer. The application code and relative API URLs stay the same. The [post-cluster ingress guide](infra/ingress/README.md) explains cloud setup; live cloud verification of this routing remains pending.
+Local Compose and kind use Nginx's `/api/` proxy. React uses relative API URLs in every environment. The [post-cluster ingress guide](infra/ingress/README.md) covers cloud setup.
 
 ### From source code to a running release
 
@@ -65,7 +65,7 @@ flowchart TD
     Evidence --> Diagnosis[AI diagnosis and suggested next steps]
 ```
 
-Infrastructure must exist before an application release. Terraform creates the network, Kubernetes cluster, and managed database. A routine release reuses them and deploys a tested image commit. AI-generated infrastructure sizing is reviewed separately; an application release does not automatically apply Terraform.
+Infrastructure must exist before an application release. Terraform creates the network, Kubernetes cluster, and managed database. A routine release reuses them and deploys a tested image commit. Operators review and apply AI-generated infrastructure sizing through Terraform.
 
 | Layer                              | Responsibility                                            | Why it is separate                                          |
 | ---------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------- |
@@ -86,13 +86,13 @@ The frontend uses React, TypeScript, and Vite. Vite builds static assets for the
 
 The UI loads ideas in pages of 50, newest first. Users can submit text, refresh the list, load older entries, and delete an idea after confirmation. Failed submissions preserve the draft, and failed reads offer a retry. Idea content is displayed as plain text.
 
-React calls relative URLs such as `/api/ideas`. In development, Vite proxies those requests to the local backend. In the built container, Nginx forwards them to `BACKEND_UPSTREAM`, which defaults to `backend:8000`. No API address is embedded in the JavaScript build.
+React calls relative URLs such as `/api/ideas`. In development, Vite proxies those requests to the local backend. In the built container, Nginx forwards them to `BACKEND_UPSTREAM`, which defaults to `backend:8000`. Cloud Ingress routes browser API requests to the backend Service.
 
 See the [frontend guide](apps/frontend/README.md) for UI behavior and build details.
 
 ### Backend and API
 
-The backend uses FastAPI, SQLAlchemy, and psycopg. It validates requests, reads and writes PostgreSQL, and returns JSON. It does not render frontend pages.
+The backend uses FastAPI, SQLAlchemy, and psycopg. It validates requests, reads and writes PostgreSQL, and returns JSON.
 
 | Method and endpoint                    | Behavior                                                                | Success response         |
 | -------------------------------------- | ----------------------------------------------------------------------- | ------------------------ |
@@ -121,11 +121,11 @@ The response is `201 Created`, with this shape:
 }
 ```
 
-IDs are decimal strings so the browser can preserve PostgreSQL bigint values. Timestamps are in UTC. Listing returns an array of these objects. Pagination uses an ID cursor so new submissions do not shift older pages; `limit` accepts 1–100, and `before_id` requires `limit`.
+IDs are decimal strings so the browser can preserve PostgreSQL bigint values. Timestamps are in UTC. Listing returns an array of these objects. Pagination uses an ID cursor to keep older pages stable as new ideas arrive; `limit` accepts 1–100, and `before_id` requires `limit`.
 
-Content is trimmed and must contain 1–2,000 characters. Exact duplicate text is rejected after trimming; comparison is case-sensitive. Duplicate submissions return `409`, invalid input returns `422`, and deleting an absent idea returns `404`. Database unavailability returns `503` without exposing connection details.
+Content is trimmed and must contain 1–2,000 characters. Exact duplicate text is rejected after trimming; comparison is case-sensitive. Duplicate submissions return `409`, invalid input returns `422`, and deleting an absent idea returns `404`. Database unavailability returns `503` with a generic error message.
 
-Writes are not automatically retried: a lost response does not establish whether the database committed the request. The app currently permits anonymous creation and deletion; it has no user accounts or authorization layer.
+After an interrupted submission, users can refresh the board to check whether the idea was saved before submitting again. Visitors can create and delete ideas anonymously.
 
 Interactive API documentation is available at [localhost:8000/docs](http://localhost:8000/docs) when running locally. See the [backend guide](apps/backend/README.md) for the full validation and configuration contract.
 
@@ -144,7 +144,7 @@ Alembic tracks schema versions. Migrations run as a **separate job before the ba
 - Compose runs the `migrate` service and requires a successful exit before starting the backend.
 - The backend Helm chart runs a migration Job before install/upgrade; Argo CD treats it as a `PreSync` hook. Failure blocks that backend sync.
 
-The API never runs migrations. During startup it checks the database and required schema, then exits if either is unavailable. Once running, `/health` checks database access; Kubernetes readiness uses it to control traffic.
+During startup, the API checks the database and required schema, then exits if either is unavailable. Once running, `/health` checks database access; Kubernetes readiness uses it to control traffic.
 
 ## Repository layout
 
@@ -187,7 +187,7 @@ Startup follows this order:
 PostgreSQL healthy → migration completes → backend healthy → frontend starts
 ```
 
-Local API requests follow `browser → Nginx at localhost:3000 → FastAPI → PostgreSQL`. Nginx also serves the page and static assets. This local proxy replaces the cloud Ingress route without changing browser API calls.
+Local API requests follow `browser → Nginx at localhost:3000 → FastAPI → PostgreSQL`. Nginx also serves the page and static assets. React uses the same relative `/api/` URLs locally and in cloud deployments.
 
 Open [the web app](http://localhost:3000), submit an idea, refresh the page, and confirm it remains in the list. `docker compose ps --all` shows running services and the completed migration service; a successful migration exits with code 0.
 
@@ -197,7 +197,7 @@ Open [the web app](http://localhost:3000), submit an idea, refresh the page, and
 | Direct API access and `/docs`              | `http://localhost:8000` |
 | PostgreSQL                                 | `127.0.0.1:55432`       |
 
-Compose supplies development credentials through process environment variables. Backend and migration processes both read `IDEA_BOARD_DATABASE_URL`; no `.env` file is required. PostgreSQL stores data in a named volume, so restarting containers preserves ideas.
+Compose supplies development credentials through process environment variables. Backend and migration processes both read `IDEA_BOARD_DATABASE_URL` from the process environment. PostgreSQL stores data in a named volume, so restarting containers preserves ideas.
 
 ### Logs, rebuilds, and shutdown
 
@@ -265,7 +265,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Backend integration tests create a temporary database, apply real migrations, exercise the API, and remove that database. They cover persistence, pagination, concurrent duplicate writes, deletion, and database failures without truncating the development database.
+Backend integration tests create a temporary database, apply real migrations, exercise the API, and remove that database. They cover persistence, pagination, concurrent duplicate writes, deletion, and database failures in that isolated database.
 
 Execute frontend checks from `apps/frontend`:
 
@@ -283,7 +283,7 @@ Component tests use simulated API responses. With a disposable Compose stack run
 npm --prefix apps/frontend run test:stack
 ```
 
-This HTTP test writes test data. Browser-driven end-to-end UI testing remains pending.
+This HTTP test writes test data and exercises the running frontend and API together.
 
 ### Load checks and capacity testing
 
@@ -303,7 +303,7 @@ IDEA_BOARD_BASE_URL=https://YOUR_APPLICATION_HOST \
   npm --prefix apps/frontend run test:load
 ```
 
-A local concurrency check confirms behavior under overlapping requests. To measure cloud capacity, run the generator outside the cluster, increase concurrency in steps, and collect pod CPU/memory, database CPU/connections, and saturation alongside latency and errors. Record the image commit, replica counts, worker/database sizes, and test parameters. A local Docker engine or port-forward can become the bottleneck, so its throughput is not a cloud capacity result.
+A local concurrency check confirms behavior under overlapping requests. To measure cloud capacity, run the generator outside the cluster, increase concurrency in steps, and collect pod CPU/memory, database CPU/connections, and saturation alongside latency and errors. Record the image commit, replica counts, worker/database sizes, and test parameters. Measure cloud capacity against the public cloud endpoint with an external load generator.
 
 ### What CI checks
 
@@ -325,7 +325,7 @@ Terraform has separate AWS and GCP roots. Each calls independent modules with re
 | `cluster` | EKS, managed workers, IAM roles and administrator access | GKE, worker pool, node identity and Workload Identity                     |
 | `psql`    | Private RDS PostgreSQL and managed credentials           | Private Cloud SQL PostgreSQL and Secret Manager credentials               |
 
-The network supplies connectivity to the cluster and database. The database accepts application traffic over private networking. PostgreSQL is not exposed to the internet. Kubernetes API endpoints require cloud authentication and Kubernetes authorization; their current configuration permits public network reachability without a caller-IP allowlist.
+The network supplies connectivity to the cluster and database. The database accepts application traffic over private networking. Kubernetes API endpoints are publicly reachable and require cloud authentication and Kubernetes authorization.
 
 Before provisioning, configure cloud credentials and create a remote state bucket separately. Use distinct stack names and state keys for staging and production. State tracks real resources and may contain credentials; restrict bucket access and enable encryption and versioning.
 
@@ -352,9 +352,9 @@ terraform apply stack.tfplan
 terraform output
 ```
 
-A successful apply creates infrastructure; it does not deploy the app. Note the `cluster_name`, `database_host`, `database_port`, `database_name`, `database_username`, and `database_credential_secret_id` outputs for the deployment configuration below. The secret ID references stored credentials; it is not the password.
+A successful apply creates the infrastructure used by the application release. Note the `cluster_name`, `database_host`, `database_port`, `database_name`, `database_username`, and `database_credential_secret_id` outputs for the deployment configuration below. The secret ID identifies the stored database credential.
 
-A real Terraform plan requires cloud credentials and account access. Provider-mock tests check configuration without creating resources, but cannot verify cloud permissions, quotas, or regional availability. See the [Terraform guide](infra/terraform/README.md) for state setup, all variables, capacity settings, and teardown.
+A real Terraform plan requires cloud credentials and account access. Provider-mock tests check resource configuration. Live plans and deployments verify cloud permissions, quotas, and regional availability. See the [Terraform guide](infra/terraform/README.md) for state setup, all variables, capacity settings, and teardown.
 
 ### 2. Configure Kubernetes, Argo CD, and public routing
 
@@ -362,11 +362,11 @@ Connect to the new cluster using `aws eks update-kubeconfig` or `gcloud containe
 
 Install the pinned Argo CD configuration from `gitops/argocd` into the `argocd` namespace. Argo CD renders the frontend and backend Helm charts as separate Applications. The deployment tool creates a namespace-scoped AppProject and cloud Applications, pins the charts/images to the selected source commit, and supplies Helm values. Database Secrets are provisioned separately from the Application manifests.
 
-For local Kubernetes, the [GitOps guide](gitops/README.md) covers installation, existing kind Applications, and port-forwarding. Those local Applications use `gitops/kind` values and configured Git revisions; inspect them before applying. They are separate from the cloud Applications generated by the deployment tool.
+For local Kubernetes, the [GitOps guide](gitops/README.md) covers installation, existing kind Applications, and port-forwarding. Those local Applications use `gitops/kind` values and configured Git revisions; inspect them before applying. The deployment tool generates cloud Applications for each target namespace.
 
 #### Public routing on AWS and GCP
 
-Controller setup happens once per cluster, before the first application release. It does not need repeating for every commit or PR preview.
+Controller setup happens once per cluster, before the first application release. Releases and PR previews use that controller installation.
 
 **AWS:** from the repository root, configure and apply the separate controller project. It consumes the existing cluster name, region, and `vpc_id` output and uses its own state key. See the [ingress setup guide](infra/ingress/README.md#aws-post-cluster-setup) for permissions and input details.
 
@@ -382,13 +382,13 @@ terraform -chdir=infra/ingress/aws output -raw controller_application > /tmp/ide
 kubectl --context YOUR_EKS_CONTEXT apply -f /tmp/idea-board-ingress-controller.yaml
 ```
 
-Wait for the `aws-load-balancer-controller` Argo Application to be Synced and Healthy and its Deployment in `kube-system` to be ready. Terraform owns controller IAM and Pod Identity; Argo installs the pinned controller chart. Neither provisioning step creates an application ALB—the controller creates it when the application Ingress is deployed.
+Wait for the `aws-load-balancer-controller` Argo Application to be Synced and Healthy and its Deployment in `kube-system` to be ready. Terraform owns controller IAM and Pod Identity; Argo installs the pinned controller chart. The controller creates an application ALB when the application Ingress is deployed.
 
-**GCP:** the cluster module enables GKE's built-in HTTP load-balancing controller. There is no extra controller chart or separate controller Terraform state. The [GCP setup notes](infra/ingress/gcp/README.md) show how to confirm the add-on is enabled.
+**GCP:** the cluster module enables GKE's built-in HTTP load-balancing controller. The [GCP setup notes](infra/ingress/gcp/README.md) show how to confirm the add-on is enabled.
 
-The frontend chart owns one Ingress with both routes. Backend and frontend Services remain ClusterIP. AWS uses an internet-facing ALB with pod IP targets. GKE uses container-native load balancing with network endpoint groups and explicit BackendConfig health checks. Cloud API traffic bypasses frontend Nginx; the proxy remains available for Compose and local kind.
+The frontend chart owns one Ingress with both routes. Backend and frontend Services remain ClusterIP. AWS uses an internet-facing ALB with pod IP targets. GKE uses container-native load balancing with network endpoint groups and explicit BackendConfig health checks. Ingress routes cloud API traffic to the backend Service. Compose and local kind use Nginx's API proxy.
 
-For each cloud release, the deployment tool enables this Ingress and supplies the provider-specific annotations and health configuration. The cloud controller then creates the load-balancer resources, health checks, and registrations. Terraform does not manage individual load balancers or target groups. Staging, production, and each PR namespace use the same routing model, with one public load balancer per namespace. Public routing currently uses HTTP; DNS, certificates, and HTTPS need additional configuration.
+For each cloud release, the deployment tool enables this Ingress and supplies the provider-specific annotations and health configuration. The cloud controller then creates the load-balancer resources, health checks, and registrations. Staging, production, and each PR namespace use the same routing model, with one public load balancer per namespace. Public routing serves HTTP on port 80.
 
 ### 3. Configure GitHub deployment access
 
@@ -397,7 +397,7 @@ The [Deploy workflow](.github/workflows/deploy.yml) uses short-lived cloud crede
 - **AWS:** a deployment role with an EKS access entry, Kubernetes permissions, and permission to read the selected database credential secret.
 - **GCP:** Workload Identity Federation and a deployment service account with cluster access and access to the selected Secret Manager secret.
 
-These deployment identities and trust relationships are prerequisites; the current Terraform roots do not create GitHub OIDC setup. Cloud access keys are not needed in repository secrets.
+Configure these deployment identities and trust relationships before running the release workflow. GitHub OIDC supplies short-lived cloud credentials to the deployment job.
 
 Create the GitHub Environments you intend to deploy to: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add production reviewers and deployment branch rules. Previews use their cloud's staging Environment.
 
@@ -413,7 +413,7 @@ Create the GitHub Environments you intend to deploy to: `aws-staging`, `aws-prod
 | `GCP_WORKLOAD_IDENTITY_PROVIDER`                  | Federation provider resource name; GCP only |
 | `GCP_SERVICE_ACCOUNT`                             | Deployment service account email; GCP only  |
 
-Add `OPENAI_API_KEY` as a repository Actions secret for the current AI runner. Its planning and diagnosis jobs run without cloud credentials. At release time, the deployment job retrieves the database password and supplies the connection URL to Kubernetes through stdin; it is not included in Application manifests or release artifacts.
+Add `OPENAI_API_KEY` as a repository Actions secret for the AI runner. Planning and diagnosis run in dedicated jobs. The deployment job receives cloud credentials, retrieves the database password, and supplies the connection URL to Kubernetes through stdin.
 
 ### 4. Build, publish, and release an application version
 
@@ -426,7 +426,7 @@ ghcr.io/rohitraut3366/idea-board-backend:<full-commit-sha>
 
 Both images support `linux/amd64` and `linux/arm64`. Dockerfiles install locked dependencies before copying application code, so code changes can reuse dependency layers. Builds use package-download caches and GitHub Actions layer caching. Runtime stages contain the files needed to run each service.
 
-Publishing follows successful checks on pushes to `master`, manual CI runs, and same-repository PRs. Fork PRs run checks but cannot publish or deploy previews. GitHub's built-in token authenticates image publishing.
+Publishing follows successful checks on pushes to `master`, manual CI runs, and same-repository PRs. Fork PRs run validation checks. GitHub's built-in token authenticates image publishing.
 
 To release:
 
@@ -437,7 +437,7 @@ To release:
 5. Once the backend is Synced and Healthy with the requested image, values, Deployment generation, and replicas, the tool submits and verifies the frontend. It checks backend health and exercises full-stack HTTP requests through a port-forward.
 6. For cloud releases, it waits for the Ingress hostname/IP and checks both the page and API there. Only then does it save the healthy checkpoint and publish the URL in the run summary and result artifact.
 
-An old healthy Deployment cannot satisfy verification for a different release. If any required check fails, the release stays failed.
+Verification matches the requested image, chart revision, configuration, and Deployment generation. Every required check must pass for a successful release.
 
 The equivalent GitHub CLI command is:
 
@@ -448,7 +448,7 @@ gh workflow run deploy.yml --ref master \
   -f request='Low-traffic staging for a few reviewers; keep costs small'
 ```
 
-Choose `cloud=gcp` for GCP. Workflows must exist on the selected ref; automatic preview workflows must exist on the default branch. Cloud Applications are stored in Kubernetes and workflow artifacts; the tool does not commit generated environment configuration back to Git.
+Choose `cloud=gcp` for GCP. Workflows must exist on the selected ref; automatic preview workflows must exist on the default branch. Generated cloud Applications are stored in Kubernetes and workflow artifacts.
 
 ### 5. Staging, production, and PR previews
 
@@ -460,11 +460,11 @@ Choose `cloud=gcp` for GCP. Workflows must exist on the selected ref; automatic 
 
 Once staging is healthy, set repository Actions variable `PREVIEW_CLOUD` to `aws` or `gcp`. Leave it unset to disable automatic previews.
 
-For same-repository PRs, successful CI triggers the [preview workflow](.github/workflows/preview.yml). It checks that the PR is still open and the tested SHA is still its head. PR 42 receives namespace `idea-board-pr-42`, separate frontend/backend Applications, and database `idea_board_pr_42` with a dedicated login. Each preview gets its own Ingress and controller-managed public load balancer. No per-preview Terraform changes are needed.
+For same-repository PRs, successful CI triggers the [preview workflow](.github/workflows/preview.yml). It checks that the PR is still open and the tested SHA is still its head. PR 42 receives namespace `idea-board-pr-42`, separate frontend/backend Applications, and database `idea_board_pr_42` with a dedicated login. Each preview gets its own Ingress and controller-managed public load balancer. The controller creates and reconciles each preview's load balancer from its Ingress.
 
 The staging backend provisions preview databases from inside the private network. Its database identity must be able to create databases and roles. Redeployment preserves preview data and credentials. Closing the PR removes its Applications, namespace, database, and role. Ownership checks protect unrelated databases, and automated cleanup rejects production. If staging is unavailable during cleanup, restore it and retry.
 
-Fork PRs never receive deployment credentials or previews. The privileged preview workflow runs default-branch tooling; application images and charts from same-repository PRs remain trusted developer code, so repository write access controls who can deploy them.
+Preview deployment is available to same-repository PRs. The privileged preview workflow runs default-branch tooling; application images and charts are trusted developer code, so repository write access controls who can deploy them.
 
 ## AI integration
 
@@ -474,26 +474,26 @@ The [deployment skill](.agents/skills/deploy/SKILL.md) contains planning and dia
 
 An operator describes the workload, such as `Staging for a few reviewers; keep resource use small`. The model proposes independent backend/frontend replicas, CPU requests, memory requests and limits, plus cloud worker/database sizing for staging or production. Each proposal includes reasons and an ordered release plan.
 
-The Python tool validates the response before cloud authentication. It renders Helm values and assembles commands from trusted inputs. The model cannot change the cloud, namespace, image SHA, or chart revision, and its prose is never executed as shell code.
+The Python tool validates the response before cloud authentication. It renders Helm values and assembles commands from trusted inputs. Trusted workflow inputs set the cloud, namespace, image SHA, and chart revision. The deployment tool executes commands assembled from validated inputs.
 
-| Output                            | Use                              | Practical value                                                                       |
-| --------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------- |
-| Application resource settings     | Helm values for each service     | Turns a workload description into reviewable configuration.                           |
-| Terraform sizing variables        | Separate infrastructure proposal | Makes worker/database choices explicit without automatically resizing a shared stack. |
-| Ordered plan and reasons          | Release artifact                 | Shows what will happen and why before deployment.                                     |
-| Diagnosis with evidence citations | Post-deployment artifact         | Helps an operator investigate a failure from collected facts.                         |
+| Output                            | Use                              | Practical value                                                           |
+| --------------------------------- | -------------------------------- | ------------------------------------------------------------------------- |
+| Application resource settings     | Helm values for each service     | Turns a workload description into reviewable configuration.               |
+| Terraform sizing variables        | Separate infrastructure proposal | Provides explicit worker/database choices for a reviewed Terraform apply. |
+| Ordered plan and reasons          | Release artifact                 | Shows what will happen and why before deployment.                         |
+| Diagnosis with evidence citations | Post-deployment artifact         | Helps an operator investigate a failure from collected facts.             |
 
-Validation bounds values, checks memory limits cover requests, restricts previews to one small replica per service, and requires at least two replicas per service, multiple workers, and a standby database in production proposals. Machine types must belong to the selected cloud. These settings are starting points: replica counts alone do not guarantee placement or measured capacity.
+Validation bounds values, checks memory limits cover requests, restricts previews to one small replica per service, and requires at least two replicas per service, multiple workers, and a standby database in production proposals. Machine types must belong to the selected cloud. Validate these sizing proposals through placement checks and load testing.
 
-Terraform generation reuses supported sizing inputs in the existing modules. It does not generate arbitrary resources, identities, or security policies. Previews share staging infrastructure and receive no Terraform sizing proposal.
+Terraform generation produces sizing inputs for the maintained infrastructure modules. Previews use application resource proposals on shared staging infrastructure.
 
 ### Diagnosing a rollout
 
 The deployment tool collects bounded readiness, restart and exit facts; Job status; event reasons; recognized error signatures; and CPU/memory snapshots when Metrics Server is available. Raw logs, event messages, Secrets, and environment variables are excluded. Missing sources are recorded as evidence gaps.
 
-A separate AI job returns an assessment, cited evidence, an explanation, and suggested next steps. For example, an unpublished image should produce image-pull evidence and an investigation or rollback recommendation. The model cannot override failed health checks, execute its suggestions, or initiate rollback. Collection and analysis also run for successful releases when evidence is available.
+A separate AI job returns an assessment, cited evidence, an explanation, and suggested next steps. For example, an unpublished image should produce image-pull evidence and an investigation or rollback recommendation. Deterministic health checks determine release status. Operators review the suggestions and explicitly trigger rollback when appropriate. Collection and analysis also run for successful releases when evidence is available.
 
-Deterministic fixtures test the contract and release mechanics without model credentials. A live call to the configured runner remains unverified after a transport failure; this is separate from the passing deployment-tool and Argo integration checks.
+Deterministic fixtures make tests of the output contract and release mechanics repeatable. The verification table records coverage of model calls and deployment checks.
 
 ## Operations and troubleshooting
 
@@ -520,7 +520,7 @@ kubectl --context YOUR_CONTEXT --namespace YOUR_NAMESPACE logs job/backend-migra
 
 ### Roll back application code
 
-The deployment tool saves the last verified pair of Applications in an `idea-board-release` ConfigMap per namespace. A failed release does not replace it. A first release has no predecessor, and manually deployed environments acquire a checkpoint only after a successful tool-managed release.
+The deployment tool saves the last verified pair of Applications in an `idea-board-release` ConfigMap per namespace. That checkpoint is established by a successful tool-managed release and retained through failed attempts. Rollback requires a verified checkpoint.
 
 To restore it, run Deploy with `operation=rollback`, the **failed** image SHA, the same target, and `schema_compatible=true`. Confirm first that the previous application supports the current database schema.
 
@@ -530,7 +530,7 @@ Rollback preserves database contents, schema, and credentials. Database downgrad
 
 ### Remove cloud infrastructure
 
-Use the original credentials, variables, and state backend to review `terraform plan -destroy` before running `terraform destroy` in the selected root. First remove application resources and Ingress resources and wait for controller-managed load balancers to be deleted while their controller is available. Remove the AWS controller setup after that cleanup. Follow the [Terraform teardown instructions](infra/terraform/README.md) for database deletion protection, final snapshots, retained backups, and state storage. Destroying Kubernetes alone does not establish that every billable cloud resource has been removed.
+Use the original credentials, variables, and state backend to review `terraform plan -destroy` before running `terraform destroy` in the selected root. First remove application resources and Ingress resources and wait for controller-managed load balancers to be deleted while their controller is available. Remove the AWS controller setup after that cleanup. Follow the [Terraform teardown instructions](infra/terraform/README.md) for database deletion protection, final snapshots, retained backups, and state storage. Confirm cleanup against the cloud inventory, including load balancers, snapshots, backups, and state storage.
 
 ## Cloud portability
 
@@ -543,11 +543,11 @@ Both clouds run the same images, HTTP API, PostgreSQL schema, migration command,
 | Infrastructure         | AWS modules                          | GCP modules                  | `network`, `cluster`, `psql` boundaries and common outputs |
 | Deployment credentials | IAM role via GitHub OIDC             | Workload Identity Federation | Short-lived cloud authentication                           |
 | Credential storage     | Secrets Manager                      | Secret Manager               | Kubernetes database Secret                                 |
-| Current public routing | AWS Load Balancer Controller and ALB | GKE Ingress and pod NEGs     | Same-origin page and API access                            |
+| Public routing         | AWS Load Balancer Controller and ALB | GKE Ingress and pod NEGs     | Same-origin page and API access                            |
 
 Selecting the cloud and its GitHub Environment changes the deployment target. Region, identity, network ranges, Kubernetes versions, and machine sizes remain explicit provider configuration. Ingress annotations and health configuration stay provider-specific while both expose the same-origin page and API routes.
 
-A third provider would need its infrastructure modules, authentication/secret adapter, and public-routing configuration. Application code and the common release checks can remain the same. Moving an existing database between clouds requires a separate data migration; choosing another cloud does not move its data.
+A third provider would need its infrastructure modules, authentication/secret adapter, and public-routing configuration. Application code and the common release checks can remain the same. Moving application data between clouds requires a database migration.
 
 ## Verification status
 
@@ -560,4 +560,4 @@ A third provider would need its infrastructure modules, authentication/secret ad
 | AI integration             | Output validation, sizing generation, evidence filtering, rollback guards                                              | Successful live runner response                                                           |
 | Load testing               | Repeatable local/CI concurrency checks                                                                                 | Measured cloud capacity under increasing load                                             |
 
-No permanent AWS or GCP application URL is currently maintained. The cloud deployment workflow reports a working URL only after public page and API checks pass. Local tests establish application behavior and release mechanics; they cannot establish cloud permissions, managed-service compatibility, or public reachability.
+The cloud deployment workflow reports the application URL after public page and API checks pass. Local tests cover application behavior and release mechanics; live cloud verification covers permissions, managed-service compatibility, and public reachability.
