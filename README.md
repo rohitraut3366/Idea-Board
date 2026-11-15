@@ -167,8 +167,6 @@ uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/
 uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/integration
 ```
 
-Unit tests check individual pieces of code. Integration tests use the Compose PostgreSQL server. They create a separate test database, apply migrations, run their checks, and remove that database afterward. Your development ideas stay in their own database.
-
 ### Test several requests at once
 
 With Compose running, execute this from the repository root:
