@@ -1,4 +1,3 @@
 image:
   repository: ghcr.io/rohitraut3366/idea-board-frontend
   tag: dad4b3146ddcf882a1372e4160612cefd12d07e1
-backendUpstream: backend:8000

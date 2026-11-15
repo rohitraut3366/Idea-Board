@@ -8,7 +8,9 @@ COPY src ./src
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
-ENV BACKEND_UPSTREAM=backend:8000 NGINX_ENVSUBST_FILTER=BACKEND_UPSTREAM
+ENV BACKEND_UPSTREAM=backend:8000 \
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
+    NGINX_ENVSUBST_FILTER="BACKEND_UPSTREAM|NGINX_LOCAL_RESOLVERS"
 COPY --link nginx.conf /etc/nginx/templates/default.conf.template
 COPY --link --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

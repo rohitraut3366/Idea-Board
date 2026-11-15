@@ -61,12 +61,22 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
     values = application["spec"]["source"]["helm"]["valuesObject"]
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
-        ["helm", "template", "frontend", str(root / "charts/idea-board-frontend"), "-f", "-"],
+        [
+            "helm",
+            "template",
+            "frontend",
+            str(root / "charts/idea-board-frontend"),
+            "--namespace",
+            target.namespace,
+            "-f",
+            "-",
+        ],
         input=json.dumps(values),
         capture_output=True,
         text=True,
         check=True,
     )
+    assert f'"backend.{target.namespace}.svc.cluster.local:8000"' in result.stdout
     assert f"type: {service_type}" in result.stdout
     assert f"ghcr.io/rohitraut3366/idea-board-frontend:{SHA}" in result.stdout
     if cloud == "aws":

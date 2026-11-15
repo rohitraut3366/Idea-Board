@@ -162,7 +162,6 @@ def manifests(target, recommendation):
         if service == "backend":
             values["databaseSecretName"] = "idea-board-database"
         else:
-            values["backendUpstream"] = "backend:8000"
             values["service"] = {"type": "ClusterIP" if target.cloud == "kind" else "LoadBalancer"}
         if service == "frontend" and target.cloud == "aws":
             values["service"]["loadBalancerClass"] = "service.k8s.aws/nlb"

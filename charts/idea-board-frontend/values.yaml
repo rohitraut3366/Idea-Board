@@ -10,7 +10,8 @@ resources:
     memory: 32Mi
   limits:
     memory: 128Mi
-backendUpstream: backend:8000
+# Empty uses backend.<release namespace>.svc.cluster.local:8000.
+backendUpstream: ""
 
 service:
   type: ClusterIP

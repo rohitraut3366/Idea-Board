@@ -31,7 +31,7 @@ spec:
               containerPort: 8080
           env:
             - name: BACKEND_UPSTREAM
-              value: {{ .Values.backendUpstream | quote }}
+              value: {{ default (printf "backend.%s.svc.cluster.local:8000" .Release.Namespace) .Values.backendUpstream | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
