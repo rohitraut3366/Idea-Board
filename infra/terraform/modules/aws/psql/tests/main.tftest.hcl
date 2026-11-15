@@ -29,8 +29,8 @@ run "configuration" {
   }
 
   assert {
-    condition     = aws_db_instance.this.backup_retention_period == 7 && aws_db_instance.this.deletion_protection && !aws_db_instance.this.skip_final_snapshot
-    error_message = "Keep backups and protect database deletion."
+    condition     = aws_db_instance.this.backup_retention_period == 0 && aws_db_instance.this.deletion_protection && !aws_db_instance.this.skip_final_snapshot
+    error_message = "Disable automated backups by default and protect database deletion."
   }
 
   assert {

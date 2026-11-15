@@ -49,7 +49,7 @@ variable "skip_final_snapshot" {
 }
 
 variable "backup_retention_days" {
-  description = "Number of days to retain automated database backups."
+  description = "Number of days to retain automated database backups; 0 disables them."
   type        = number
-  default     = 7
+  default     = 0
 }
