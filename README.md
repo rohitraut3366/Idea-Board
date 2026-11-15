@@ -167,7 +167,7 @@ uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/
 uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/integration
 ```
 
-### Test several requests at once
+### Performance testing
 
 With Compose running, execute this from the repository root:
 
@@ -176,6 +176,13 @@ LOAD_CYCLES=100 LOAD_CONCURRENCY=10 npm --prefix apps/frontend run test:load
 ```
 
 Each cycle creates an idea, reads the list, and deletes the created idea. This example runs 100 cycles, with up to 10 active at once.
+
+| Option                | Default                 | Controls                                         |
+| --------------------- | ----------------------- | ------------------------------------------------ |
+| `LOAD_CYCLES`         | `100`                   | Total number of cycles                           |
+| `LOAD_CONCURRENCY`    | `10`                    | Parallelism: number of cycles running at once    |
+| `LOAD_MAX_P95_MS`     | Unset                   | Optional p95 response-time limit in milliseconds |
+| `IDEA_BOARD_BASE_URL` | `http://127.0.0.1:3000` | Application address to test                      |
 
 The result shows:
 
