@@ -23,29 +23,27 @@ The application stays deliberately small so the infrastructure and release proce
 
 The frontend uses **client-side rendering**. Nginx serves HTML, JavaScript, and CSS; React runs in the browser and builds the page. Once loaded, React makes separate HTTP requests to the API to read or change ideas. FastAPI returns JSON, and React updates the screen.
 
-In local Compose development, requests follow this path:
+Cloud deployments use one public entry point for two kinds of browser requests:
 
 ```mermaid
-sequenceDiagram
-    participant Browser as Browser / React
-    participant Web as Frontend Nginx
-    participant API as FastAPI
-    participant DB as PostgreSQL
-    Browser->>Web: GET / and JavaScript/CSS assets
-    Web-->>Browser: Static files
-    Note over Browser: React renders the page in the browser
-    Browser->>Web: GET /api/ideas?limit=50
-    Web->>API: Forward /api request
-    API->>DB: Read ideas
-    DB-->>API: Rows
-    API-->>Web: JSON array
-    Web-->>Browser: JSON array
-    Note over Browser: React displays the ideas
+flowchart LR
+    Browser[Browser / React] -->|GET / and static assets| LB[Public load balancer]
+    Browser -->|/api/* requests| LB
+    subgraph Private[Private application network]
+        Web[Frontend Service and Nginx pods]
+        API[Backend Service and FastAPI pods]
+        DB[(PostgreSQL)]
+    end
+    LB -->|Other paths| Web
+    LB -->|/api and /api/*| API
+    API --> DB
 ```
 
-Both page and API requests originate in the browser and use the same public address, which avoids a separate browser API URL and CORS setup. Locally, Nginx forwards `/api/` requests to the backend through the Compose network.
+The browser first loads React's static files from the frontend. React then makes separate API requests through the same public address. Ingress routes those requests directly to FastAPI; they do not pass through frontend Nginx. Keeping one origin avoids a separate browser API URL and CORS setup.
 
-Cloud configuration uses an Ingress to route `/api` and `/api/*` directly to the API Service and other paths to the frontend Service. The AWS Load Balancer Controller or GKE's built-in Ingress controller creates the public load balancer and registers backends. Terraform owns the cluster and required controller identity; Argo CD owns the routing manifests. See the [post-cluster ingress setup](infra/ingress/README.md). Live cloud verification of this routing is still pending.
+The AWS Load Balancer Controller or GKE's built-in Ingress controller creates the public load balancer and registers backends. Terraform owns the cluster and required controller identity; Argo CD owns the Kubernetes routing configuration. The frontend and backend each retain their own Service, Deployment, and Helm chart.
+
+Local Compose and kind use Nginx's `/api/` proxy instead of a cloud load balancer. The application code and relative API URLs stay the same. The [post-cluster ingress guide](infra/ingress/README.md) explains cloud setup; live cloud verification of this routing remains pending.
 
 ### From source code to a running release
 
@@ -69,16 +67,16 @@ flowchart TD
 
 Infrastructure must exist before an application release. Terraform creates the network, Kubernetes cluster, and managed database. A routine release reuses them and deploys a tested image commit. AI-generated infrastructure sizing is reviewed separately; an application release does not automatically apply Terraform.
 
-| Layer                              | Responsibility                                          | Why it is separate                                          |
-| ---------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| React and Nginx                    | Browser UI, static files, current API proxy             | Frontend can be built and released independently.           |
-| FastAPI                            | Validation, HTTP API, database access                   | Application rules live behind one API.                      |
-| PostgreSQL and Alembic             | Persistent data and versioned schema changes            | Database changes run before the backend starts.             |
-| Docker and Compose                 | Reproducible images and local startup                   | Local development runs the complete stack with one command. |
-| Terraform                          | Cloud networks, clusters, databases                     | Infrastructure changes have their own plan and state.       |
-| Helm and Argo CD                   | Kubernetes manifests and application reconciliation     | Each service has its own chart and Application.             |
-| GitHub Actions and deployment tool | Tests, image publishing, release ordering, verification | A release succeeds only after the requested version works.  |
-| AI skill                           | Resource proposals and evidence-based diagnosis         | Helps operators decide; validated code controls execution.  |
+| Layer                              | Responsibility                                            | Why it is separate                                          |
+| ---------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------- |
+| React and Nginx                    | Browser UI, static files, local API proxy                 | Frontend can be built and released independently.           |
+| FastAPI                            | Validation, HTTP API, database access                     | Application rules live behind one API.                      |
+| PostgreSQL and Alembic             | Persistent data and versioned schema changes              | Database changes run before the backend starts.             |
+| Docker and Compose                 | Reproducible images and local startup                     | Local development runs the complete stack with one command. |
+| Terraform                          | Cloud networks, clusters, databases, controller IAM       | Infrastructure changes have their own plan and state.       |
+| Helm and Argo CD                   | Kubernetes manifests, Ingress, application reconciliation | Each service has its own chart and Application.             |
+| GitHub Actions and deployment tool | Tests, image publishing, release ordering, verification   | A release succeeds only after the requested version works.  |
+| AI skill                           | Resource proposals and evidence-based diagnosis           | Helps operators decide; validated code controls execution.  |
 
 ## Application
 
@@ -188,6 +186,8 @@ Startup follows this order:
 ```text
 PostgreSQL healthy → migration completes → backend healthy → frontend starts
 ```
+
+Local API requests follow `browser → Nginx at localhost:3000 → FastAPI → PostgreSQL`. Nginx also serves the page and static assets. This local proxy replaces the cloud Ingress route without changing browser API calls.
 
 Open [the web app](http://localhost:3000), submit an idea, refresh the page, and confirm it remains in the list. `docker compose ps --all` shows running services and the completed migration service; a successful migration exits with code 0.
 
@@ -366,20 +366,29 @@ For local Kubernetes, the [GitOps guide](gitops/README.md) covers installation, 
 
 #### Public routing on AWS and GCP
 
-Use the [ingress setup guide](infra/ingress/README.md) after cluster creation. On AWS, a separate Terraform root provisions controller IAM and EKS Pod Identity; apply its generated Argo Application to install the controller. On GCP, the cluster enables the built-in HTTP load-balancing controller, so no extra installation is required.
+Controller setup happens once per cluster, before the first application release. It does not need repeating for every commit or PR preview.
 
-```mermaid
-flowchart LR
-    Browser[Browser / React] -->|Page and asset requests| LB[Controller-managed public load balancer]
-    Browser -->|/api/* requests| LB
-    LB -->|Other paths| Front[Frontend Service and pods]
-    LB -->|/api and /api/*| Back[API Service and pods]
-    Back --> DB[Private PostgreSQL]
+**AWS:** from the repository root, configure and apply the separate controller project. It consumes the existing cluster name, region, and `vpc_id` output and uses its own state key. See the [ingress setup guide](infra/ingress/README.md#aws-post-cluster-setup) for permissions and input details.
+
+```bash
+cp infra/ingress/aws/terraform.tfvars.example infra/ingress/aws/terraform.tfvars
+cp infra/ingress/aws/backend.hcl.example infra/ingress/aws/backend.hcl
+# Fill in the existing cluster details and a separate backend state key.
+terraform -chdir=infra/ingress/aws init -backend-config=backend.hcl
+terraform -chdir=infra/ingress/aws plan -out=controller.tfplan
+# Review the IAM and Pod Identity changes, then apply the saved plan.
+terraform -chdir=infra/ingress/aws apply controller.tfplan
+terraform -chdir=infra/ingress/aws output -raw controller_application > /tmp/idea-board-ingress-controller.yaml
+kubectl --context YOUR_EKS_CONTEXT apply -f /tmp/idea-board-ingress-controller.yaml
 ```
+
+Wait for the `aws-load-balancer-controller` Argo Application to be Synced and Healthy and its Deployment in `kube-system` to be ready. Terraform owns controller IAM and Pod Identity; Argo installs the pinned controller chart. Neither provisioning step creates an application ALB—the controller creates it when the application Ingress is deployed.
+
+**GCP:** the cluster module enables GKE's built-in HTTP load-balancing controller. There is no extra controller chart or separate controller Terraform state. The [GCP setup notes](infra/ingress/gcp/README.md) show how to confirm the add-on is enabled.
 
 The frontend chart owns one Ingress with both routes. Backend and frontend Services remain ClusterIP. AWS uses an internet-facing ALB with pod IP targets. GKE uses container-native load balancing with network endpoint groups and explicit BackendConfig health checks. Cloud API traffic bypasses frontend Nginx; the proxy remains available for Compose and local kind.
 
-Controllers own the cloud load-balancer resources, health checks, and registrations. Terraform does not manage individual load balancers or target groups. Staging, production, and each PR namespace use the same routing model, with one public load balancer per namespace. Public routing currently uses HTTP; DNS, certificates, and HTTPS need additional configuration.
+For each cloud release, the deployment tool enables this Ingress and supplies the provider-specific annotations and health configuration. The cloud controller then creates the load-balancer resources, health checks, and registrations. Terraform does not manage individual load balancers or target groups. Staging, production, and each PR namespace use the same routing model, with one public load balancer per namespace. Public routing currently uses HTTP; DNS, certificates, and HTTPS need additional configuration.
 
 ### 3. Configure GitHub deployment access
 
