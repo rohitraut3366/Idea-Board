@@ -139,7 +139,7 @@ npm --prefix apps/frontend run test:stack # Test the running stack
 
 These commands require Node.js 24.
 
-The test loads the page and its JavaScript files, then creates, reads, and deletes ideas through the frontend's API connection. It also checks pagination, invalid input, and duplicate ideas.
+This tests the running frontend and backend together over HTTP.
 
 To check logs:
 
@@ -149,16 +149,14 @@ docker compose logs frontend backend migrate
 
 ### Test each app
 
-**Frontend tests** check the form, idea list, validation messages, retries, and deletion. They use simulated API responses to check both successful and failed requests.
-
-From the repository root:
+**Frontend tests** — run from the repository root:
 
 ```bash
 npm --prefix apps/frontend ci   # Install dependencies
 npm --prefix apps/frontend test # Run frontend tests
 ```
 
-**Backend tests** check request validation, database changes, and API behavior. These commands require Python 3.12 and uv.
+**Backend tests** require Python 3.12 and uv.
 
 From the repository root:
 
@@ -191,8 +189,6 @@ The result shows:
 - **p95 response time:** the time within which 95% of requests finished.
 
 The command fails if requests or cleanup fail. Set `LOAD_MAX_P95_MS` to also fail when responses exceed your chosen p95 time limit.
-
-For cloud scale testing, set `IDEA_BOARD_BASE_URL` to the application's public address. Run from outside the cluster and increase concurrency in steps, such as 10, 25, and 50. Watch response times, errors, app CPU/memory, and database CPU/connections. Record the number of app copies and machine sizes alongside the results.
 
 ### What runs automatically
 
