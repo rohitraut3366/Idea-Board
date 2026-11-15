@@ -1,56 +1,73 @@
 # Idea Board
 
-A web app for sharing, browsing, and deleting ideas, built with React, FastAPI, and PostgreSQL. Docker Compose runs it locally. Terraform provisions AWS or GCP, and GitHub Actions deploys through Argo CD.
+Idea Board is a web app where you can write an idea, see ideas from others, and delete an idea.
 
-## Overview
+This guide explains how the app works, how to run it on your computer, and how to deploy it to AWS or GCP.
 
-React runs in the browser. The browser loads the page from the frontend, then sends API requests to the same public address.
+## How the app works
+
+The app has three parts:
+
+| Part     | What it does                                     | Built with         |
+| -------- | ------------------------------------------------ | ------------------ |
+| Frontend | Shows the page, the ideas, and the form          | React              |
+| Backend  | Handles requests to save, read, and delete ideas | Python and FastAPI |
+| Database | Keeps the ideas so they are still there later    | PostgreSQL         |
+
+When you open the app:
+
+1. Your browser downloads the frontend files. Nginx is the web server that sends those files.
+2. React runs in your browser and builds the page. This is called **client-side rendering**.
+3. React asks the backend for ideas. The backend reads them from PostgreSQL and sends them back.
+4. React displays the ideas on the page.
+
+Submitting an idea follows the same path: the browser sends the text to the backend, the backend saves it, and the page updates.
+
+In the cloud, a public load balancer receives browser requests and sends each one to the right service:
 
 ```mermaid
 flowchart LR
-    Browser[Browser / React] -->|Page and API requests| LB[Public load balancer]
-    LB -->|/| Web[Frontend: Nginx]
-    LB -->|/api/*| API[Backend: FastAPI]
+    Browser[Browser] --> LB[Public load balancer]
+    LB -->|Page and files| Web[Frontend]
+    LB -->|/api/*| API[Backend]
     API --> DB[(PostgreSQL)]
 ```
 
-Ingress defines the routes. The AWS Load Balancer Controller or GKE Ingress controller creates the load balancer and connects it to the application pods. Each service has its own Helm chart and Argo CD Application.
+The page and API share one public address. An **Ingress** is the Kubernetes routing configuration that says which paths go to the frontend and which go to the backend. A controller reads that configuration and sets up the cloud load balancer.
 
-The delivery flow is:
+### What the API does
 
-```text
-Commit → tests → GHCR images → AI resource proposal → validation
-       → Argo CD → migration job → backend → frontend → HTTP checks → URL
+The API is how the browser talks to the backend. Each request uses a path and an action:
+
+| Request                       | What it does                                 |
+| ----------------------------- | -------------------------------------------- |
+| `GET /api/ideas`              | Read the ideas, newest first                 |
+| `POST /api/ideas`             | Save a new idea                              |
+| `DELETE /api/ideas/{idea_id}` | Delete the idea with that ID                 |
+| `GET /health`                 | Check that the backend can read the database |
+
+To create an idea, send:
+
+```json
+{ "content": "Make deployments easier to investigate" }
 ```
 
-Terraform creates the infrastructure before the first release. Application releases reuse it.
+The backend returns the saved idea with its ID and creation time. PostgreSQL stores these in one table called `ideas`: `id`, `content`, and `created_at`.
 
-## Application
+A few rules apply:
 
-**Frontend:** React, TypeScript, and Vite. Nginx serves the built files. Users can submit an idea, browse the newest ideas, load older entries, and delete an idea after confirmation.
+- Idea text must contain 1–2,000 characters after spaces at the ends are removed.
+- The same exact text cannot be saved twice. Duplicate requests return `409`.
+- Invalid input returns `422`. Deleting an idea that does not exist returns `404`.
+- Anyone visiting the app can create or delete ideas.
 
-**Backend:** FastAPI validates requests and reads or writes PostgreSQL through SQLAlchemy and psycopg.
+The frontend loads 50 ideas at a time. The API accepts `limit` and `before_id` to fetch older ideas.
 
-| Endpoint                      | Purpose                                 | Success                  |
-| ----------------------------- | --------------------------------------- | ------------------------ |
-| `GET /api/ideas`              | List ideas, newest first                | `200`, JSON array        |
-| `POST /api/ideas`             | Create an idea from `{"content":"..."}` | `201`, created idea      |
-| `DELETE /api/ideas/{idea_id}` | Delete an idea                          | `204`                    |
-| `GET /health`                 | Check database access                   | `200`, `{"status":"ok"}` |
-
-Listing supports pagination with `limit` (1–100) and `before_id`. The frontend requests 50 ideas at a time.
-
-Content is trimmed and must contain 1–2,000 characters. Exact duplicates return `409`, invalid input returns `422`, and deleting a missing idea returns `404`. Anyone visiting the app can create or delete ideas.
-
-**Database:** PostgreSQL stores one `ideas` table with `id`, `content`, and `created_at`. API responses use string IDs and UTC timestamps.
-
-Alembic migrations run in a separate job before the backend starts: the `migrate` service in Compose and a `PreSync` hook in Argo CD. The API checks the database and schema at startup and exits if they are unavailable.
-
-See the [frontend guide](apps/frontend/README.md) and [backend guide](apps/backend/README.md) for configuration and app-specific development commands.
+The [frontend guide](apps/frontend/README.md) and [backend guide](apps/backend/README.md) cover each app in more detail.
 
 ## Local development
 
-Start Docker, then run:
+Docker Compose runs the frontend, backend, and database together on your computer. Start Docker, then run:
 
 ```bash
 git clone https://github.com/rohitraut3366/Idea-Board.git
@@ -58,7 +75,13 @@ cd Idea-Board
 docker compose up --build --wait
 ```
 
-Compose starts PostgreSQL, runs migrations, waits for the backend, then starts the frontend.
+Compose starts the services in this order:
+
+```text
+Database ready → database setup job finishes → backend ready → frontend starts
+```
+
+The database setup job runs **migrations**: versioned changes that create or update database tables. It runs separately before the backend. If the database or required tables are unavailable, the backend fails to start.
 
 | Service           | Address                                           |
 | ----------------- | ------------------------------------------------- |
@@ -66,7 +89,9 @@ Compose starts PostgreSQL, runs migrations, waits for the backend, then starts t
 | API documentation | [localhost:8000/docs](http://localhost:8000/docs) |
 | PostgreSQL        | `127.0.0.1:55432`                                 |
 
-Locally, Nginx forwards `/api/` requests to the backend. Compose supplies database credentials through environment variables. A named volume preserves ideas between restarts.
+Open the web app, submit an idea, then refresh the page. The idea should still be there.
+
+Locally, Nginx receives browser requests and forwards `/api/` requests to the backend. Compose supplies the database connection settings and stores the data in a Docker volume, so restarting the containers keeps your ideas.
 
 Try creating an idea:
 
@@ -95,7 +120,11 @@ docker compose up --build --wait
 
 ## Testing
 
-CI runs application tests, static checks, container builds, Compose HTTP tests, Helm checks, Terraform validation and mock plans, and Argo CD release tests in kind. App-specific test commands are in the frontend and backend guides.
+GitHub Actions runs the checks automatically when code changes. It tests the apps, builds the containers, and checks that the services work together.
+
+It also checks the cloud configuration and tests deployments in **kind**, a Kubernetes cluster that runs in Docker. Those deployment tests cover releases, PR previews, and restoring a previous app version.
+
+The frontend and backend guides contain their individual test commands.
 
 With Compose running, install the frontend test dependencies and check the complete stack:
 
@@ -104,23 +133,32 @@ npm --prefix apps/frontend ci
 npm --prefix apps/frontend run test:stack
 ```
 
-Run concurrent create/read/delete requests:
+To check how the app behaves when several requests arrive together, run:
 
 ```bash
 LOAD_CYCLES=100 LOAD_CONCURRENCY=10 npm --prefix apps/frontend run test:load
 ```
 
-The load test reports errors, throughput, and p95 latency, and cleans up its ideas. Set `LOAD_MAX_P95_MS` to enforce a latency target or `IDEA_BOARD_BASE_URL` to test another deployment.
+This runs 100 create/read/delete cycles with up to 10 cycles active at once. It reports failed requests, requests per second, and p95 latency—the time within which 95% of requests finish. It removes the ideas it creates.
 
-For cloud capacity testing, run the generator outside the cluster and increase concurrency in steps. Record latency, errors, pod CPU/memory, database CPU/connections, and the deployed resource sizes.
+Use `IDEA_BOARD_BASE_URL` to test another deployment. Set `LOAD_MAX_P95_MS` if the test should fail when responses are too slow.
+
+To measure cloud capacity, run the test from outside the cluster and gradually increase concurrency. Watch response times and errors alongside app and database CPU, memory, and database connections. Record the resource sizes so the results can be compared.
 
 ## Deployment
 
-Complete infrastructure, ingress, and GitHub setup once per environment. Then use the release workflow for application changes.
+Deployment has two stages:
 
-### 1. Provision infrastructure
+1. **Set up a place to run the app:** create the cloud network, Kubernetes cluster, database, and deployment access.
+2. **Release an app version:** build its containers and tell the cluster to run them.
 
-Terraform has separate AWS and GCP roots with three modules each:
+Kubernetes runs the app's containers on cloud machines. A **cluster** is the group of machines it manages; a **pod** is a running unit that contains a container.
+
+Follow steps 1–3 to set up an environment. Use step 4 whenever you want to release an app version.
+
+### 1. Create the cloud resources
+
+Terraform reads configuration files and creates cloud resources. Each cloud has its own folder, with three smaller modules. A module is a reusable group of resources:
 
 | Module    | AWS                        | GCP                             |
 | --------- | -------------------------- | ------------------------------- |
@@ -128,7 +166,9 @@ Terraform has separate AWS and GCP roots with three modules each:
 | `cluster` | EKS and managed workers    | GKE and worker pool             |
 | `psql`    | Private RDS PostgreSQL     | Private Cloud SQL PostgreSQL    |
 
-Configure cloud credentials and an encrypted, versioned remote state bucket. Use separate state keys and stack names for staging and production.
+The network connects the services. The cluster runs the frontend and backend. The database stores the ideas and is reachable through the private network.
+
+Before running Terraform, sign in to your cloud account and create a storage bucket for **Terraform state**. State records which cloud resources Terraform manages. Protect the bucket with encryption and versioning, and give staging and production separate state locations and stack names.
 
 For AWS, start from the repository root:
 
@@ -140,35 +180,42 @@ cp backend.hcl.example backend.hcl
 
 For GCP, use `infra/terraform/gcp`. Fill in the example files with your region, cluster settings, identity, and state bucket. GCP also requires a billed project, Application Default Credentials, and `TF_VAR_database_password` in the environment.
 
-Use Terraform 1.17.x, then run:
+Use Terraform 1.17.x. Initialize the project, check the configuration, and generate a plan:
 
 ```bash
 terraform init -backend-config=backend.hcl
 terraform validate
 terraform plan -out=stack.tfplan
+```
+
+The plan shows what Terraform will create or change. Review it and the expected costs, then apply it:
+
+```bash
 terraform apply stack.tfplan
 terraform output
 ```
 
-Review the plan and costs before applying. Keep the cluster and database outputs for GitHub configuration. The [Terraform guide](infra/terraform/README.md) explains inputs, authentication, state, and teardown.
+The outputs include the cluster name and database connection details. You will use them in step 3. The [Terraform guide](infra/terraform/README.md) explains inputs, authentication, state, and teardown.
 
-### 2. Set up Argo CD and ingress
+### 2. Set up deployment and public access
 
-Connect `kubectl` to the new cluster and install Argo CD using the [GitOps guide](gitops/README.md).
+**Argo CD** runs inside the cluster. It reads the app's configuration from Git and makes the running services match it. Each service has a **Helm chart**, a template describing what Kubernetes should run.
+
+Connect `kubectl`, the Kubernetes command-line tool, to the new cluster. Install Argo CD using the installation steps in the [GitOps guide](gitops/README.md), selecting your cloud cluster context.
 
 - **AWS:** apply the separate `infra/ingress/aws` Terraform project for controller IAM and Pod Identity, then install its generated Argo CD Application. Wait for the AWS Load Balancer Controller to be healthy.
 - **GCP:** the cluster module enables GKE's built-in HTTP load-balancing controller.
 
-Follow the [ingress setup guide](infra/ingress/README.md) for the commands. During release, the frontend chart creates the Ingress, and the controller creates a public HTTP load balancer for that namespace.
+Follow the [ingress setup guide](infra/ingress/README.md) for the commands. After this setup, deploying the application Ingress will cause the controller to create its public HTTP load balancer.
 
 ### 3. Configure GitHub Actions
 
-Configure GitHub OIDC access for this repository:
+**GitHub Actions** runs the deployment workflow. Give it access to the cloud through **OIDC**, which lets a workflow obtain temporary cloud credentials:
 
 - **AWS:** a deployment role with EKS access, Kubernetes permissions, and permission to read the database credential secret.
 - **GCP:** Workload Identity Federation and a service account with cluster and Secret Manager access.
 
-Create the GitHub Environments you will use: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add reviewers to production environments.
+A **GitHub Environment** groups the settings and approval rules for a deployment target. Create the environments you will use: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add reviewers to production environments.
 
 Set these Environment variables:
 
@@ -188,12 +235,14 @@ Add `OPENAI_API_KEY` as an Actions secret. The deployment job reads the cloud da
 
 ### 4. Release the application
 
-CI publishes frontend and backend images to public GHCR packages, tagged with the full commit SHA. Both images support `amd64` and `arm64`. Builds reuse dependency layers and GitHub Actions caches.
+After tests pass, CI publishes the frontend and backend container images to **GitHub Container Registry (GHCR)**. An image is the packaged app that Kubernetes runs.
+
+Each image is tagged with the full Git commit SHA, so a release can select an exact code version. Both images support `amd64` and `arm64`. Builds cache dependencies to speed up later builds.
 
 1. Wait for CI and image publishing to pass for the commit.
 2. Open **Actions → Deploy**. Choose the cloud and environment, enter the full image SHA, and describe the workload.
-3. Review the resource proposal and release artifacts. Apply proposed infrastructure sizing through a separate reviewed Terraform plan when needed.
-4. The workflow deploys the backend and its migration job, then the frontend. It waits for Argo CD sync, healthy workloads, and the requested image and configuration.
+3. The AI suggests how many copies of each service to run and how much CPU and memory they need. Review the saved recommendation. If it also suggests changing cloud machine or database sizes, review and apply those changes through Terraform separately.
+4. The workflow runs the database migration job, starts the backend, and then starts the frontend. It waits until Argo CD has applied the requested version and both services are healthy.
 5. It checks the page and API through the public Ingress address, then reports the application URL.
 
 For example:
@@ -209,7 +258,11 @@ Use `cloud=gcp` for GCP. See the [deployment tool guide](tools/deploy/README.md)
 
 ### Environments and previews
 
-Staging and production use separate Terraform stacks, state, namespaces, and GitHub Environments.
+- **Staging** is where you check a release before production.
+- **Production** is where the stable app runs.
+- **PR previews** let someone try the frontend and backend from one pull request.
+
+Staging and production each have their own infrastructure and deployment settings. A **namespace** groups an environment's resources inside Kubernetes.
 
 Set the repository variable `PREVIEW_CLOUD` to `aws` or `gcp` to enable previews for same-repository PRs. Each preview deploys both apps into its own namespace with a dedicated database, login, Secret, and public load balancer. Previews share the staging cluster and database server; the staging database identity needs permission to create databases and roles.
 
@@ -217,29 +270,35 @@ Successful PR CI triggers deployment. Updates preserve preview data. Closing the
 
 ## AI integration
 
-The [deployment skill](.agents/skills/deploy/SKILL.md) turns an operator's workload description into a resource proposal and release plan. It proposes frontend/backend replicas, CPU and memory, plus cloud worker and database sizing with reasons for each choice.
+You describe what the environment is for, for example:
 
-The skill defines instructions and JSON schemas that compatible AI runners can use. GitHub Actions currently runs it with the Codex Action. The deployment tool validates the output and converts approved fields into Helm values and Terraform sizing inputs. Workflow inputs select the target, namespace, and image.
+> Low-traffic staging for a few reviewers.
 
-After deployment, the tool collects rollout status, restart counts, events, error signatures, and available resource metrics. The AI uses this evidence to explain failures and suggest next steps. Health checks determine release success; an operator initiates rollback.
+The AI uses the [deployment skill](.agents/skills/deploy/SKILL.md), a set of instructions for planning and diagnosing releases. It suggests how many copies of each service to run, how much CPU and memory to give them, and what cloud machine and database sizes fit the request. It explains its choices.
 
-This gives operators a starting configuration and a diagnosis tied to deployment evidence. The [deployment guide](tools/deploy/README.md) explains validation rules, evidence handling, and runner setup.
+The deployment tool checks the suggested values, then writes the app configuration and a separate Terraform sizing proposal. Infrastructure changes go through a reviewed Terraform plan.
 
-## Operations
+The skill includes a defined JSON response format so compatible AI tools can use it. The current GitHub workflow runs it through the Codex Action.
+
+After deployment, the tool records whether the services started, whether containers restarted, and which known errors appeared. It also collects CPU and memory use when available. The AI uses these facts to explain failures and suggest next steps. The workflow checks whether the release works; an operator decides whether to restore the previous version.
+
+The resource proposal helps an operator choose settings for a workload. The diagnosis helps them understand why a release failed using facts collected from that release. The [deployment guide](tools/deploy/README.md) explains validation rules, evidence handling, and runner setup.
+
+## When something goes wrong
 
 **Failed release:** inspect the workflow diagnostics, Argo CD Application status, pod events, and migration job logs.
 
-**Rollback:** the deployment tool saves the last verified release. Run Deploy with `operation=rollback`, the failed image SHA, and `schema_compatible=true` after confirming the previous app supports the current schema. Rollback restores the application version and preserves the database schema and data. See the [rollback procedure](tools/deploy/README.md).
+**Restore a previous version (rollback):** the deployment tool saves the last release that passed its checks. Run Deploy with `operation=rollback`, the failed image SHA, and `schema_compatible=true` after confirming the previous app supports the current schema. Rollback restores the application version and preserves the database schema and data. See the [rollback procedure](tools/deploy/README.md).
 
-**Teardown:** remove application Ingress resources and wait for their load balancers to disappear while the controller is running. Then remove the AWS controller setup and destroy the Terraform stack. The [Terraform guide](infra/terraform/README.md) covers deletion protection, snapshots, and retained resources.
+**Remove the cloud setup:** remove application Ingress resources and wait for their load balancers to disappear while the controller is running. Then remove the AWS controller setup and destroy the Terraform stack. The [Terraform guide](infra/terraform/README.md) covers deletion protection, snapshots, and retained resources.
 
-## Cloud portability
+## How AWS and GCP use the same app
 
 Both clouds use the same application images, PostgreSQL schema, Helm charts, and release checks. Provider-specific networking, Kubernetes, database, identity, and ingress settings live in their infrastructure modules and deployment adapters.
 
 Choose the cloud and its GitHub Environment to select the target. Adding another provider requires infrastructure modules and authentication, secret, and ingress adapters.
 
-## Verification status
+## What has been tested
 
 Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. AWS infrastructure has been provisioned, tested through a port-forward, and destroyed. GCP has Terraform validation and mock-test coverage.
 
