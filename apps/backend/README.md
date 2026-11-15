@@ -7,7 +7,7 @@ FastAPI and PostgreSQL for the Idea Board. The repository root has one `docker-c
 Run from the repository root with a Docker-compatible engine and Compose support:
 
 ```bash
-docker compose up --build --wait
+make up
 ```
 
 Compose waits for PostgreSQL to be healthy, runs `alembic upgrade head` in the separate `migrate` service, and starts the backend only when that service exits successfully. A failed migration blocks backend startup. The API checks the database and required table columns on startup and exits with an error if either is unavailable. It never runs migrations.

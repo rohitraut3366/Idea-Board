@@ -28,7 +28,7 @@ Compose runs PostgreSQL locally. Cloud deployments use private RDS or Cloud SQL 
 
 ## Run locally
 
-1. Install Git and a Docker-compatible engine with Compose support.
+1. Install Git, Make, and a Docker-compatible engine with Compose support.
 2. Clone the repository and enter it:
 
 ```bash
@@ -39,8 +39,10 @@ cd Idea-Board
 3. Build and start the stack:
 
 ```bash
-docker compose up --build --wait
+make up
 ```
+
+`make up` runs `docker compose up --build --wait` and prints the web app and API documentation URLs when startup succeeds.
 
 4. Open [Idea Board](http://localhost:3000). API documentation is available at [localhost:8000/docs](http://localhost:8000/docs).
 

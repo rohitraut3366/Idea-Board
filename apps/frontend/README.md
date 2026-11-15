@@ -7,7 +7,7 @@ React and TypeScript for the Idea Board. The app displays ideas, submits plain t
 From the repository root:
 
 ```bash
-docker compose up --build --wait
+make up
 ```
 
 Open `http://localhost:3000`. Compose starts PostgreSQL, runs the migration service, waits for the backend to become healthy, and starts the frontend.
