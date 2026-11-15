@@ -31,3 +31,5 @@ infra/terraform/modules/**/.terraform.lock.hcl
 /diagnosis.json
 /diagnosis.md
 /diagnosis-prompt.md
+
+infra/terraform/**/backend.json

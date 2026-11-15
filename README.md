@@ -115,7 +115,7 @@ Update the image repository and commit tag in `gitops/kind/*-values.yaml` to dep
 
 ## Cloud infrastructure
 
-[Terraform](infra/terraform/README.md) provisions networking, Kubernetes, and managed PostgreSQL on AWS or GCP through separate `network`, `cluster`, and `psql` modules. The guide covers configuration, state, credentials, capacity, and validation. AWS deployment, application checks through Argo CD, and teardown have passed in Sydney. GCP has schema validation and mocked tests; a live deployment is still pending.
+[Terraform](infra/terraform/README.md) provisions networking, Kubernetes, and managed PostgreSQL on AWS or GCP through independently applied `networking`, `cluster`, `cluster-core-services`, and `applications/idea-board` projects. The guide covers configuration, state, credentials, capacity, and validation. The previous combined AWS stack was deployed and tested in Sydney, then removed. The split layout has validation and mock-test coverage; live apply remains pending on both clouds.
 
 ## Deploy through GitHub Actions
 
@@ -123,9 +123,9 @@ The [Deploy workflow](.github/workflows/deploy.yml) deploys an already tested im
 
 ### Configure a cloud environment
 
-1. Follow the [Terraform guide](infra/terraform/README.md) to create a state bucket, configure the chosen root, and review/apply a plan. Use separate state keys and stack names for staging and production. The disposable AWS state bucket used during verification was deleted; create a new one before another apply.
-2. Connect to the cluster with `aws eks update-kubeconfig` or `gcloud container clusters get-credentials`. Install the pinned Argo CD configuration from `gitops/argocd` into its `argocd` namespace, using an explicit context as shown in the [GitOps guide](gitops/README.md). The existing `gitops/kind` Applications belong to the local cluster; the deployment tool creates separate cloud Applications.
-3. On AWS, install the AWS Load Balancer Controller with its required IAM permissions before releasing the frontend. The cloud frontend uses an internet-facing NLB with IP targets. GKE uses its built-in `LoadBalancer` Service integration. These controllers and their cloud permissions are prerequisites; the application charts do not install them.
+1. Follow the [Terraform guide](infra/terraform/README.md) to create a state bucket, configure the four projects for the chosen cloud, and apply them in dependency order. Project paths determine state locations; use distinct stack names for staging and production. The disposable AWS state bucket used during verification was deleted; create a new one before another apply.
+2. Connect to the cluster with `aws eks update-kubeconfig` or `gcloud container clusters get-credentials`. The `cluster-core-services` project installs Argo CD. The existing `gitops/kind` Applications belong to the local cluster; the deployment tool creates separate cloud Applications.
+3. On AWS, `cluster-core-services` installs the AWS Load Balancer Controller and its IAM permissions before the application release. The cloud frontend uses an internet-facing NLB with IP targets. GKE uses its built-in `LoadBalancer` Service integration. These controllers and their cloud permissions are prerequisites; the application charts do not install them.
 4. Configure GitHub OIDC trust for this repository and the intended GitHub Environment. AWS needs a deployment role with an EKS access entry and permission to read the selected database secret. GCP needs a Workload Identity Federation provider and service account with cluster access and permission to read the selected Secret Manager secret. Keep trust restricted to this repository and environment. Do not store cloud access keys in GitHub.
 5. Create GitHub Environments named `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production` for the targets you use. Configure required reviewers and deployment branch rules for production. Add the variables below to each Environment.
 6. Add `OPENAI_API_KEY` as a repository Actions secret for the Codex action. The model runs in its own job without cloud credentials. Local Codex execution can use the operator's existing CLI sign-in; do not copy that sign-in file into a public repository or its workflows.
@@ -133,12 +133,12 @@ The [Deploy workflow](.github/workflows/deploy.yml) deploys an already tested im
 | GitHub Environment variable | Source |
 | --- | --- |
 | `CLOUD_REGION` | Terraform region |
-| `CLUSTER_NAME` | Terraform `cluster_name` output |
-| `DATABASE_HOST` | Terraform `database_host` output |
-| `DATABASE_PORT` | Terraform `database_port` output |
-| `DATABASE_NAME` | Terraform `database_name` output |
-| `DATABASE_USERNAME` | Terraform `database_username` output; used by GCP |
-| `DATABASE_CREDENTIAL_SECRET_ID` | Terraform `database_credential_secret_id` output |
+| `CLUSTER_NAME` | `cluster` project: `cluster_name` output |
+| `DATABASE_HOST` | `applications/idea-board`: `database_host` output |
+| `DATABASE_PORT` | `applications/idea-board`: `database_port` output |
+| `DATABASE_NAME` | `applications/idea-board`: `database_name` output |
+| `DATABASE_USERNAME` | `applications/idea-board`: `database_username` output; used by GCP |
+| `DATABASE_CREDENTIAL_SECRET_ID` | `applications/idea-board`: `database_credential_secret_id` output |
 | `AWS_ROLE_ARN` | AWS GitHub OIDC deployment role; AWS only |
 | `GCP_PROJECT_ID` | GCP project; GCP only |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub federation provider resource name; GCP only |
@@ -150,7 +150,7 @@ The credential secret reference is configuration, not the password. The runner f
 
 1. Run CI on the source branch and wait for every job, including image publication, to succeed. Copy the full source commit SHA from the run.
 2. Open **Actions → Deploy → Run workflow**, select the cloud and environment, paste the image SHA, and describe the intended workload. For example: `Staging for a few reviewers; keep resource use small`.
-3. The AI runner proposes independent service resources, cloud sizing, and an ordered release plan. The plan job validates the response and uploads the recommendation, rendered Applications, `plan.md`, and (for cloud staging/production) `sizing.tfvars.json`. Review these before approving the deployment Environment. Infrastructure sizing is a proposal: use the generated file with your existing Terraform inputs and state to review a real plan and apply any needed capacity changes separately. The release job only deploys the application.
+3. The AI runner proposes independent service resources, cloud sizing, and an ordered release plan. The plan job validates the response and uploads the recommendation, rendered Applications, `plan.md`, and (for cloud staging/production) separate cluster and application `sizing.tfvars.json` proposals. Review these before approving the deployment Environment. Infrastructure sizing is a proposal: use each generated file with its matching Terraform project inputs and state to review a real plan and apply any needed capacity changes separately. The release job only deploys the application.
 4. The tool creates the target namespace and database Secret, then submits separate backend and frontend Applications to Argo CD. It pins both charts and images to the selected source commit. Secrets stay outside the Application manifests and CI artifacts.
 5. The backend must be healthy before the workflow submits the frontend release. The workflow waits for the requested Argo source and values to be Synced and Healthy, then checks that the running Deployment generation, images, and available replicas match. An old healthy release cannot satisfy this check. It verifies backend health and runs the frontend's full-stack HTTP test through a port-forward.
 6. For cloud releases, it waits for a public frontend address and checks the page and API at that address. Only then does it publish the working URL in the run summary and `deployment-result` artifact.
@@ -224,7 +224,7 @@ The application uses HTTP, PostgreSQL, and Kubernetes resources rather than clou
 | Database secret | Kubernetes `IDEA_BOARD_DATABASE_URL` | Secrets Manager | Secret Manager |
 | Public access | Frontend `LoadBalancer` Service | AWS NLB controller | GKE load balancer integration |
 
-Choose the cloud and its GitHub Environment to switch deployment targets. Provider-specific region, identity, network ranges, Kubernetes versions, and machine types remain explicit configuration. The Terraform roots expose the same database and cluster outputs, so the release logic does not need a separate implementation per cloud.
+Choose the cloud and its GitHub Environment to switch deployment targets. Provider-specific region, identity, network ranges, Kubernetes versions, and machine types remain explicit configuration. The cluster and application Terraform projects expose matching output names across clouds, so the release logic does not need a separate implementation per cloud.
 
 The roots deliberately use native provider resources. EKS and GKE do not have identical lifecycle or network behavior, and worker sizes are not interchangeable. Adding a third cloud means adding its three infrastructure modules, authentication/credential adapter, and frontend exposure settings while retaining the application charts and verification flow. Moving a live database between clouds requires a separate data migration; selecting another provider does not move existing data.
 

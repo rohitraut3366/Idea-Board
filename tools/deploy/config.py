@@ -103,11 +103,15 @@ def terraform_variables(target, recommendation):
         "gcp": ("node_machine_type", "database_tier", "database_regional"),
     }[target.cloud]
     return {
-        "node_count": sizing["node_count"],
-        node_key: sizing["node_size"],
-        database_key: sizing["database_size"],
-        "database_storage_gb": sizing["database_storage_gb"],
-        availability_key: sizing["database_high_availability"],
+        "cluster": {
+            "node_count": sizing["node_count"],
+            node_key: sizing["node_size"],
+        },
+        "applications/idea-board": {
+            database_key: sizing["database_size"],
+            "database_storage_gb": sizing["database_storage_gb"],
+            availability_key: sizing["database_high_availability"],
+        },
     }
 
 

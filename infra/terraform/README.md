@@ -1,172 +1,203 @@
 # Cloud infrastructure
 
-Terraform provisions Kubernetes, managed PostgreSQL, and the network between them on AWS or GCP. The application uses the same containers and Helm charts on either cloud.
-
-Choose the `aws` or `gcp` directory, supply that cloud's configuration, and run Terraform there. These are separate roots because EKS and GKE have different APIs and access controls. Keeping them explicit makes the code easier to read than a single root full of provider conditions.
-
-## Layout
+Each deployment project has its own directory, Terraform state, and plan/apply. AWS and GCP use the same structure.
 
 ```text
-terraform/
-├── aws/                         # AWS provider, state, inputs, and module calls
-├── gcp/                         # GCP provider, state, inputs, and module calls
-└── modules/
-    ├── aws/
-    │   ├── network/
-    │   ├── cluster/
-    │   └── psql/
-    └── gcp/
-        ├── network/
-        ├── cluster/
-        └── psql/
+infra/terraform/
+├── aws/
+│   └── staging/
+│       └── ap-southeast-2/
+│           ├── backend.json.example
+│           ├── networking/             # VPC, subnets, routing, NAT
+│           ├── cluster/                # EKS and workers
+│           ├── cluster-core-services/  # Argo CD and AWS load-balancer controller
+│           └── applications/
+│               └── idea-board/         # RDS and its credential secret
+├── gcp/
+│   └── staging/
+│       └── australia-southeast1/
+│           ├── backend.json.example
+│           ├── networking/             # VPC, subnet, NAT, private database connectivity
+│           ├── cluster/                # GKE and workers
+│           ├── cluster-core-services/  # Argo CD
+│           └── applications/
+│               └── idea-board/         # Cloud SQL and its credential secret
+└── modules/                            # Reusable Terraform code
 ```
 
-Each module has `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, and its own `tests/`. Cluster IAM resources are in `iam.tf` so the cluster configuration stays readable. The parents call modules named `network`, `cluster`, and `psql` and pass their outputs directly to the next module.
+The directory identifies the cloud, environment, region, and project. Production uses a matching directory under `production/`, with its own resource names and configuration.
 
-| Module | AWS | GCP | Why it is separate |
-| --- | --- | --- | --- |
-| `network` | VPC, public and private subnets, internet gateway, NAT gateway, routes | VPC, subnet, pod and service ranges, Cloud Router/NAT, Private Service Access | Owns address allocation and connectivity; both other modules use it. |
-| `cluster` | EKS control plane, managed EC2 workers, IAM roles, administrator access, control-plane logs | Regional GKE Standard control plane, worker pool, dedicated node service account, Workload Identity | Owns Kubernetes capacity and access without managing application releases. |
-| `psql` | RDS PostgreSQL 17, subnet group, security group, managed password | Cloud SQL PostgreSQL 17, database, user, Secret Manager credential | Owns database capacity, backups, and connectivity. Application migrations remain a separate deployment Job. |
+## State follows the project path
 
-## How traffic flows
+The root Makefile runs a small Python helper that calculates state locations from repository paths. For example:
 
-On AWS, workers run in private subnets across the selected zones. A NAT gateway in the first public subnet lets them pull public GHCR images. The RDS security group accepts port 5432 only from the EKS security group attached to managed workers. RDS has no public endpoint.
+| Project        | State location within its bucket                                              |
+| -------------- | ----------------------------------------------------------------------------- |
+| AWS networking | `infra/terraform/aws/staging/ap-southeast-2/networking.tfstate`               |
+| AWS database   | `infra/terraform/aws/staging/ap-southeast-2/applications/idea-board.tfstate`  |
+| GCP networking | `infra/terraform/gcp/staging/australia-southeast1/networking/default.tfstate` |
 
-On GCP, workers use private addresses. Cloud NAT provides internet egress, and secondary subnet ranges supply pod and service addresses. Private Service Access connects the VPC to Cloud SQL, which has no public IPv4 address. Reachability is VPC-based; PostgreSQL credentials and TLS are still required. Private Service Access reserves a separate, automatically selected /16 range.
+AWS uses an S3 key ending in `.tfstate`, with S3 lockfiles. GCP uses the project path as its GCS prefix; Terraform stores the default workspace state below it. Both use the default workspace. Environments have separate directories.
 
-Both Kubernetes APIs are reachable over their public endpoints without a caller IP allowlist. AWS access requires IAM authentication and an EKS access entry; this code grants cluster administration to `admin_role_arn`. GCP access requires Google credentials and the appropriate IAM and Kubernetes permissions. AWS also enables the private endpoint. GKE uses a separate `/28` control-plane range. Keep every configured range clear of existing VPC, VPN, peering, and on-premises networks.
+One `backend.json` per region declares the bucket and, for AWS, the bucket's region. State keys are calculated automatically. Dependent projects use the same bucket configuration and directory convention to find sibling states.
 
-AWS subnet allocation expects a `/16` VPC: the first public subnets start at offsets 0, 1, and 2, while private subnets start at 128, 129, and 130. For `10.10.0.0/16`, the first public/private pair is `10.10.0.0/24` and `10.10.128.0/24`. Supply two or three distinct availability zones and keep their ordering stable.
+**Moving a project directory changes its state location. Migrate the state before applying from the new path.**
 
-## Before deploying
+## Apply order
 
-Use Terraform 1.17.x. Provider versions and checksums are recorded in each root's `.terraform.lock.hcl`; commit deliberate provider upgrades with those lock files.
+1. `networking`
+2. `cluster`
+3. `cluster-core-services`
+4. `applications/idea-board`
+5. Release the frontend and backend through Argo CD.
 
-You need your own cloud account or project, billing, credentials, quotas, and a remote state bucket. Review the expected bill before applying: the control plane, workers, database, NAT, storage, logs, and network traffic can all incur charges while the application is idle.
+Cluster reads networking outputs. Core services read cluster outputs and, on AWS, networking outputs. The application reads networking outputs; on AWS it also reads the cluster's worker security group for database access.
 
-For AWS, supply an existing administrator IAM role in `admin_role_arn`. The identity running Terraform needs permission to provision the resources in these modules, pass the EKS roles, and create EKS access entries. Use your normal AWS profile or workload identity; do not put access keys in Terraform files.
+These dependencies use `terraform_remote_state`. Apply a prerequisite before planning its consumer.
 
-For GCP, use Application Default Credentials or workload identity for a project with billing and the Service Usage API already enabled. The deploying identity needs permission to enable the listed APIs and manage networking, GKE, service accounts/project IAM, Cloud SQL, and secrets. Terraform enables the remaining APIs and leaves them enabled on destroy. Kubernetes administrator access follows your GCP IAM and Kubernetes permissions.
+## Prepare
 
-Free Plan accounts can restrict EC2 types and RDS backup retention even when a plan succeeds. Check eligible workers with `aws ec2 describe-instance-types --filters Name=free-tier-eligible,Values=true`. This account required `node_instance_type = "t3.small"` and `database_backup_retention_days = 1`; the general defaults remain `t3.medium` and seven days.
+1. Install Terraform 1.17.x, Make, Python 3, and your cloud CLI. Use the committed provider locks.
+2. Sign in to AWS or configure GCP Application Default Credentials.
+3. Create a state bucket with encryption, versioning, and restricted access. Keep it outside these projects so it remains available during teardown.
+4. Check supported Kubernetes versions and machine types in your chosen region.
 
-Check regional Kubernetes versions and instance availability before choosing values. GKE requires a REGULAR-channel version **1.36.4-gke.1469000 or newer** so it can create the cluster without a temporary default node pool. Its version input is a minimum: the release channel can select a newer version and upgrade it later. EKS takes the requested supported minor version. The example files deliberately leave versions unset rather than guessing regional availability.
+AWS needs an existing cluster administrator role. Apply core services as that role, or another identity granted Kubernetes administrator access. Helm uses `aws eks get-token`.
 
-## State
+GCP needs a billed project with Service Usage enabled. Each project enables its required APIs. Core services require `gke-gcloud-auth-plugin` and cluster administrator permissions. Helm uses Application Default Credentials.
 
-Create the state bucket separately so destroying the application stack cannot destroy its own state. Use a different state key or prefix for each environment, and give each deployed stack a distinct `name`.
+Terraform state and saved plans can contain credentials. Restrict access to both.
 
-For S3, enable bucket versioning, encryption, and Block Public Access. The backend example enables native S3 lock files; no DynamoDB table is needed. The Terraform identity needs access to the state object and permission to read, write, and delete its `.tflock` object.
+## Configure AWS
 
-For GCS, enable bucket versioning, uniform bucket-level access, and public access prevention. GCS state locking is built in. Restrict object access to the deployment identities and operators who need it.
-
-Both backends encrypt data at rest. State can contain credentials, especially the GCP SQL password and Secret Manager payload. `sensitive = true` hides ordinary CLI output; it does not remove values from state. Protect state versions and saved plans as secrets. Local state, plans, `terraform.tfvars`, and `backend.hcl` are ignored by Git.
-
-## Configure and run
-
-From the repository root, choose one cloud:
+Run from the repository root:
 
 ```bash
-cd infra/terraform/aws
-# Or: cd infra/terraform/gcp
-cp terraform.tfvars.example terraform.tfvars
-cp backend.hcl.example backend.hcl
+cp infra/terraform/aws/staging/ap-southeast-2/backend.json.example \
+  infra/terraform/aws/staging/ap-southeast-2/backend.json
 ```
 
-Edit both files before proceeding. Replace the example account/project, state bucket, administrator role ARN, zones, and Kubernetes version. Keep the stack name between 3 and 24 lowercase letters, digits, or hyphens, starting with a letter and ending with a letter or digit, so it also fits the GCP node identity.
+1. Set `bucket` and its AWS `region` in `backend.json`.
+2. In each of the four project directories, copy `terraform.tfvars.example` to `terraform.tfvars`.
+3. Fill in the project settings. Use one stack name, such as `idea-board-staging`, throughout these projects. Choose another name for each additional environment or region. Supply the existing administrator role in `cluster`.
 
-GCP additionally requires `TF_VAR_database_password` in the process environment. Supply a generated password through your password manager or CI secret store, rather than committing it to a variable file. AWS generates and manages its database password through RDS.
+The project command supplies the deployment region from the directory path, plus the bucket and dependency state paths. `backend.json` and `terraform.tfvars` are ignored by Git.
+
+## Configure GCP
 
 ```bash
-terraform init -backend-config=backend.hcl
-terraform validate
-terraform plan -out=stack.tfplan
-# Review the saved plan before applying it.
-terraform apply stack.tfplan
-terraform output
+cp infra/terraform/gcp/staging/australia-southeast1/backend.json.example \
+  infra/terraform/gcp/staging/australia-southeast1/backend.json
 ```
 
-Use the same cloud credentials and backend configuration for subsequent runs. Do not point two stacks at the same state key. Stage and production can use the same code with separate names, variable files, and state locations; this code does not create those environments automatically.
+1. Set `bucket` in `backend.json`.
+2. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and set the GCP project ID and other settings. Use the same stack name throughout the environment.
+3. Supply the database password through `TF_VAR_database_password` in your environment or CI secret store when planning the application project.
 
-Both roots expose the same output names:
+## Plan and apply one project
 
-| Output | Use |
-| --- | --- |
-| `cluster_name` | Select the cluster when generating kubeconfig. |
-| `database_host`, `database_port`, `database_name` | Build the PostgreSQL connection string. |
-| `database_username` | Initial database owner. |
-| `database_credential_secret_id` | Retrieve the password from AWS Secrets Manager or GCP Secret Manager. |
-
-## Connect the application
-
-After applying, generate kubeconfig with `aws eks update-kubeconfig` or `gcloud container clusters get-credentials`, supplying the cluster name and region. Check the selected context before deploying anything.
-
-The existing backend chart expects a Kubernetes Secret containing `IDEA_BOARD_DATABASE_URL`. Retrieve the credentials using the secret reference, URL-encode them, and construct a `postgresql+psycopg://` URL with the database outputs and `sslmode=require`. Deliver that Secret through your deployment process. Terraform does not read back the password or write Kubernetes Secrets. For certificate identity verification, configure the cloud CA and the driver's verification settings before production use.
-
-The initial database owner is a bootstrap identity. Create a narrower application user for production and keep its permissions and rotation separate from database administration. When credentials rotate, update the Kubernetes Secret and restart the workloads that read it through environment variables. RDS-managed owner credentials rotate independently of this code.
-
-Deploy the existing backend and frontend charts through Argo CD. The backend migration Job runs before the backend starts. This infrastructure does not install Argo CD, ingress/load-balancer controllers, DNS, certificates, or the application releases; those are separate deployment configuration. The current kind configuration remains local to kind.
-
-## Capacity and availability
-
-The defaults start with two workers and a small, single-zone database. They are a starting size, not a production sizing recommendation.
-
-| Setting | AWS | GCP |
-| --- | --- | --- |
-| Total workers | `node_count` | `node_count`, evenly split across `node_zones` |
-| Worker size | `node_instance_type` | `node_machine_type` |
-| Database size | `database_instance_class` | `database_tier` |
-| Initial database disk | `database_storage_gb` | `database_storage_gb` |
-| Database standby | `database_multi_az = true` | `database_regional = true` |
-
-Workers have a fixed count; this code does not install a cluster autoscaler. On GCP, the total must be a positive multiple of the number of worker zones. GKE repairs and upgrades workers automatically. EKS node upgrades follow Terraform changes. EKS worker groups use unique name prefixes and are created before their predecessors are deleted, so a replacement can become ready while an old group is draining or being removed.
-
-AWS uses **one NAT gateway** to keep the initial setup smaller. Its zone is an egress failure point, and traffic from the other zones can incur cross-zone charges. A production availability design should use NAT per zone. GCP Cloud NAT is regional. RDS uses the configured disk size; Cloud SQL can grow its disk automatically and does not shrink it afterward. RDS keeps seven days of automated backups by default; Cloud SQL retains seven automated backups and enables point-in-time recovery.
-
-For a capacity test, increase workers and the database size in the environment's variables, review/apply the plan, then run application load from a separate load generator. Measure error rate, request latency, pod CPU/memory, database connections/CPU, and resource saturation. Restore the intended size afterward. The Terraform tests below verify sizing configuration; they do **not** measure application scale or cloud performance.
-
-## Checks without cloud accounts
-
-CI runs formatting, schema validation, and native Terraform tests. Every test file declares a mock provider, so tests do not authenticate to AWS/GCP or create resources. Tests live with each module; root tests also exercise the combined module graph and shared outputs.
-
-From `infra/terraform`, check formatting:
+Start with networking. Run all Make commands from the repository root:
 
 ```bash
-terraform fmt -check -recursive
+make init PROJECT=aws/staging/ap-southeast-2/networking
+make validate PROJECT=aws/staging/ap-southeast-2/networking
+make plan PROJECT=aws/staging/ap-southeast-2/networking
 ```
 
-Then validate and test one root:
+The command prints the selected project and state location. `plan` saves `project.tfplan` inside the project directory. Review its resources and costs, then apply that saved plan:
 
 ```bash
-terraform -chdir=aws init -backend=false -input=false -lockfile=readonly
-terraform -chdir=aws validate
-terraform -chdir=aws test
+make apply PROJECT=aws/staging/ap-southeast-2/networking
+make output PROJECT=aws/staging/ap-southeast-2/networking
 ```
 
-Use `gcp` for the other cloud. `-backend=false` leaves remote state untouched; mocked tests use their own test state. To check an individual module using the same provider lock as its root:
+Repeat for `cluster`, `cluster-core-services`, and `applications/idea-board`, in that order. For GCP, use `PROJECT=gcp/staging/australia-southeast1/...`.
+
+Subsequent changes need a plan/apply in the affected project. When its outputs change, plan its consumers too. Additional Terraform arguments go in `ARGS`, for example:
 
 ```bash
-cp aws/.terraform.lock.hcl modules/aws/network/.terraform.lock.hcl
-terraform -chdir=modules/aws/network init -backend=false -input=false -lockfile=readonly
-terraform -chdir=modules/aws/network validate
-terraform -chdir=modules/aws/network test
+make output PROJECT=aws/staging/ap-southeast-2/cluster ARGS=-json
 ```
 
-Repeat for `cluster` and `psql`, or for GCP. CI runs all eight directories. Tests cover private networking, public API reachability, the AWS administrator role, database protection and credentials, worker placement/count, and larger database configurations.
+Use an absolute path for files passed through `ARGS`; Terraform runs inside the selected project directory. To select a different Terraform executable, set `TERRAFORM=/path/to/terraform`.
 
-Mocked tests cannot establish cloud permissions, quotas, regional version support, API acceptance, or actual connectivity. A live check should include plan/apply, application deployment, migrations, database requests from the backend, a second plan for drift, and teardown in a disposable environment.
+`cluster-core-services` waits for its Helm releases to become ready. It pins Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and AWS Load Balancer Controller chart `3.6.3`. Upgrade the controller chart and its vendored IAM policy together. GKE provides its HTTP load-balancing controller through the cluster addon.
 
-## Live verification
+Terraform owns the platform Helm releases. Argo CD owns application releases.
 
-The AWS stack was deployed in Sydney (`ap-southeast-2`) with two `t3.small` workers and private RDS PostgreSQL. Both frontend and backend Argo CD Applications reached Synced and Healthy. Health checks, migrations, idea create/read/delete, frontend assets and API proxying, pagination, input validation, and duplicate prevention passed. A second Terraform plan reported no changes.
+## Connect and release the application
 
-A small concurrency check completed 50 create/read/delete cycles: 150 requests at concurrency 10, with zero errors in 12.89 seconds. The p95 time for a complete three-request cycle was 2.741 seconds. Requests used a temporary Kubernetes port-forward; this checks concurrent application behavior, but does not establish production capacity or public ingress performance. The capacity test described above remains pending.
+1. Read `cluster_name` from the cluster project's outputs.
+2. Read `database_host`, `database_port`, `database_name`, `database_username`, and `database_credential_secret_id` from the application project's outputs.
+3. Configure the GitHub deployment Environment using the [deployment instructions](../../README.md#deploy-through-github-actions).
+4. Run the Deploy workflow for the tested image commit.
 
-Terraform then destroyed all 31 stack resources. A follow-up cleanup confirmed no retained database backups, database or disk snapshots, worker disks, project logs, or secrets. The separate state bucket and all 37 saved object versions/delete markers were also deleted. Recreate the state bucket before deploying again. GCP verification is limited to schema validation and mocked tests; live plan/apply, application checks, and teardown are still pending.
+The database module owns PostgreSQL and its credential secret together. AWS uses RDS-managed credentials; GCP stores the username and password in Secret Manager. The deployment tool supplies the Kubernetes database Secret. Migrations run in the backend's separate pre-start job.
+
+For Argo CD access, select the cloud cluster context:
+
+```bash
+kubectl --context YOUR_CONTEXT --namespace argocd port-forward service/argocd-server 8080:443
+```
+
+Open `https://localhost:8080`. Retrieve the initial `admin` password:
+
+```bash
+kubectl --context YOUR_CONTEXT --namespace argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 --decode
+```
+
+## Resource sizing
+
+Worker size/count belong to `cluster`. Database size/storage/standby belong to `applications/idea-board`. The AI deployment plan writes a proposal for each:
+
+```text
+release-plan/terraform/
+├── cluster/sizing.tfvars.json
+└── applications/idea-board/sizing.tfvars.json
+```
+
+The generated `plan.md` contains Make commands for the two projects. Replace `YOUR_REGION` with your target region, review each proposal, and plan/apply independently.
+
+AWS uses one NAT gateway. GCP uses regional Cloud NAT. Both databases have private addresses. Workers have a fixed count. On GCP, `node_count` must be a positive multiple of `node_zones`.
+
+## Checks without cloud access
+
+Each project and reusable module has provider-mock tests. Root tests substitute dependency outputs. From the repository root:
+
+```bash
+terraform -chdir=infra/terraform/aws/staging/ap-southeast-2/networking init -backend=false -input=false -lockfile=readonly
+make validate PROJECT=aws/staging/ap-southeast-2/networking
+make test PROJECT=aws/staging/ap-southeast-2/networking
+python3 -m unittest discover -s tools/terraform/tests
+```
+
+CI discovers deployment projects under each cloud and validates/tests them and their reusable modules. It also checks generated staging and production sizing against the project configurations. Live cloud checks are still needed for IAM, service availability, Helm installation, networking, and public access.
+
+## Existing deployments
+
+The previous combined AWS stack was deployed, tested, and destroyed. The split projects and platform Helm installation have validation and mock-test coverage; live apply remains pending on both clouds.
+
+For an existing deployment with a combined state:
+
+1. Stop concurrent Terraform operations. From the original initialized checkout, back up its state with `terraform state pull > legacy.tfstate` in a private directory.
+2. Configure the new projects with the existing resource names and settings. Initialize their backends.
+3. Use `terraform state mv -state=legacy.tfstate -state-out=DESTINATION.tfstate` to move `module.network`, `module.cluster`, and `module.psql` into separate local state files. Keep their Terraform addresses unchanged. On GCP, move the existing `google_project_service.required` instances into their matching networking, cluster, or application project too.
+4. Push each destination file through its project with `make state PROJECT=... ARGS='push /absolute/path/DESTINATION.tfstate'`. In dependency order, review/apply a refresh-only plan to publish outputs: `make plan PROJECT=... ARGS=-refresh-only`, then `make apply PROJECT=...`.
+5. Check normal plans for unwanted replacements. Once verified, push the depleted legacy state through its original backend and retire the old root. Keep the backup protected.
+
+For directory moves, use Terraform's backend migration workflow to move the existing state to the calculated destination before planning. Do not create a second state for the same resources.
+
+Existing platform releases also need ownership migration. Import an existing Argo CD Helm release with `terraform import module.argocd.helm_release.this argocd/argocd` from the initialized core-services project, supplying its dependency variables. A `kubectl` installation or an Argo-managed controller needs a separate adoption procedure before Terraform can manage it.
 
 ## Teardown
 
-Deletion protection is enabled by default. To intentionally remove a stack, first set `deletion_protection = false`, review/apply that change, and then review a destroy plan. AWS protects RDS; GCP protects both GKE and Cloud SQL.
+Use `make destroy PROJECT=...` for one project at a time:
 
-RDS takes a final snapshot named `<name>-final` by default. For a disposable verification run, set `deletion_protection = false` and `database_skip_final_snapshot = true` before applying; that run will not retain a final snapshot. If that snapshot already exists from an earlier teardown, rename or remove it before destroying another database with the same stack name. Retained snapshots, backups, secret recovery periods, and the separately managed state bucket may continue to incur charges. Destroying this stack does not disable GCP project APIs or delete the state bucket.
+1. Remove application workloads and public routing. Wait for controller-managed load balancers to disappear.
+2. Disable database deletion protection through a reviewed application-project apply, then destroy `applications/idea-board`.
+3. Destroy `cluster-core-services` while the cluster is available.
+4. Disable GCP cluster deletion protection through a reviewed apply, then destroy `cluster`.
+5. Destroy `networking`.
+
+AWS takes a final database snapshot by default. For disposable environments, review `database_skip_final_snapshot = true` before destruction. Check retained snapshots, backups, secrets, and load balancers. Keep the state bucket until all project states and required backups can be retired.

@@ -1,0 +1,24 @@
+variable "name" {
+  description = "Stack name, at most 24 characters, including environment."
+  type        = string
+}
+
+variable "project_id" {
+  description = "Existing GCP project with billing enabled."
+  type        = string
+}
+
+variable "region" {
+  description = "GCP region."
+  type        = string
+}
+
+variable "state_bucket" {
+  description = "Bucket containing this environment's Terraform project states."
+  type        = string
+}
+
+variable "state_prefix" {
+  description = "Repository-relative environment path, supplied by the project command."
+  type        = string
+}

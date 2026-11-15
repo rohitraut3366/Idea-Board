@@ -1,0 +1,4 @@
+name = "idea-board-staging"
+project_id = "replace-with-project-id"
+kubernetes_version = "REPLACE_WITH_SUPPORTED_KUBERNETES_VERSION"
+node_zones = ["australia-southeast1-a", "australia-southeast1-b"]

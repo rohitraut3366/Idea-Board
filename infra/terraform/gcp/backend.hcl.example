@@ -1,2 +1,0 @@
-bucket = "replace-with-existing-state-bucket"
-prefix = "idea-board/staging"

@@ -31,7 +31,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
 
 Review `release-plan/plan.md` and `release-plan/applications.json`. The plan includes individual service replicas, CPU and memory values, an ordered deployment explanation, and a release command built by Python. The model cannot change the cloud, namespace, image, or revision, or supply executable shell text. `render` prints only the Applications; `prepare` writes the review files. All commands validate the recommendation first.
 
-For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both commands. `prepare` also writes `release-plan/sizing.tfvars.json` for the existing Terraform root. It contains worker count/type, database tier/storage, and standby configuration. These values supplement your stack configuration. Use the Terraform plan command in `plan.md` with your own credentials, state backend, and stack variables. Review actual changes before applying, especially storage, region-specific sizes, and GCP node count (a multiple of your node-zone count). The application release does not apply infrastructure changes. Kind and PR previews have no sizing file.
+For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both commands. `prepare` also writes separate `release-plan/terraform/cluster/sizing.tfvars.json` and `release-plan/terraform/applications/idea-board/sizing.tfvars.json` proposals for their Terraform projects. The files contain worker count/type and database tier/storage/standby configuration respectively. These values supplement your stack configuration. Use the Make plan commands in `plan.md`, replacing `YOUR_REGION` with your target region, with your own credentials, state backend, and stack variables. Review actual changes before applying, especially storage, region-specific sizes, and GCP node count (a multiple of your node-zone count). The application release does not apply infrastructure changes. Kind and PR previews have no sizing file.
 
 ## Deploy
 
@@ -100,7 +100,7 @@ uv run --project tools/deploy --locked pytest tools/deploy/tests
 
 PostgreSQL tests create uniquely named preview databases/roles and remove them. Set `IDEA_BOARD_TEST_DATABASE_URL` for another dedicated test server whose identity can create/drop databases and roles. Tests cover independent sizing, environment limits, Helm rendering, Terraform input mapping, evidence filtering, unsupported model advice, rollback state/drift checks, preview persistence/ownership/cleanup, and PR provenance.
 
-The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against both roots using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
+The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against the cluster and application projects for both clouds using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
 
 For the full integration check, use the existing test kind cluster with Argo CD and the chart-test PostgreSQL Deployment/Secret in namespace `idea-board`:
 
