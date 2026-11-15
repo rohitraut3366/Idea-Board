@@ -1,0 +1,366 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/backend
+    services:
+      postgres:
+        image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_DB: idea_board
+          POSTGRES_USER: idea_board
+          POSTGRES_PASSWORD: idea_board_local
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U idea_board -d idea_board"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: apps/backend/.python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: apps/backend/uv.lock
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --all-groups
+      - name: Lint and check formatting
+        run: |
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+      - name: Check types
+        run: uv run --no-sync --all-extras --all-groups mypy
+      - name: Run unit and PostgreSQL integration tests
+        run: uv run --no-sync --all-extras --all-groups pytest
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: apps/frontend/.node-version
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Check formatting and types
+        run: |
+          npm run format:check
+          npm run typecheck
+      - name: Run component tests
+        run: npm test
+
+  compose:
+    name: Container, full-stack, and Helm checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: apps/frontend/.node-version
+          package-manager-cache: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build backend and migration image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/backend
+          load: true
+          tags: idea-board-backend:local
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+      - name: Build frontend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/frontend
+          load: true
+          tags: idea-board-frontend:local
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+      - name: Start stack
+        run: docker compose up --no-build --wait --wait-timeout 90
+      - name: Run full-stack HTTP tests
+        run: npm --prefix apps/frontend run test:stack
+      - name: Check concurrent requests
+        env:
+          LOAD_CYCLES: "20"
+          LOAD_CONCURRENCY: "5"
+        run: npm --prefix apps/frontend run test:load
+      - name: Verify migration can run again
+        run: docker compose run --rm migrate
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.4
+      - name: Lint charts
+        run: |
+          helm lint charts/idea-board-backend --strict -f gitops/kind/backend-values.yaml
+          helm lint charts/idea-board-frontend --strict -f gitops/kind/frontend-values.yaml
+      - name: Render GitOps Applications
+        run: kubectl kustomize gitops/kind
+      - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          version: v0.32.0
+          cluster_name: idea-board
+          node_image: kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
+      - name: Load app images and start test database
+        run: |
+          kind load docker-image idea-board-backend:local idea-board-frontend:local --name idea-board
+          kubectl --context kind-idea-board create namespace idea-board
+          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board-backend/tests/postgres.yaml
+          kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
+      - name: Install charts and test both services
+        run: |
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
+      - name: Verify upgrade and repeat migrations
+        run: |
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
+          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
+      - name: Collect failure logs
+        if: failure()
+        run: |
+          mkdir -p artifacts
+          docker compose ps --all >artifacts/compose-status.txt
+          docker compose logs --no-color >artifacts/compose.log 2>&1
+          if kubectl config get-contexts kind-idea-board --no-headers >/dev/null 2>&1; then
+            kubectl --context kind-idea-board --namespace idea-board get pods,jobs,events >artifacts/kind-status.txt 2>&1 || true
+            kubectl --context kind-idea-board --namespace idea-board logs --all-containers --prefix --selector app.kubernetes.io/component >artifacts/kind-app.log 2>&1 || true
+            kubectl --context kind-idea-board --namespace idea-board logs deployment/postgres >artifacts/kind-postgres.log 2>&1 || true
+          fi
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compose-failure-logs
+          path: artifacts/
+          retention-days: 7
+      - name: Stop stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  terraform:
+    name: Terraform (${{ matrix.cloud }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp]
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      CLOUD: ${{ matrix.cloud }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+      - name: Validate and test root and modules without cloud credentials
+        run: |
+          export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugins"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          for directory in "$CLOUD" "modules/$CLOUD/network" "modules/$CLOUD/cluster" "modules/$CLOUD/psql"; do
+            if [[ "$directory" == modules/* ]]; then
+              cp "$CLOUD/.terraform.lock.hcl" "$directory/.terraform.lock.hcl"
+            fi
+            terraform -chdir="$directory" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="$directory" validate
+            terraform -chdir="$directory" test
+          done
+
+  deployment:
+    name: Deployment tool checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/deploy
+    services:
+      postgres:
+        image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_DB: idea_board
+          POSTGRES_USER: idea_board
+          POSTGRES_PASSWORD: idea_board_local
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U idea_board -d idea_board"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.7'
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.4
+      - run: uv sync --locked --all-groups
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync mypy . --check-untyped-defs --ignore-missing-imports
+      - run: uv run --no-sync pytest
+
+  publish:
+    name: Publish images to GHCR
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [backend, frontend, compose, terraform, deployment]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend_image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/rohitraut3366/idea-board-backend:${{ github.event.pull_request.head.sha || github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha || github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+      - name: Publish frontend
+        id: frontend_image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/rohitraut3366/idea-board-frontend:${{ github.event.pull_request.head.sha || github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha || github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+      - name: Record published images
+        env:
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha || github.sha }}
+          BACKEND_DIGEST: ${{ steps.backend_image.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend_image.outputs.digest }}
+        run: |
+          {
+            echo "Backend: ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG"
+            echo "Backend digest: $BACKEND_DIGEST"
+            echo "Frontend: ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
+            echo "Frontend digest: $FRONTEND_DIGEST"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  delivery:
+    name: Argo CD release and preview checks
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.7'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: apps/frontend/.node-version
+          package-manager-cache: false
+      - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          version: v0.32.0
+          cluster_name: idea-board
+          node_image: kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
+      - name: Start PostgreSQL and Argo CD
+        run: |
+          kubectl --context kind-idea-board create namespace idea-board
+          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board-backend/tests/postgres.yaml
+          kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
+          kubectl --context kind-idea-board create namespace argocd
+          kubectl --context kind-idea-board apply --server-side -k gitops/argocd
+          kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
+          kubectl --context kind-idea-board --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+      - name: Exercise release, preview redeployment, and cleanup
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          uv sync --project tools/deploy --locked --no-dev
+          uv run --project tools/deploy --no-sync python tools/deploy/tests/check_kind.py --context kind-idea-board --image-tag "$SOURCE_SHA" --revision "$SOURCE_SHA"
+      - name: Inspect failed release
+        if: failure()
+        run: |
+          kubectl --context kind-idea-board --namespace argocd get applications -o yaml
+          kubectl --context kind-idea-board get pods,jobs --all-namespaces
