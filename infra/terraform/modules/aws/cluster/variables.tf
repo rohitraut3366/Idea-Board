@@ -21,7 +21,7 @@ variable "admin_role_arn" {
 variable "node_instance_type" {
   description = "x86_64 EC2 instance type for worker nodes."
   type        = string
-  default     = "t3.medium"
+  default     = "c7i-flex.large"
 }
 
 variable "node_count" {

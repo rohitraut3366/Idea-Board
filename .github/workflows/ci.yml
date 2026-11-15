@@ -218,6 +218,28 @@ jobs:
           version: "0.12.7"
       - name: Check Terraform formatting
         run: terraform fmt -check -recursive
+      - name: Install Terragrunt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          terragrunt_version="$(cat ../../.terragrunt-version)"
+          terragrunt_directory="$RUNNER_TEMP/terragrunt"
+          mkdir -p "$terragrunt_directory"
+          gh release download "v$terragrunt_version" --repo gruntwork-io/terragrunt \
+            --pattern terragrunt_linux_amd64 --pattern SHA256SUMS --dir "$terragrunt_directory"
+          (
+            cd "$terragrunt_directory"
+            sha256sum --check --ignore-missing SHA256SUMS
+          )
+          chmod +x "$terragrunt_directory/terragrunt_linux_amd64"
+          mv "$terragrunt_directory/terragrunt_linux_amd64" "$terragrunt_directory/terragrunt"
+          echo "$terragrunt_directory" >>"$GITHUB_PATH"
+      - name: Check Terragrunt declarations
+        env:
+          GOOGLE_CLOUD_PROJECT: test-project
+        run: |
+          terragrunt hcl fmt --check
+          python3 -m unittest discover -s tests
       - name: Validate and test root and modules without cloud credentials
         run: |
           export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugins"
@@ -249,8 +271,6 @@ jobs:
             terraform -chdir="$directory" validate
             terraform -chdir="$directory" test
           done
-      - name: Test project commands and state paths
-        run: python3 -m unittest discover -s ../../tools/terraform/tests
       - name: Plan generated application sizing with provider mocks
         run: |
           uv run --project ../../tools/deploy --locked python ../../tools/deploy/tests/check_terraform.py --cloud "$CLOUD"
@@ -291,8 +311,8 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
-      - run: uv run --no-sync ruff format --check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
+      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
+      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
       - name: Build External Secrets chart dependencies
         run: |

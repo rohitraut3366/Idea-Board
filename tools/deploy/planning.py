@@ -83,16 +83,17 @@ def prepare(target, recommendation, directory, recommendation_path):
             "storage cannot be reduced in place. "
             "GCP node_count assumes two node_zones; adjust to your actual zone count.",
             "",
-            "From the repository root, with each project's terraform.tfvars "
-            "and state backend configured, replace YOUR_REGION with the target region "
-            "and initialize each project first:",
+            "From the repository root, replace YOUR_REGION with the target region. "
+            "Terragrunt loads the project's declared inputs and state configuration:",
         ]
         for project in ("cluster", "applications/idea-board"):
             path = directory / "terraform" / project / "sizing.tfvars.json"
             plan += [
                 "```bash",
-                f"make plan PROJECT={target.cloud}/{target.environment}/YOUR_REGION/{project} "
-                f"ARGS={shlex.quote('-var-file=' + shlex.quote(str(path.resolve())))}",
+                "terragrunt run "
+                f"--working-dir infra/terraform/{target.cloud}/"
+                f"{target.environment}/YOUR_REGION/{project} -- plan "
+                f"{shlex.quote('-var-file=' + str(path.resolve()))} -out=project.tfplan",
                 "```",
             ]
         plan += [

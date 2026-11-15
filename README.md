@@ -215,80 +215,62 @@ Follow steps 1–3 to set up an environment. Use step 4 whenever you want to rel
 
 ### 1. Create the cloud resources
 
-Terraform manages four projects for each cloud. Each project can be planned and applied separately:
+Terraform defines the resources. Terragrunt supplies their settings, state locations, and dependency order. Each cloud has four projects:
 
 ```text
 infra/terraform/
-├── backend.json.example                 # Shared S3 bucket settings for both clouds
-├── aws/
-│   └── staging/
-│       └── ap-southeast-2/
-│           ├── networking/              # VPC, subnets, routing, NAT
-│           ├── cluster/                 # EKS and workers
-│           ├── cluster-core-services/   # Argo CD, shared services, AWS load-balancer controller
-│           └── applications/
-│               └── idea-board/          # PostgreSQL and its credential secret
-├── gcp/
-│   └── staging/
-│       └── australia-southeast1/
-│           ├── networking/              # VPC, subnet, routing, NAT
-│           ├── cluster/                 # GKE and workers
-│           ├── cluster-core-services/   # Argo CD and shared services
-│           └── applications/
-│               └── idea-board/          # PostgreSQL and its credential secret
-└── modules/                             # Reusable Terraform code
+├── state.hcl                         # Shared S3 state bucket and its region
+├── root.hcl                          # Shared state and input rules
+├── aws/staging/
+│   ├── environment.hcl               # Stack name
+│   └── ap-southeast-2/
+│       ├── region.hcl                # Region and availability zones
+│       ├── networking/terragrunt.hcl
+│       ├── cluster/terragrunt.hcl
+│       ├── cluster-core-services/terragrunt.hcl
+│       └── applications/idea-board/terragrunt.hcl
+├── gcp/staging/                      # Same project layout for GCP
+└── modules/                          # Reusable Terraform resources
 ```
 
-The directory identifies the cloud, environment, region, and project. Production uses the same structure under `production/`.
+The checked-in declarations contain the stack name, regions, Kubernetes versions, machine sizes, and database settings. Change these files to change the deployment. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
 
-Before running Terraform:
+Before deploying:
 
-1. Install Terraform 1.17.x, Make, Python 3, and your cloud CLI.
-2. Sign in to AWS for Terraform state access. For GCP deployments, also configure Application Default Credentials in a billed GCP project.
-3. Create one S3 bucket with encryption, versioning, Block Public Access, and restricted access. It stores Terraform state for both clouds. State records the resources Terraform manages.
-4. Copy `infra/terraform/backend.json.example` to `infra/terraform/backend.json`. Set `bucket` to the S3 bucket name and `region` to its AWS region.
-5. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in its settings. Use one stack name across the four projects, and a different name for each environment or region.
-6. For `cluster-core-services`, export `GITHUB_TOKEN` with repository **Contents: read and write** permission. Terraform uses it to publish the cluster's generated values file to `master`.
+1. Install Terraform 1.17.x, Terragrunt 1.2.2, kubectl, GitHub CLI, and your cloud CLI.
+2. Sign in to AWS for infrastructure and state access. For GCP, also configure Application Default Credentials in a billed project.
+3. Check `infra/terraform/state.hcl` points to your existing S3 state bucket. Both clouds use this bucket; project paths determine separate state keys.
+4. Sign in to GitHub CLI and export its token for Terraform to publish shared-service values:
 
-Run from the repository root:
+   ```bash
+   export GITHUB_TOKEN="$(gh auth token)"
+   ```
+
+For AWS, select your authenticated profile and deploy:
 
 ```bash
-cp infra/terraform/backend.json.example infra/terraform/backend.json
-cp infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars.example \
-  infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars
+export AWS_PROFILE=idea-board
+cd infra/terraform/aws/staging/ap-southeast-2
+terragrunt run --all apply
 ```
 
-The `.example` file is the template; `backend.json` holds your local bucket settings. This one configuration serves every cloud, environment, and region. The state bucket's AWS region can differ from the deployment region.
+For GCP, run the same Terragrunt command from `infra/terraform/gcp/staging/australia-southeast1`. GCP deployments also use AWS credentials for the shared S3 state bucket.
 
-For GCP project settings, use the directories under `infra/terraform/gcp/staging/australia-southeast1`. GCP Terraform commands use AWS credentials for state access and GCP credentials for provisioning. Terraform generates the database password and stores it in Google Secret Manager.
-
-The Makefile calculates a separate state key from each project path and stores it in the shared bucket:
+Terragrunt initializes each project and applies them in dependency order:
 
 ```text
-infra/terraform/aws/staging/ap-southeast-2/networking.tfstate
-infra/terraform/gcp/staging/australia-southeast1/networking.tfstate
+networking → cluster → cluster-core-services → applications/idea-board
 ```
 
-Dependencies use the same configuration to read the projects they need. For existing state, follow the [migration steps](infra/terraform/README.md#move-existing-regional-or-gcs-state) before planning changes.
-
-From the repository root, initialize networking, check it, and create its plan:
+A fresh stack needs its dependencies created before their consumers can be planned. For an existing stack, preview all changes with `terragrunt run --all plan`. To review and apply one project, run these commands from its directory:
 
 ```bash
-make init PROJECT=aws/staging/ap-southeast-2/networking
-make validate PROJECT=aws/staging/ap-southeast-2/networking
-make plan PROJECT=aws/staging/ap-southeast-2/networking
+terragrunt run -- plan -out=project.tfplan
+terragrunt run -- apply project.tfplan
+terragrunt run -- output
 ```
 
-Review the resources Terraform will create, change, or delete, then apply the saved plan:
-
-```bash
-make apply PROJECT=aws/staging/ap-southeast-2/networking
-make output PROJECT=aws/staging/ap-southeast-2/networking
-```
-
-Repeat these commands for `cluster`, `cluster-core-services`, and `applications/idea-board`, in that order. Apply each project before planning the next one, because later projects read earlier outputs.
-
-The `cluster` project provides `cluster_name`. The `applications/idea-board` project provides the database connection details and secret reference used in step 3. The [Terraform guide](infra/terraform/README.md) covers both clouds, inputs, state, and teardown.
+The cluster project provides `cluster_name`. The application project provides the database connection details and secret reference used in step 3. The [Terraform guide](infra/terraform/README.md) covers settings, state, existing deployments, and teardown.
 
 ### 2. Connect to the cluster and check public routing
 
@@ -315,7 +297,7 @@ values/<cloud>/<cluster-name>/values-terraform.yaml
 
 Provider and cluster files are optional. Argo CD ignores missing files and picks them up when they appear on the watched Git branch.
 
-For External Secrets settings such as an IAM role annotation, set `external_secrets_values` in the cloud's `cluster-core-services/terraform.tfvars`. Applying that project writes `values-terraform.yaml` directly to `master`. Keep `gitops_revision = "master"` to receive these updates. Store credentials in the cloud secret manager; the values file holds configuration only.
+For External Secrets settings such as an IAM role annotation, set `external_secrets_values` under `inputs` in the cloud's `cluster-core-services/terragrunt.hcl`. Applying that project writes `values-terraform.yaml` directly to `master`. Keep `gitops_revision = "master"` to receive these updates. Store credentials in the cloud secret manager; the values file holds configuration only.
 
 The [cluster services guide](gitops/cluster-core-services/README.md) includes the chart layout and an IAM annotation example.
 
@@ -434,6 +416,6 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 ## What has been tested
 
-Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. CI also verifies the cluster services root and External Secrets Operator become Synced and Healthy in kind. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage.
+Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. CI also verifies the cluster services root and External Secrets Operator become Synced and Healthy in kind. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage. Terragrunt declarations are rendered and checked for shared inputs, dependency order, and unchanged state keys.
 
 Provider and cluster values selection, generated-file contents, and IAM annotation rendering have automated test coverage. Publishing a generated file through a live Terraform apply and connecting External Secrets to database credentials remain pending. Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.

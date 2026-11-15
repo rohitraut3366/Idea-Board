@@ -27,7 +27,7 @@ def main():
             if environment == "production":
                 proposal["infrastructure"].update(
                     node_count=4,
-                    node_size="t3.large" if args.cloud == "aws" else "e2-standard-4",
+                    node_size="m7i-flex.large" if args.cloud == "aws" else "e2-standard-4",
                     database_size="db.t4g.medium" if args.cloud == "aws" else "db-custom-2-7680",
                     database_storage_gb=40,
                 )

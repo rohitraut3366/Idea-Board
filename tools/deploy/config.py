@@ -72,7 +72,10 @@ def validate_recommendation(recommendation, environment, cloud):
         if infrastructure is None:
             raise ValueError("cloud releases require an infrastructure proposal")
         sizes = {
-            "aws": ({"t3.medium", "t3.large"}, {"db.t4g.micro", "db.t4g.small", "db.t4g.medium"}),
+            "aws": (
+                {"c7i-flex.large", "m7i-flex.large"},
+                {"db.t4g.micro", "db.t4g.small", "db.t4g.medium"},
+            ),
             "gcp": (
                 {"e2-standard-2", "e2-standard-4"},
                 {"db-custom-1-3840", "db-custom-2-7680"},
