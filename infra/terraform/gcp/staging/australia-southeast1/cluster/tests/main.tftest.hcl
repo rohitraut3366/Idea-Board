@@ -12,6 +12,7 @@ override_data {
 }
 
 variables {
+  state_region       = "ap-southeast-2"
   state_prefix       = "infra/terraform/gcp/staging/australia-southeast1"
   name               = "idea-board-test"
   region             = "us-central1"
@@ -28,7 +29,7 @@ run "configuration" {
     error_message = "Publish the provisioned cluster name."
   }
   assert {
-    condition     = data.terraform_remote_state.networking.config.bucket == var.state_bucket && data.terraform_remote_state.networking.config.prefix == "infra/terraform/gcp/staging/australia-southeast1/networking"
+    condition     = data.terraform_remote_state.networking.config.bucket == var.state_bucket && data.terraform_remote_state.networking.backend == "s3" && data.terraform_remote_state.networking.config.region == var.state_region && data.terraform_remote_state.networking.config.key == "infra/terraform/gcp/staging/australia-southeast1/networking.tfstate"
     error_message = "Read the networking state from the same environment."
   }
   assert {

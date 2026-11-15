@@ -4,10 +4,11 @@ provider "google" {
 }
 
 data "terraform_remote_state" "networking" {
-  backend = "gcs"
+  backend = "s3"
   config = {
     bucket = var.state_bucket
-    prefix = "${var.state_prefix}/networking"
+    key    = "${var.state_prefix}/networking.tfstate"
+    region = var.state_region
   }
 }
 
