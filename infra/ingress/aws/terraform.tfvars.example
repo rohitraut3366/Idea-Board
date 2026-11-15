@@ -1,0 +1,4 @@
+name         = "idea-board-staging"
+region       = "us-east-1"
+cluster_name = "idea-board-staging"
+vpc_id       = "vpc-REPLACE_FROM_CLUSTER_OUTPUT"

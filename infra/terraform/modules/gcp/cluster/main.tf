@@ -11,6 +11,11 @@ resource "google_container_cluster" "this" {
   release_channel {
     channel = "REGULAR"
   }
+  addons_config {
+    http_load_balancing {
+      disabled = false
+    }
+  }
   ip_allocation_policy {
     cluster_secondary_range_name  = var.pods_range_name
     services_secondary_range_name = var.services_range_name

@@ -3,6 +3,11 @@ output "cluster_name" {
   value       = module.cluster.name
 }
 
+output "vpc_id" {
+  description = "VPC used by the post-cluster ingress controller setup."
+  value       = module.network.vpc_id
+}
+
 output "database_host" {
   description = "Private PostgreSQL address."
   value       = module.psql.host

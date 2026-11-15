@@ -207,12 +207,18 @@ jobs:
         with:
           version: "0.12.7"
       - name: Check Terraform formatting
-        run: terraform fmt -check -recursive
+        run: |
+          terraform fmt -check -recursive
+          terraform fmt -check -recursive ../ingress
       - name: Validate and test root and modules without cloud credentials
         run: |
           export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugins"
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          for directory in "$CLOUD" "modules/$CLOUD/network" "modules/$CLOUD/cluster" "modules/$CLOUD/psql"; do
+          directories=("$CLOUD" "modules/$CLOUD/network" "modules/$CLOUD/cluster" "modules/$CLOUD/psql")
+          if [[ "$CLOUD" == aws ]]; then
+            directories+=(../ingress/aws)
+          fi
+          for directory in "${directories[@]}"; do
             if [[ "$directory" == modules/* ]]; then
               cp "$CLOUD/.terraform.lock.hcl" "$directory/.terraform.lock.hcl"
             fi

@@ -11,8 +11,15 @@ resources:
   limits:
     memory: 128Mi
 backendUpstream: backend:8000
+gcpBackendConfig: false
+
+ingress:
+  enabled: false
+  className: ''
+  annotations: {}
+  backendServiceName: backend
+  backendServicePort: 8000
 
 service:
   type: ClusterIP
   annotations: {}
-  loadBalancerClass: ""

@@ -199,8 +199,8 @@ class Cluster:
     def public_url(self, timeout=300):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            service = self.get("service", "frontend", self.namespace)
-            addresses = (service or {}).get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            ingress = self.get("ingress", "frontend", self.namespace)
+            addresses = (ingress or {}).get("status", {}).get("loadBalancer", {}).get("ingress", [])
             if addresses:
                 address = addresses[0].get("hostname") or addresses[0].get("ip")
                 if address:
@@ -218,4 +218,4 @@ class Cluster:
                     except OSError:
                         pass  # Cloud load balancers can publish an address before serving traffic.
             time.sleep(5)
-        raise TimeoutError("frontend did not become publicly reachable")
+        raise TimeoutError("Ingress did not serve both the frontend and API")

@@ -23,11 +23,11 @@ terraform/
 
 Each module has `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, and its own `tests/`. Cluster IAM resources are in `iam.tf` so the cluster configuration stays readable. The parents call modules named `network`, `cluster`, and `psql` and pass their outputs directly to the next module.
 
-| Module | AWS | GCP | Why it is separate |
-| --- | --- | --- | --- |
-| `network` | VPC, public and private subnets, internet gateway, NAT gateway, routes | VPC, subnet, pod and service ranges, Cloud Router/NAT, Private Service Access | Owns address allocation and connectivity; both other modules use it. |
-| `cluster` | EKS control plane, managed EC2 workers, IAM roles, administrator access, control-plane logs | Regional GKE Standard control plane, worker pool, dedicated node service account, Workload Identity | Owns Kubernetes capacity and access without managing application releases. |
-| `psql` | RDS PostgreSQL 17, subnet group, security group, managed password | Cloud SQL PostgreSQL 17, database, user, Secret Manager credential | Owns database capacity, backups, and connectivity. Application migrations remain a separate deployment Job. |
+| Module    | AWS                                                                                         | GCP                                                                                                 | Why it is separate                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `network` | VPC, public and private subnets, internet gateway, NAT gateway, routes                      | VPC, subnet, pod and service ranges, Cloud Router/NAT, Private Service Access                       | Owns address allocation and connectivity; both other modules use it.                                        |
+| `cluster` | EKS control plane, managed EC2 workers, IAM roles, administrator access, control-plane logs | Regional GKE Standard control plane, worker pool, dedicated node service account, Workload Identity | Owns Kubernetes capacity and access without managing application releases.                                  |
+| `psql`    | RDS PostgreSQL 17, subnet group, security group, managed password                           | Cloud SQL PostgreSQL 17, database, user, Secret Manager credential                                  | Owns database capacity, backups, and connectivity. Application migrations remain a separate deployment Job. |
 
 ## How traffic flows
 
@@ -91,12 +91,12 @@ Use the same cloud credentials and backend configuration for subsequent runs. Do
 
 Both roots expose the same output names:
 
-| Output | Use |
-| --- | --- |
-| `cluster_name` | Select the cluster when generating kubeconfig. |
-| `database_host`, `database_port`, `database_name` | Build the PostgreSQL connection string. |
-| `database_username` | Initial database owner. |
-| `database_credential_secret_id` | Retrieve the password from AWS Secrets Manager or GCP Secret Manager. |
+| Output                                            | Use                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| `cluster_name`                                    | Select the cluster when generating kubeconfig.                        |
+| `database_host`, `database_port`, `database_name` | Build the PostgreSQL connection string.                               |
+| `database_username`                               | Initial database owner.                                               |
+| `database_credential_secret_id`                   | Retrieve the password from AWS Secrets Manager or GCP Secret Manager. |
 
 ## Connect the application
 
@@ -106,19 +106,19 @@ The existing backend chart expects a Kubernetes Secret containing `IDEA_BOARD_DA
 
 The initial database owner is a bootstrap identity. Create a narrower application user for production and keep its permissions and rotation separate from database administration. When credentials rotate, update the Kubernetes Secret and restart the workloads that read it through environment variables. RDS-managed owner credentials rotate independently of this code.
 
-Deploy the existing backend and frontend charts through Argo CD. The backend migration Job runs before the backend starts. This infrastructure does not install Argo CD, ingress/load-balancer controllers, DNS, certificates, or the application releases; those are separate deployment configuration. The current kind configuration remains local to kind.
+Deploy the existing backend and frontend charts through Argo CD. The backend migration Job runs before the backend starts. After cluster creation, follow the [separate ingress setup](../ingress/README.md). AWS has a post-cluster Terraform root for controller IAM/Pod Identity and an Argo controller Application; GCP enables its built-in HTTP load-balancing controller in the cluster module. Ingress resources then let controllers own public load balancers and pod registration. Argo CD installation, DNS, certificates, and application releases remain separate deployment steps. The current kind configuration remains local to kind.
 
 ## Capacity and availability
 
 The defaults start with two workers and a small, single-zone database. They are a starting size, not a production sizing recommendation.
 
-| Setting | AWS | GCP |
-| --- | --- | --- |
-| Total workers | `node_count` | `node_count`, evenly split across `node_zones` |
-| Worker size | `node_instance_type` | `node_machine_type` |
-| Database size | `database_instance_class` | `database_tier` |
-| Initial database disk | `database_storage_gb` | `database_storage_gb` |
-| Database standby | `database_multi_az = true` | `database_regional = true` |
+| Setting               | AWS                        | GCP                                            |
+| --------------------- | -------------------------- | ---------------------------------------------- |
+| Total workers         | `node_count`               | `node_count`, evenly split across `node_zones` |
+| Worker size           | `node_instance_type`       | `node_machine_type`                            |
+| Database size         | `database_instance_class`  | `database_tier`                                |
+| Initial database disk | `database_storage_gb`      | `database_storage_gb`                          |
+| Database standby      | `database_multi_az = true` | `database_regional = true`                     |
 
 Workers have a fixed count; this code does not install a cluster autoscaler. On GCP, the total must be a positive multiple of the number of worker zones. GKE repairs and upgrades workers automatically. EKS node upgrades follow Terraform changes. EKS worker groups use unique name prefixes and are created before their predecessors are deleted, so a replacement can become ready while an old group is draining or being removed.
 
@@ -153,7 +153,7 @@ terraform -chdir=modules/aws/network validate
 terraform -chdir=modules/aws/network test
 ```
 
-Repeat for `cluster` and `psql`, or for GCP. CI runs all eight directories. Tests cover private networking, public API reachability, the AWS administrator role, database protection and credentials, worker placement/count, and larger database configurations.
+Repeat for `cluster` and `psql`, or for GCP. CI also validates and mock-plans the separate AWS controller setup. Tests cover private networking, public API reachability, the AWS administrator role, database protection and credentials, worker placement/count, and larger database configurations.
 
 Mocked tests cannot establish cloud permissions, quotas, regional version support, API acceptance, or actual connectivity. A live check should include plan/apply, application deployment, migrations, database requests from the backend, a second plan for drift, and teardown in a disposable environment.
 

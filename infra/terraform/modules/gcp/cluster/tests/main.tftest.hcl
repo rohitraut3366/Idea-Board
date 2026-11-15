@@ -48,6 +48,11 @@ run "configuration" {
     condition     = google_container_node_pool.this.node_config[0].workload_metadata_config[0].mode == "GKE_METADATA"
     error_message = "Pods must use Workload Identity metadata."
   }
+  assert {
+    condition     = !google_container_cluster.this.addons_config[0].http_load_balancing[0].disabled
+    error_message = "GKE's built-in Ingress controller must be enabled for public routing."
+  }
+
 }
 
 run "reject_uneven_worker_count" {
