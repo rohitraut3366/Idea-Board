@@ -279,7 +279,7 @@ make validate PROJECT=aws/staging/ap-southeast-2/networking
 make plan PROJECT=aws/staging/ap-southeast-2/networking
 ```
 
-Review the plan and expected costs, then apply the saved plan:
+Review the resources Terraform will create, change, or delete, then apply the saved plan:
 
 ```bash
 make apply PROJECT=aws/staging/ap-southeast-2/networking
