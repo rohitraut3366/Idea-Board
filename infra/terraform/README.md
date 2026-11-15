@@ -104,7 +104,7 @@ make validate PROJECT=aws/staging/ap-southeast-2/networking
 make plan PROJECT=aws/staging/ap-southeast-2/networking
 ```
 
-The command prints the selected project and state location. `plan` saves `project.tfplan` inside the project directory. Review its resources and costs, then apply that saved plan:
+The command prints the selected project and state location. `plan` saves `project.tfplan` inside the project directory. Review the resources Terraform will create, change, or delete, then apply that saved plan:
 
 ```bash
 make apply PROJECT=aws/staging/ap-southeast-2/networking
