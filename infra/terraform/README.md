@@ -90,7 +90,7 @@ The local `backend.json` and project `terraform.tfvars` files are ignored by Git
 1. In each of the four project directories, copy `terraform.tfvars.example` to `terraform.tfvars`.
 2. Fill in the project settings. Use one stack name, such as `idea-board-staging`, throughout these projects. Choose another name for each additional environment or region.
 3. For AWS, supply the existing administrator role in `cluster`.
-4. For GCP, supply the project ID and other settings. Supply the database password through `TF_VAR_database_password` in your environment or CI secret store when planning the application project.
+4. For GCP, supply the project ID and other settings. The application project generates a 32-character database password with Terraform's Random provider and stores it in Google Secret Manager.
 
 The project command supplies the deployment region from the directory path, plus the shared bucket settings and dependency state paths.
 
@@ -136,7 +136,9 @@ AWS Load Balancer Controller chart `3.6.3` is installed by Terraform. Upgrade it
 3. Configure the GitHub deployment Environment using the [deployment instructions](../../README.md#3-configure-github-actions).
 4. Run the Deploy workflow for the tested image commit.
 
-The database module owns PostgreSQL and its credential secret together. AWS uses RDS-managed credentials; GCP stores the username and password in Secret Manager. The deployment tool supplies the Kubernetes database Secret. Migrations run in the backend's separate pre-start job.
+The database module owns PostgreSQL and its credential secret together. AWS uses RDS-managed credentials; GCP generates the password and stores the username and password in Secret Manager. The deployment tool supplies the Kubernetes database Secret. Migrations run in the backend's separate pre-start job.
+
+GCP retains the generated password in Terraform state across applies. Applying this change to an existing database replaces its supplied password with a generated one; release the application afterward to refresh its Kubernetes Secret. Before reverting an applied change, retrieve the active password from Secret Manager and supply it to the previous configuration.
 
 For Argo CD access, select the cloud cluster context:
 

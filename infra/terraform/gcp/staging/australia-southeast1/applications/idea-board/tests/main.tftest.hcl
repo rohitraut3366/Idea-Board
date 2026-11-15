@@ -9,19 +9,20 @@ mock_provider "google" {
   }
 }
 
+mock_provider "random" {}
+
 override_data {
   target = data.terraform_remote_state.networking
   values = { outputs = { network_id = "projects/test-project/global/networks/test", subnetwork_id = "projects/test-project/regions/us-central1/subnetworks/test", pods_range_name = "pods", services_range_name = "services" } }
 }
 
 variables {
-  state_region      = "ap-southeast-2"
-  state_prefix      = "infra/terraform/gcp/staging/australia-southeast1"
-  name              = "idea-board-test"
-  region            = "us-central1"
-  project_id        = "test-project"
-  state_bucket      = "test-state-bucket"
-  database_password = "mock-test-password-only"
+  state_region = "ap-southeast-2"
+  state_prefix = "infra/terraform/gcp/staging/australia-southeast1"
+  name         = "idea-board-test"
+  region       = "us-central1"
+  project_id   = "test-project"
+  state_bucket = "test-state-bucket"
 }
 
 run "configuration" {

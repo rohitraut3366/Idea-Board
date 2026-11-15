@@ -260,7 +260,7 @@ cp infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars.exampl
 
 The `.example` file is the template; `backend.json` holds your local bucket settings. This one configuration serves every cloud, environment, and region. The state bucket's AWS region can differ from the deployment region.
 
-For GCP project settings, use the directories under `infra/terraform/gcp/staging/australia-southeast1`. GCP Terraform commands use AWS credentials for state access and GCP credentials for provisioning. Supply `TF_VAR_database_password` through your environment when planning its application project.
+For GCP project settings, use the directories under `infra/terraform/gcp/staging/australia-southeast1`. GCP Terraform commands use AWS credentials for state access and GCP credentials for provisioning. Terraform generates the database password and stores it in Google Secret Manager.
 
 The Makefile calculates a separate state key from each project path and stores it in the shared bucket:
 
