@@ -77,3 +77,11 @@ def test_preview_does_not_generate_shared_infrastructure(tmp_path):
     invalid["infrastructure"] = recommendation("aws")["infrastructure"]
     with pytest.raises(ValueError, match="shared infrastructure"):
         prepare(target, invalid, tmp_path, Path("recommendation.json"))
+
+
+def test_json_schema_integer_is_rendered_as_a_kubernetes_integer():
+    proposal = recommendation()
+    # JSON Schema accepts an integral float, while Kubernetes replicas requires an integer.
+    proposal["backend"]["replicas"] = 2.0
+    backend = manifests(Target("kind", "staging", SHA, SHA), proposal)[1]
+    assert type(backend["spec"]["source"]["helm"]["valuesObject"]["replicas"]) is int

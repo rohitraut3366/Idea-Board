@@ -150,7 +150,7 @@ def manifests(target, recommendation):
                 "repository": f"ghcr.io/rohitraut3366/idea-board-{service}",
                 "tag": target.image_tag,
             },
-            "replicas": sizing["replicas"],
+            "replicas": int(sizing["replicas"]),
             "resources": {
                 "requests": {
                     "cpu": f"{sizing['cpu_millicores']}m",
