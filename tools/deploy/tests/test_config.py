@@ -53,7 +53,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
 
 
 @pytest.mark.parametrize(
-    "cloud,service_type", [("kind", "ClusterIP"), ("aws", "LoadBalancer"), ("gcp", "LoadBalancer")]
+    "cloud,service_type", [("kind", "ClusterIP"), ("aws", "ClusterIP"), ("gcp", "ClusterIP")]
 )
 def test_chart_render_matches_cloud_exposure(cloud, service_type):
     target = Target(cloud, "staging", SHA, SHA)
@@ -80,10 +80,52 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
     assert f"type: {service_type}" in result.stdout
     assert f"ghcr.io/rohitraut3366/idea-board-frontend:{SHA}" in result.stdout
     if cloud == "aws":
-        assert "service.k8s.aws/nlb" in result.stdout
+        assert 'ingressClassName: "alb"' in result.stdout
         assert "internet-facing" in result.stdout
-    else:
-        assert "service.k8s.aws/nlb" not in result.stdout
+        assert "alb.ingress.kubernetes.io/target-type: ip" in result.stdout
+    elif cloud == "gcp":
+        assert "kubernetes.io/ingress.class: gce" in result.stdout
+        assert "kind: BackendConfig" in result.stdout
+        assert "cloud.google.com/neg:" in result.stdout
+    assert ("kind: Ingress" in result.stdout) == (cloud != "kind")
+    assert "service.k8s.aws/nlb" not in result.stdout
+
+
+@pytest.mark.parametrize("cloud", ["aws", "gcp"])
+@pytest.mark.parametrize("environment", ["staging", "production", "preview"])
+def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment):
+    target = Target(cloud, environment, SHA, SHA, 42 if environment == "preview" else None)
+    project, backend, frontend = manifests(target, recommendation(cloud, environment))
+    assert {"group": "networking.k8s.io", "kind": "Ingress"} in project["spec"][
+        "namespaceResourceWhitelist"
+    ]
+    assert all(
+        app["spec"]["destination"]["namespace"] == target.namespace for app in (backend, frontend)
+    )
+    root = Path(__file__).resolve().parents[3]
+    for service, app in [("backend", backend), ("frontend", frontend)]:
+        rendered = subprocess.run(
+            ["helm", "template", service, str(root / f"charts/idea-board-{service}"), "-f", "-"],
+            input=json.dumps(app["spec"]["source"]["helm"]["valuesObject"]),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        if service == "frontend":
+            assert "kind: Ingress" in rendered
+            assert "path: /api" in rendered and "path: /\n" in rendered
+            assert "pathType: Prefix" in rendered
+            assert "name: backend\n" in rendered
+            assert "number: 8000" in rendered and "number: 80\n" in rendered
+        else:
+            assert "kind: Ingress" not in rendered
+            if cloud == "gcp":
+                assert "kind: BackendConfig" in rendered
+                assert "requestPath: /health" in rendered
+                assert "port: 8000" in rendered
+            else:
+                assert "alb.ingress.kubernetes.io/healthcheck-path: /health" in rendered
+                assert "kind: BackendConfig" not in rendered
 
 
 def test_prompt_keeps_operator_input_as_data():

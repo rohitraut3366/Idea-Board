@@ -50,4 +50,8 @@ The smoke test checks the frontend page and reads ideas through the API proxy. G
 
 ## Public cloud access
 
-The Service defaults to `ClusterIP`. Set `service.type: LoadBalancer` for public cloud access. `service.annotations` and `service.loadBalancerClass` pass provider-specific settings to the Service. AWS deployment values select an internet-facing NLB managed by an already installed AWS Load Balancer Controller; GKE uses its standard Service integration. The chart does not install cloud controllers or provision their IAM permissions. The resulting endpoint serves HTTP; a custom domain and TLS certificate require separate routing configuration.
+The Service defaults to `ClusterIP`. Set `ingress.enabled: true` to create an Ingress routing `/api` to `ingress.backendServiceName` (default `backend`) on port 8000 and `/` to this frontend Service on port 80. Prefix matching covers `/api/...`. If the backend release name changes, update both the Ingress backend name and `backendUpstream`.
+
+AWS deployment values select class `alb`, an internet-facing ALB, and IP targets. GCP uses the required `kubernetes.io/ingress.class: gce` annotation, NEG Service annotations, and `gcpBackendConfig: true` for explicit pod health checks. The controllers create cloud load-balancer resources. No target-group ARN, static NodePort, or public URL is required in chart values. Local kind leaves Ingress disabled and uses a port-forward.
+
+See the [ingress guide](../../infra/ingress/README.md) for controller installation, IAM, lifecycle, and public verification.

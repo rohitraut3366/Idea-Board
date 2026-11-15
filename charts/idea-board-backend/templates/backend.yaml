@@ -63,6 +63,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   name: {{ .Release.Name }}
   labels:
     {{- include "idea-board-backend.labels" . | nindent 4 }}
