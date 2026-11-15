@@ -34,7 +34,7 @@ def project_directory(repository, project):
 
 def command(repository, action, project, extra, environment):
     directory, parts = project_directory(repository, project)
-    cloud, _, region = parts[:3]
+    region = parts[2]
     workspace = directory / ".terraform/environment"
     if environment.get("TF_WORKSPACE", "default") != "default" or (
         workspace.exists() and workspace.read_text().strip() != "default"
@@ -51,29 +51,19 @@ def command(repository, action, project, extra, environment):
         return arguments + extra
 
     region_directory = repository / "infra/terraform" / Path(*parts[:3])
-    config_path = region_directory / "backend.json"
+    config_path = repository / "infra/terraform/backend.json"
     config = json.loads(config_path.read_text())
-    allowed = {"bucket", "region"} if cloud == "aws" else {"bucket"}
-    if config.keys() - allowed or not isinstance(config.get("bucket"), str):
-        raise ValueError(
-            f"{config_path} must contain bucket" + (" and region." if cloud == "aws" else ".")
-        )
-    if not config["bucket"] or config["bucket"].startswith("replace-"):
+    if not isinstance(config, dict) or set(config) != {"bucket", "region"}:
+        raise ValueError(f"{config_path} must contain the S3 bucket and its AWS region.")
+    for setting in ("bucket", "region"):
+        if not isinstance(config[setting], str) or not config[setting].strip():
+            raise ValueError(f"Set {setting} in {config_path}.")
+    if config["bucket"].startswith("replace-"):
         raise ValueError(f"Set the state bucket in {config_path}.")
-    if cloud == "aws" and not isinstance(config.get("region"), str):
-        raise ValueError(f"Set the state bucket region in {config_path}.")
 
-    prefix = directory.relative_to(repository).as_posix()
-    backend = dict(config)
-    backend["key" if cloud == "aws" else "prefix"] = (
-        f"{prefix}.tfstate" if cloud == "aws" else prefix
-    )
-    if cloud == "aws":
-        backend["use_lockfile"] = True
-    print(
-        f"Project: {project}\nState: {config['bucket']}/{backend.get('key', prefix)}",
-        flush=True,
-    )
+    state_key = f"{directory.relative_to(repository).as_posix()}.tfstate"
+    backend = {**config, "key": state_key, "use_lockfile": True}
+    print(f"Project: {project}\nState: s3://{config['bucket']}/{state_key}", flush=True)
     if action == "init":
         if any(value.startswith("-backend-config") for value in extra):
             raise ValueError("Backend settings come from backend.json and the project path.")
@@ -86,8 +76,7 @@ def command(repository, action, project, extra, environment):
         metadata = directory / ".terraform/terraform.tfstate"
         if metadata.exists():
             initialized = json.loads(metadata.read_text()).get("backend", {})
-            expected_type = "s3" if cloud == "aws" else "gcs"
-            if initialized.get("type") != expected_type or any(
+            if initialized.get("type") != "s3" or any(
                 initialized.get("config", {}).get(key) != value for key, value in backend.items()
             ):
                 raise ValueError("Backend settings changed. Run make init for this project first.")
@@ -98,9 +87,8 @@ def command(repository, action, project, extra, environment):
                 arguments += [
                     f"-var=state_bucket={config['bucket']}",
                     f"-var=state_prefix={state_prefix}",
+                    f"-var=state_region={config['region']}",
                 ]
-                if cloud == "aws":
-                    arguments += [f"-var=state_region={config['region']}"]
         if action == "plan":
             arguments += ["-input=false", "-out=project.tfplan"]
         elif action == "apply":

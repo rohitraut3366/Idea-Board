@@ -17,17 +17,14 @@ class ProjectTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.repository = Path(self.temporary.name).resolve()
+        self.backend_config = self.repository / "infra/terraform/backend.json"
 
     def create(self, name):
         directory = self.repository / "infra/terraform" / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "backend.tf").touch()
-        parts = name.split("/")
-        config = {"bucket": "example-state"}
-        if parts[0] == "aws":
-            config["region"] = "us-east-1"
-        region_directory = self.repository / "infra/terraform" / Path(*parts[:3])
-        (region_directory / "backend.json").write_text(json.dumps(config))
+        config = {"bucket": "example-state", "region": "us-east-1"}
+        self.backend_config.write_text(json.dumps(config))
         return directory
 
     def run_command(self, action, name, extra=None, environment=None):
@@ -44,26 +41,61 @@ class ProjectTests(unittest.TestCase):
         self.assertIn("-var=region=ap-southeast-2", plan)
         self.assertIn("-out=project.tfplan", plan)
 
-    def test_gcp_prefix_and_application_dependencies(self):
+    def test_gcp_s3_key_and_application_dependencies(self):
         name = "gcp/staging/australia-southeast1/applications/idea-board"
         self.create(name)
         arguments = self.run_command("init", name)
-        self.assertIn(f"-backend-config=prefix=infra/terraform/{name}", arguments)
+        self.assertIn(f"-backend-config=key=infra/terraform/{name}.tfstate", arguments)
         plan = self.run_command("plan", name)
         self.assertIn("-var=state_bucket=example-state", plan)
         self.assertIn("-var=state_prefix=infra/terraform/gcp/staging/australia-southeast1", plan)
-        self.assertFalse(any("state_region" in value for value in plan))
+        self.assertIn("-var=state_region=us-east-1", plan)
+        self.assertIn("-var=region=australia-southeast1", plan)
 
-    def test_environments_and_regions_get_distinct_keys(self):
+    def test_clouds_environments_and_regions_get_distinct_keys(self):
         keys = set()
-        for environment in ("staging", "production"):
-            for region in ("us-east-1", "ap-southeast-2"):
-                name = f"aws/{environment}/{region}/cluster"
-                self.create(name)
+        cloud_regions = {
+            "aws": ("us-east-1", "ap-southeast-2"),
+            "gcp": ("us-central1", "australia-southeast1"),
+        }
+        for cloud, regions in cloud_regions.items():
+            for environment in ("staging", "production"):
+                for region in regions:
+                    name = f"{cloud}/{environment}/{region}/cluster"
+                    self.create(name)
+                    arguments = self.run_command("init", name)
+                    keys.add(next(value for value in arguments if "-backend-config=key=" in value))
+                    self.assertIn("-var=state_region=us-east-1", self.run_command("plan", name))
+        self.assertEqual(len(keys), 8)
+
+    def test_one_configuration_supplies_both_clouds(self):
+        names = ("aws/staging/ap-southeast-2/cluster", "gcp/staging/australia-southeast1/cluster")
+        for name in names:
+            self.create(name)
+        self.backend_config.write_text(
+            json.dumps({"bucket": "central-state", "region": "eu-west-1"})
+        )
+        for name in names:
+            with self.subTest(project=name):
                 arguments = self.run_command("init", name)
-                keys.add(next(value for value in arguments if "-backend-config=key=" in value))
-                self.assertIn("-var=state_region=us-east-1", self.run_command("plan", name))
-        self.assertEqual(len(keys), 4)
+                self.assertIn("-backend-config=bucket=central-state", arguments)
+                self.assertIn("-backend-config=region=eu-west-1", arguments)
+                self.assertIn("-backend-config=use_lockfile=true", arguments)
+                plan = self.run_command("plan", name)
+                self.assertIn("-var=state_bucket=central-state", plan)
+                self.assertIn("-var=state_region=eu-west-1", plan)
+
+    def test_gcp_requires_migration_from_gcs(self):
+        name = "gcp/staging/australia-southeast1/cluster"
+        directory = self.create(name)
+        metadata = directory / ".terraform/terraform.tfstate"
+        metadata.parent.mkdir()
+        metadata.write_text(json.dumps({"backend": {"type": "gcs", "config": {}}}))
+        with self.assertRaisesRegex(ValueError, "make init"):
+            self.run_command("plan", name)
+        arguments = self.run_command("init", name, ["-migrate-state", "-input=true"])
+        self.assertIn("-migrate-state", arguments)
+        self.assertEqual(arguments[-1], "-input=true")
 
     def test_rejects_nonprojects_and_path_escape(self):
         for name in (
@@ -88,8 +120,8 @@ class ProjectTests(unittest.TestCase):
 
     def test_backend_cannot_supply_its_own_state_key(self):
         name = "aws/staging/ap-southeast-2/networking"
-        directory = self.create(name)
-        (directory.parent / "backend.json").write_text(
+        self.create(name)
+        self.backend_config.write_text(
             json.dumps({"bucket": "example", "region": "us-east-1", "key": "shared.tfstate"})
         )
         with self.assertRaises(ValueError):
@@ -142,8 +174,8 @@ class ProjectTests(unittest.TestCase):
 
     def test_validation_does_not_need_backend_configuration(self):
         name = "aws/staging/ap-southeast-2/networking"
-        directory = self.create(name)
-        (directory.parent / "backend.json").unlink()
+        self.create(name)
+        self.backend_config.unlink()
         self.assertEqual(self.run_command("test", name)[-1], "test")
 
 

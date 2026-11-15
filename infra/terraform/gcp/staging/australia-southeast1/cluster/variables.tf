@@ -48,11 +48,16 @@ variable "deletion_protection" {
 }
 
 variable "state_bucket" {
-  description = "Bucket containing this environment's Terraform project states."
+  description = "Shared S3 bucket containing all Terraform project states."
   type        = string
 }
 
 variable "state_prefix" {
   description = "Repository-relative environment path, supplied by the project command."
+  type        = string
+}
+
+variable "state_region" {
+  description = "AWS region containing the state bucket, supplied by the project command."
   type        = string
 }

@@ -9,7 +9,7 @@ variable "region" {
 }
 
 variable "state_bucket" {
-  description = "Bucket containing this environment's Terraform project states."
+  description = "Shared S3 bucket containing all Terraform project states."
   type        = string
 }
 

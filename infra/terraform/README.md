@@ -4,10 +4,10 @@ Each deployment project has its own directory, Terraform state, and plan/apply. 
 
 ```text
 infra/terraform/
+├── backend.json.example            # Shared S3 bucket settings for both clouds
 ├── aws/
 │   └── staging/
 │       └── ap-southeast-2/
-│           ├── backend.json.example
 │           ├── networking/             # VPC, subnets, routing, NAT
 │           ├── cluster/                # EKS and workers
 │           ├── cluster-core-services/  # Argo CD and AWS load-balancer controller
@@ -16,7 +16,6 @@ infra/terraform/
 ├── gcp/
 │   └── staging/
 │       └── australia-southeast1/
-│           ├── backend.json.example
 │           ├── networking/             # VPC, subnet, NAT, private database connectivity
 │           ├── cluster/                # GKE and workers
 │           ├── cluster-core-services/  # Argo CD
@@ -31,15 +30,15 @@ The directory identifies the cloud, environment, region, and project. Production
 
 The root Makefile runs a small Python helper that calculates state locations from repository paths. For example:
 
-| Project        | State location within its bucket                                              |
-| -------------- | ----------------------------------------------------------------------------- |
-| AWS networking | `infra/terraform/aws/staging/ap-southeast-2/networking.tfstate`               |
-| AWS database   | `infra/terraform/aws/staging/ap-southeast-2/applications/idea-board.tfstate`  |
-| GCP networking | `infra/terraform/gcp/staging/australia-southeast1/networking/default.tfstate` |
+| Project        | State location within its bucket                                             |
+| -------------- | ---------------------------------------------------------------------------- |
+| AWS networking | `infra/terraform/aws/staging/ap-southeast-2/networking.tfstate`              |
+| AWS database   | `infra/terraform/aws/staging/ap-southeast-2/applications/idea-board.tfstate` |
+| GCP networking | `infra/terraform/gcp/staging/australia-southeast1/networking.tfstate`        |
 
-AWS uses an S3 key ending in `.tfstate`, with S3 lockfiles. GCP uses the project path as its GCS prefix; Terraform stores the default workspace state below it. Both use the default workspace. Environments have separate directories.
+All projects use one S3 bucket with a separate `.tfstate` key per project and native S3 lockfiles. Both clouds use the default workspace. Environments have separate directories.
 
-One `backend.json` per region declares the bucket and, for AWS, the bucket's region. State keys are calculated automatically. Dependent projects use the same bucket configuration and directory convention to find sibling states.
+One `infra/terraform/backend.json` declares the shared S3 bucket and its AWS region. State keys are calculated automatically. Dependent projects use that same configuration and directory convention to find sibling states. The state bucket region is independent of the deployment region.
 
 **Moving a project directory changes its state location. Migrate the state before applying from the new path.**
 
@@ -58,8 +57,8 @@ These dependencies use `terraform_remote_state`. Apply a prerequisite before pla
 ## Prepare
 
 1. Install Terraform 1.17.x, Make, Python 3, and your cloud CLI. Use the committed provider locks.
-2. Sign in to AWS or configure GCP Application Default Credentials.
-3. Create a state bucket with encryption, versioning, and restricted access. Keep it outside these projects so it remains available during teardown.
+2. Sign in to AWS for state access. For GCP deployments, also configure GCP Application Default Credentials.
+3. Create one S3 state bucket with encryption, versioning, Block Public Access, and restricted access. Keep it outside these projects so it remains available during teardown.
 4. Check supported Kubernetes versions and machine types in your chosen region.
 
 AWS needs an existing cluster administrator role. Apply core services as that role, or another identity granted Kubernetes administrator access. Helm uses `aws eks get-token`.
@@ -68,31 +67,30 @@ GCP needs a billed project with Service Usage enabled. Each project enables its 
 
 Terraform state and saved plans can contain credentials. Restrict access to both.
 
-## Configure AWS
+## Configure the shared state bucket
 
-Run from the repository root:
-
-```bash
-cp infra/terraform/aws/staging/ap-southeast-2/backend.json.example \
-  infra/terraform/aws/staging/ap-southeast-2/backend.json
-```
-
-1. Set `bucket` and its AWS `region` in `backend.json`.
-2. In each of the four project directories, copy `terraform.tfvars.example` to `terraform.tfvars`.
-3. Fill in the project settings. Use one stack name, such as `idea-board-staging`, throughout these projects. Choose another name for each additional environment or region. Supply the existing administrator role in `cluster`.
-
-The project command supplies the deployment region from the directory path, plus the bucket and dependency state paths. `backend.json` and `terraform.tfvars` are ignored by Git.
-
-## Configure GCP
+Run once from the repository root:
 
 ```bash
-cp infra/terraform/gcp/staging/australia-southeast1/backend.json.example \
-  infra/terraform/gcp/staging/australia-southeast1/backend.json
+cp infra/terraform/backend.json.example infra/terraform/backend.json
 ```
 
-1. Set `bucket` in `backend.json`.
-2. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and set the GCP project ID and other settings. Use the same stack name throughout the environment.
-3. Supply the database password through `TF_VAR_database_password` in your environment or CI secret store when planning the application project.
+1. Set `bucket` to the existing S3 bucket name and `region` to that bucket's AWS region.
+2. Use AWS credentials with access to the state objects and permission to read, write, and delete their `.tflock` objects. Set `AWS_PROFILE` when using a named profile.
+3. Use this configuration for every cloud, environment, and deployment region.
+
+GCP Terraform commands require both AWS credentials for state access and GCP credentials for infrastructure access. Backend credentials come from the environment or AWS profile.
+
+The local `backend.json` and project `terraform.tfvars` files are ignored by Git.
+
+## Configure the deployment projects
+
+1. In each of the four project directories, copy `terraform.tfvars.example` to `terraform.tfvars`.
+2. Fill in the project settings. Use one stack name, such as `idea-board-staging`, throughout these projects. Choose another name for each additional environment or region.
+3. For AWS, supply the existing administrator role in `cluster`.
+4. For GCP, supply the project ID and other settings. Supply the database password through `TF_VAR_database_password` in your environment or CI secret store when planning the application project.
+
+The project command supplies the deployment region from the directory path, plus the shared bucket settings and dependency state paths.
 
 ## Plan and apply one project
 
@@ -177,6 +175,25 @@ CI discovers deployment projects under each cloud and validates/tests them and t
 ## Existing deployments
 
 The previous combined AWS stack was deployed, tested, and destroyed. The split projects and platform Helm installation have validation and mock-test coverage; live apply remains pending on both clouds.
+
+### Move existing regional or GCS state
+
+For a previously initialized project whose backend is changing:
+
+1. Stop concurrent Terraform operations and back up its state with `terraform state pull` from the original initialized directory. Keep the backup private.
+2. Configure the shared S3 bucket. Keep that directory's `.terraform` backend metadata so Terraform can find the original state. For a fresh checkout, initialize the previous configuration first.
+3. Migrate one project at a time, in apply order. For example:
+
+```bash
+make init PROJECT=gcp/staging/australia-southeast1/networking ARGS='-migrate-state -input=true'
+```
+
+4. Confirm the state-copy prompt, check `make state PROJECT=... ARGS=list`, and review a normal plan before applying anything.
+5. After every project is verified in S3, retire the original backend configuration and prevent further writes to its old states. Keep the backups protected.
+
+AWS projects that already use the shared bucket, region, and calculated keys keep their existing state locations. Copy their bucket settings into the shared file and initialize normally.
+
+### Split a combined state
 
 For an existing deployment with a combined state:
 
