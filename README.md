@@ -248,6 +248,7 @@ Before running Terraform:
 3. Create one S3 bucket with encryption, versioning, Block Public Access, and restricted access. It stores Terraform state for both clouds. State records the resources Terraform manages.
 4. Copy `infra/terraform/backend.json.example` to `infra/terraform/backend.json`. Set `bucket` to the S3 bucket name and `region` to its AWS region.
 5. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in its settings. Use one stack name across the four projects, and a different name for each environment or region.
+6. For `cluster-core-services`, export `GITHUB_TOKEN` with repository **Contents: read and write** permission. Terraform uses it to publish the cluster's generated values file to `master`.
 
 Run from the repository root:
 
@@ -301,7 +302,22 @@ Terraform also creates a root Argo CD Application called `cluster-core-services`
 Terraform → Argo CD → cluster-core-services → External Secrets Operator
 ```
 
-Services are listed under `applications` in `gitops/cluster-core-services/values.yaml`. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults; environment settings can override them. See the [cluster services guide](gitops/cluster-core-services/README.md) for the files and IAM annotation overrides.
+Services are listed under `applications` in `gitops/cluster-core-services/values.yaml`. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+
+Each child Application reads these files from its chart directory, in order. Later files override earlier ones:
+
+```text
+values.yaml
+values/<cloud>/values.yaml
+values/<cloud>/<cluster-name>/values.yaml
+values/<cloud>/<cluster-name>/values-terraform.yaml
+```
+
+Provider and cluster files are optional. Argo CD ignores missing files and picks them up when they appear on the watched Git branch.
+
+For External Secrets settings such as an IAM role annotation, set `external_secrets_values` in the cloud's `cluster-core-services/terraform.tfvars`. Applying that project writes `values-terraform.yaml` directly to `master`. Keep `gitops_revision = "master"` to receive these updates. Store credentials in the cloud secret manager; the values file holds configuration only.
+
+The [cluster services guide](gitops/cluster-core-services/README.md) includes the chart layout and an IAM annotation example.
 
 Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 
@@ -420,4 +436,4 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. CI also verifies the cluster services root and External Secrets Operator become Synced and Healthy in kind. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage.
 
-The External Secrets connection to database credentials is pending. Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
+Provider and cluster values selection, generated-file contents, and IAM annotation rendering have automated test coverage. Publishing a generated file through a live Terraform apply and connecting External Secrets to database credentials remain pending. Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
