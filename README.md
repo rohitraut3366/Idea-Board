@@ -120,30 +120,88 @@ docker compose up --build --wait
 
 ## Testing
 
-GitHub Actions runs the checks automatically when code changes. It tests the apps, builds the containers, and checks that the services work together.
+We test three things: each app on its own, the services working together, and the deployment process.
 
-It also checks the cloud configuration and tests deployments in **kind**, a Kubernetes cluster that runs in Docker. Those deployment tests cover releases, PR previews, and restoring a previous app version.
+### Test the complete app
 
-The frontend and backend guides contain their individual test commands.
+Start the stack:
 
-With Compose running, install the frontend test dependencies and check the complete stack:
+```bash
+docker compose up --build --wait
+```
+
+From the repository root, run:
 
 ```bash
 npm --prefix apps/frontend ci
 npm --prefix apps/frontend run test:stack
 ```
 
-To check how the app behaves when several requests arrive together, run:
+These commands require Node.js 24.
+
+The test loads the page and its JavaScript files, then creates, reads, and deletes ideas through the frontend's API connection. It also checks pagination, invalid input, and duplicate ideas.
+
+A passing test exits with code `0`. If something fails, inspect the logs:
+
+```bash
+docker compose logs frontend backend migrate
+```
+
+### Test each app
+
+**Frontend tests** check the form, idea list, validation messages, retries, and deletion. They use simulated API responses to check both successful and failed requests.
+
+From the repository root:
+
+```bash
+npm --prefix apps/frontend ci
+npm --prefix apps/frontend test
+```
+
+**Backend tests** check request validation, database changes, and API behavior. These commands require Python 3.12 and uv.
+
+From the repository root:
+
+```bash
+uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/unit
+uv run --directory apps/backend --locked --all-extras --all-groups pytest tests/integration
+```
+
+Unit tests check individual pieces of code. Integration tests use the Compose PostgreSQL server. They create a separate test database, apply migrations, run their checks, and remove that database afterward. Your development ideas stay in their own database.
+
+### Test several requests at once
+
+With Compose running, execute this from the repository root:
 
 ```bash
 LOAD_CYCLES=100 LOAD_CONCURRENCY=10 npm --prefix apps/frontend run test:load
 ```
 
-This runs 100 create/read/delete cycles with up to 10 cycles active at once. It reports failed requests, requests per second, and p95 latency—the time within which 95% of requests finish. It removes the ideas it creates.
+Each cycle creates an idea, reads the list, and deletes the created idea. This example runs 100 cycles, with up to 10 active at once.
 
-Use `IDEA_BOARD_BASE_URL` to test another deployment. Set `LOAD_MAX_P95_MS` if the test should fail when responses are too slow.
+The result shows:
 
-To measure cloud capacity, run the test from outside the cluster and gradually increase concurrency. Watch response times and errors alongside app and database CPU, memory, and database connections. Record the resource sizes so the results can be compared.
+- **Errors:** requests or cleanup steps that failed.
+- **Requests per second:** how much traffic the app handled.
+- **p95 response time:** the time within which 95% of requests finished.
+
+The command fails if requests or cleanup fail. Set `LOAD_MAX_P95_MS` to also fail when responses exceed your chosen p95 time limit.
+
+For cloud scale testing, set `IDEA_BOARD_BASE_URL` to the application's public address. Run from outside the cluster and increase concurrency in steps, such as 10, 25, and 50. Watch response times, errors, app CPU/memory, and database CPU/connections. Record the number of app copies and machine sizes alongside the results.
+
+### What runs automatically
+
+GitHub Actions runs these checks for pull requests and pushes to `master`:
+
+| Area                 | What we check                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| Frontend and backend | App tests, types, and code formatting                                                         |
+| Docker Compose       | Container builds, migrations, page/API requests, backend replacement, and concurrent requests |
+| Kubernetes           | Helm installation and upgrades; Argo CD releases, previews, cleanup, and rollback             |
+| Terraform            | AWS and GCP configuration and module tests using simulated cloud responses                    |
+| Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
+
+Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker. Terraform tests run without cloud accounts. Real cloud permissions, load balancers, and public access are verified through a cloud deployment.
 
 ## Deployment
 
