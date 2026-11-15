@@ -105,13 +105,23 @@ def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment
     root = Path(__file__).resolve().parents[3]
     for service, app in [("backend", backend), ("frontend", frontend)]:
         rendered = subprocess.run(
-            ["helm", "template", service, str(root / f"charts/idea-board-{service}"), "-f", "-"],
+            [
+                "helm",
+                "template",
+                service,
+                str(root / f"charts/idea-board-{service}"),
+                "--namespace",
+                target.namespace,
+                "-f",
+                "-",
+            ],
             input=json.dumps(app["spec"]["source"]["helm"]["valuesObject"]),
             capture_output=True,
             text=True,
             check=True,
         ).stdout
         if service == "frontend":
+            assert f'"backend.{target.namespace}.svc.cluster.local:8000"' in rendered
             assert "kind: Ingress" in rendered
             assert "path: /api" in rendered and "path: /\n" in rendered
             assert "pathType: Prefix" in rendered
