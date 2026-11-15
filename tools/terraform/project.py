@@ -56,8 +56,7 @@ def command(repository, action, project, extra, environment):
     allowed = {"bucket", "region"} if cloud == "aws" else {"bucket"}
     if config.keys() - allowed or not isinstance(config.get("bucket"), str):
         raise ValueError(
-            f"{config_path} must contain bucket"
-            + (" and region." if cloud == "aws" else ".")
+            f"{config_path} must contain bucket" + (" and region." if cloud == "aws" else ".")
         )
     if not config["bucket"] or config["bucket"].startswith("replace-"):
         raise ValueError(f"Set the state bucket in {config_path}.")
@@ -77,9 +76,7 @@ def command(repository, action, project, extra, environment):
     )
     if action == "init":
         if any(value.startswith("-backend-config") for value in extra):
-            raise ValueError(
-                "Backend settings come from backend.json and the project path."
-            )
+            raise ValueError("Backend settings come from backend.json and the project path.")
         arguments += ["-input=false", "-lockfile=readonly"]
         arguments += [
             f"-backend-config={key}={str(value).lower() if isinstance(value, bool) else value}"
@@ -91,12 +88,9 @@ def command(repository, action, project, extra, environment):
             initialized = json.loads(metadata.read_text()).get("backend", {})
             expected_type = "s3" if cloud == "aws" else "gcs"
             if initialized.get("type") != expected_type or any(
-                initialized.get("config", {}).get(key) != value
-                for key, value in backend.items()
+                initialized.get("config", {}).get(key) != value for key, value in backend.items()
             ):
-                raise ValueError(
-                    "Backend settings changed. Run make init for this project first."
-                )
+                raise ValueError("Backend settings changed. Run make init for this project first.")
         if action in ("plan", "destroy"):
             arguments += [f"-var=region={region}"]
             if parts[3] != "networking":

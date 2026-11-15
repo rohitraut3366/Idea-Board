@@ -7,9 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "project", Path(__file__).parents[1] / "project.py"
-)
+spec = importlib.util.spec_from_file_location("project", Path(__file__).parents[1] / "project.py")
 project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
 
@@ -33,9 +31,7 @@ class ProjectTests(unittest.TestCase):
         return directory
 
     def run_command(self, action, name, extra=None, environment=None):
-        return project.command(
-            self.repository, action, name, extra or [], environment or {}
-        )
+        return project.command(self.repository, action, name, extra or [], environment or {})
 
     def test_aws_key_comes_from_repository_path(self):
         name = "aws/staging/ap-southeast-2/networking"
@@ -55,9 +51,7 @@ class ProjectTests(unittest.TestCase):
         self.assertIn(f"-backend-config=prefix=infra/terraform/{name}", arguments)
         plan = self.run_command("plan", name)
         self.assertIn("-var=state_bucket=example-state", plan)
-        self.assertIn(
-            "-var=state_prefix=infra/terraform/gcp/staging/australia-southeast1", plan
-        )
+        self.assertIn("-var=state_prefix=infra/terraform/gcp/staging/australia-southeast1", plan)
         self.assertFalse(any("state_region" in value for value in plan))
 
     def test_environments_and_regions_get_distinct_keys(self):
@@ -67,14 +61,8 @@ class ProjectTests(unittest.TestCase):
                 name = f"aws/{environment}/{region}/cluster"
                 self.create(name)
                 arguments = self.run_command("init", name)
-                keys.add(
-                    next(
-                        value for value in arguments if "-backend-config=key=" in value
-                    )
-                )
-                self.assertIn(
-                    "-var=state_region=us-east-1", self.run_command("plan", name)
-                )
+                keys.add(next(value for value in arguments if "-backend-config=key=" in value))
+                self.assertIn("-var=state_region=us-east-1", self.run_command("plan", name))
         self.assertEqual(len(keys), 4)
 
     def test_rejects_nonprojects_and_path_escape(self):
@@ -94,9 +82,7 @@ class ProjectTests(unittest.TestCase):
             self.run_command("plan", name, environment={"TF_WORKSPACE": "production"})
         metadata = directory / ".terraform/terraform.tfstate"
         metadata.parent.mkdir()
-        metadata.write_text(
-            json.dumps({"backend": {"type": "s3", "config": {"key": "old"}}})
-        )
+        metadata.write_text(json.dumps({"backend": {"type": "s3", "config": {"key": "old"}}}))
         with self.assertRaisesRegex(ValueError, "make init"):
             self.run_command("apply", name)
 
@@ -104,9 +90,7 @@ class ProjectTests(unittest.TestCase):
         name = "aws/staging/ap-southeast-2/networking"
         directory = self.create(name)
         (directory.parent / "backend.json").write_text(
-            json.dumps(
-                {"bucket": "example", "region": "us-east-1", "key": "shared.tfstate"}
-            )
+            json.dumps({"bucket": "example", "region": "us-east-1", "key": "shared.tfstate"})
         )
         with self.assertRaises(ValueError):
             self.run_command("init", name)
@@ -118,9 +102,7 @@ class ProjectTests(unittest.TestCase):
         name = "aws/staging/ap-southeast-2/cluster"
         self.create(name)
         self.assertEqual(self.run_command("apply", name)[-1], "project.tfplan")
-        arguments = self.run_command(
-            "plan", name, ["-var-file=/path with spaces/sizing.json"]
-        )
+        arguments = self.run_command("plan", name, ["-var-file=/path with spaces/sizing.json"])
         self.assertEqual(arguments[-1], "-var-file=/path with spaces/sizing.json")
 
     def test_new_application_is_declared_by_its_directory(self):
