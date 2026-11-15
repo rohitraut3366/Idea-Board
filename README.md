@@ -198,7 +198,7 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | -------------------- | --------------------------------------------------------------------------------------------- |
 | Frontend and backend | App tests, types, and code formatting                                                         |
 | Docker Compose       | Container builds, migrations, page/API requests, backend replacement, and concurrent requests |
-| Kubernetes           | Helm installation and upgrades; Argo CD releases, previews, cleanup, and rollback             |
+| Kubernetes           | Helm installation and upgrades; cluster services, releases, previews, cleanup, and rollback   |
 | Terraform            | AWS and GCP configuration and module tests using simulated cloud responses                    |
 | Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
 
@@ -225,7 +225,7 @@ infra/terraform/
 │       └── ap-southeast-2/
 │           ├── networking/              # VPC, subnets, routing, NAT
 │           ├── cluster/                 # EKS and workers
-│           ├── cluster-core-services/   # Argo CD and AWS load-balancer controller
+│           ├── cluster-core-services/   # Argo CD, shared services, AWS load-balancer controller
 │           └── applications/
 │               └── idea-board/          # PostgreSQL and its credential secret
 ├── gcp/
@@ -233,7 +233,7 @@ infra/terraform/
 │       └── australia-southeast1/
 │           ├── networking/              # VPC, subnet, routing, NAT
 │           ├── cluster/                 # GKE and workers
-│           ├── cluster-core-services/   # Argo CD
+│           ├── cluster-core-services/   # Argo CD and shared services
 │           └── applications/
 │               └── idea-board/          # PostgreSQL and its credential secret
 └── modules/                             # Reusable Terraform code
@@ -295,6 +295,14 @@ The `cluster` project provides `cluster_name`. The `applications/idea-board` pro
 
 The `cluster-core-services` project installs Argo CD and waits for it to be ready. On AWS it also installs the AWS Load Balancer Controller and its IAM permissions. GKE's HTTP load-balancing controller is enabled by the `cluster` project.
 
+Terraform also creates a root Argo CD Application called `cluster-core-services`. The root creates child Applications for shared services. This is the **app-of-apps** pattern:
+
+```text
+Terraform → Argo CD → cluster-core-services → External Secrets Operator
+```
+
+Services are listed under `applications` in `gitops/cluster-core-services/values.yaml`. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults; environment settings can override them. See the [cluster services guide](gitops/cluster-core-services/README.md) for the files and IAM annotation overrides.
+
 Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 
 ```bash
@@ -306,10 +314,14 @@ gcloud container clusters get-credentials YOUR_CLUSTER \
   --region YOUR_REGION --project YOUR_PROJECT
 ```
 
-Check the Argo CD pods in the selected context:
+Check the Applications, then wait for External Secrets Operator to be ready:
 
 ```bash
-kubectl --context YOUR_CONTEXT --namespace argocd get pods
+kubectl --context YOUR_CONTEXT --namespace argocd get applications
+kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
+  --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m
+kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
+  --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m
 ```
 
 When the app is released, its Ingress tells the controller to create a public load balancer and route browser requests to the frontend or API. The [ingress guide](infra/ingress/README.md) explains the routes, health checks, and cleanup.
@@ -406,6 +418,6 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 ## What has been tested
 
-Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage.
+Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. CI also verifies the cluster services root and External Secrets Operator become Synced and Healthy in kind. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage.
 
-Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
+The External Secrets connection to database credentials is pending. Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
