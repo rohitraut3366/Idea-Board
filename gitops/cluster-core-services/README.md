@@ -22,21 +22,25 @@ infra/terraform/modules/argocd/
 
 gitops/cluster-core-services/
 ├── Chart.yaml                   # Renders the child Applications
-├── values.yaml                  # Applications and shared Git revision
+├── values.yaml                  # Applications, Git revision, cloud and cluster
 └── templates/
     └── applications.yaml        # Creates a child Application for each values entry
 
 charts/external-secrets/
 ├── Chart.yaml                   # Pinned upstream dependency
 ├── Chart.lock                   # Locked dependency resolution
-└── values.yaml                  # Operator defaults
+├── values.yaml                  # Operator defaults
+└── values/
+    └── <cloud>/<cluster-name>/
+        └── values-terraform.yaml # Published by Terraform on apply
 ```
 
 ## Deploy
 
 1. Apply `networking` and `cluster` using the [Terraform instructions](../../infra/terraform/README.md).
-2. Plan and apply the cloud's `cluster-core-services` project. The root watches `master`; set `gitops_revision` in that project's `terraform.tfvars` to select another pushed branch, tag or commit.
-3. Select the cloud cluster context and wait for the root to sync, then for the service to become ready:
+2. Set `GITHUB_TOKEN` with repository Contents read/write permission. Terraform uses it to publish generated values to `master`.
+3. Plan and apply the cloud's `cluster-core-services` project. The root watches `master`; set `gitops_revision` in that project's `terraform.tfvars` to select another pushed branch, tag or commit.
+4. Select the cloud cluster context and wait for the root to sync, then for the service to become ready:
 
 ```bash
 kubectl --context YOUR_CONTEXT --namespace argocd wait application/cluster-core-services \
@@ -68,7 +72,9 @@ external_secrets_values = {
 }
 ```
 
-Apply the core-services project to update these overrides. The IAM role needs secret-read permissions and an OIDC trust policy for `system:serviceaccount:external-secrets:external-secrets`.
+Apply the core-services project to publish these settings in `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. The shared [GitHub values module](../../infra/terraform/modules/github/helm-values) manages the file. The IAM role needs secret-read permissions and an OIDC trust policy for `system:serviceaccount:external-secrets:external-secrets`.
+
+The root passes the cloud and cluster name to every child. Each child loads its chart defaults, optional provider and cluster settings, and the generated file in that order. `ignoreMissingValueFiles: true` lets the service start before optional files exist. When a file is committed, Argo CD picks it up through the watched Git branch. A pinned commit keeps the files from that commit.
 
 Automatic sync repairs drift. Removing a file does not automatically delete a cluster service. The Applications have no cascading deletion finalizer, so deleting an Application also leaves its installed resources in place. Review and remove those resources explicitly when retiring a service.
 

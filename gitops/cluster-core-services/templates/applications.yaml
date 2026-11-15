@@ -14,6 +14,12 @@ spec:
     helm:
       releaseName: {{ $name }}
       skipTests: true
+      ignoreMissingValueFiles: true
+      valueFiles:
+        - values.yaml
+        - values/{{ $.Values.cloud }}/values.yaml
+        - values/{{ $.Values.cloud }}/{{ $.Values.clusterName }}/values.yaml
+        - values/{{ $.Values.cloud }}/{{ $.Values.clusterName }}/values-terraform.yaml
       valuesObject:
         {{- toYaml ($application.values | default dict) | nindent 8 }}
   destination:

@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,7 +17,7 @@ OPERATOR_VALUES = {
 }
 
 
-def render(chart, namespace, values, template=None):
+def render(chart, namespace, values, template=None, value_files=()):
     command = [
         "helm",
         "template",
@@ -29,19 +30,25 @@ def render(chart, namespace, values, template=None):
     ]
     if template:
         command += ["--show-only", template]
+    for value_file in value_files:
+        command += ["--values", str(value_file)]
     return subprocess.run(
         command, input=json.dumps(values), check=True, capture_output=True, text=True
     ).stdout
 
 
 class ExternalSecretsChartTests(unittest.TestCase):
-    def test_iam_annotation_reaches_upstream_service_account(self):
-        output = render(
-            "charts/external-secrets",
-            "external-secrets",
-            {"external-secrets": OPERATOR_VALUES},
-            "charts/external-secrets/templates/serviceaccount.yaml",
-        )
+    def test_generated_values_file_reaches_upstream_service_account(self):
+        with tempfile.TemporaryDirectory() as directory:
+            values_file = Path(directory) / "values-terraform.yaml"
+            values_file.write_text(json.dumps({"external-secrets": OPERATOR_VALUES}))
+            output = render(
+                "charts/external-secrets",
+                "external-secrets",
+                {},
+                "charts/external-secrets/templates/serviceaccount.yaml",
+                value_files=[values_file],
+            )
         self.assertIn("kind: ServiceAccount", output)
         self.assertIn("name: external-secrets-custom", output)
         self.assertIn(f"eks.amazonaws.com/role-arn: {ROLE_ARN}", output)
@@ -62,16 +69,35 @@ class ExternalSecretsChartTests(unittest.TestCase):
         self.assertIn("namespace: external-secrets", output)
         self.assertIn(f"eks.amazonaws.com/role-arn: {ROLE_ARN}", output)
 
-    def test_bootstrap_passes_the_revision_and_iam_override_to_root(self):
+    def test_bootstrap_passes_the_revision_and_cluster_identity_to_root(self):
         output = render(
             "infra/terraform/modules/argocd/bootstrap",
             "argocd",
-            {"targetRevision": REVISION, "externalSecrets": OPERATOR_VALUES},
+            {"targetRevision": REVISION, "cloud": "aws", "clusterName": "idea-board-staging"},
             "templates/root.yaml",
         )
         self.assertEqual(output.count(f'targetRevision: "{REVISION}"'), 2)
         self.assertIn("path: gitops/cluster-core-services", output)
-        self.assertIn(f"eks.amazonaws.com/role-arn: {ROLE_ARN}", output)
+        self.assertIn('cloud: "aws"', output)
+        self.assertIn('clusterName: "idea-board-staging"', output)
+
+    def test_optional_values_files_are_ordered_for_each_provider_and_cluster(self):
+        for cloud in ("aws", "gcp"):
+            with self.subTest(cloud=cloud):
+                output = render(
+                    "gitops/cluster-core-services",
+                    "argocd",
+                    {"cloud": cloud, "clusterName": "idea-board-staging"},
+                )
+                self.assertIn("ignoreMissingValueFiles: true", output)
+                files = [
+                    "- values.yaml",
+                    f"- values/{cloud}/values.yaml",
+                    f"- values/{cloud}/idea-board-staging/values.yaml",
+                    f"- values/{cloud}/idea-board-staging/values-terraform.yaml",
+                ]
+                positions = [output.index(path) for path in files]
+                self.assertEqual(positions, sorted(positions))
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
 repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
 targetRevision: master
-externalSecrets: {}
+cloud: kind
+clusterName: idea-board

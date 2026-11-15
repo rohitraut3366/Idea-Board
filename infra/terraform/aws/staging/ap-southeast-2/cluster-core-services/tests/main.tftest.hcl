@@ -10,6 +10,7 @@ mock_provider "aws" {
 }
 
 mock_provider "helm" {}
+mock_provider "github" {}
 override_data {
   target = data.terraform_remote_state.networking
   values = { outputs = { vpc_id = "vpc-11111111", private_subnet_ids = ["subnet-11111111", "subnet-22222222"] } }
@@ -30,6 +31,10 @@ variables {
 
 run "configuration" {
   command = plan
+  assert {
+    condition     = module.external_secrets_values.file_path == "charts/external-secrets/values/aws/idea-board-test/values-terraform.yaml"
+    error_message = "Publish AWS values for the cluster read from state."
+  }
   assert {
     condition     = output.argocd_namespace == "argocd"
     error_message = "Install the shared Argo CD module."

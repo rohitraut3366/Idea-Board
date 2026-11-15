@@ -5,6 +5,10 @@ provider "aws" {
   }
 }
 
+provider "github" {
+  owner = "rohitraut3366"
+}
+
 data "terraform_remote_state" "networking" {
   backend = "s3"
   config = {
@@ -40,9 +44,18 @@ provider "helm" {
 }
 
 module "argocd" {
-  source                  = "../../../../modules/argocd"
-  gitops_revision         = var.gitops_revision
-  external_secrets_values = var.external_secrets_values
+  source          = "../../../../modules/argocd"
+  gitops_revision = var.gitops_revision
+  cloud           = "aws"
+  cluster_name    = data.terraform_remote_state.cluster.outputs.cluster_name
+}
+
+module "external_secrets_values" {
+  source       = "../../../../modules/github/helm-values"
+  chart_path   = "charts/external-secrets"
+  cloud        = "aws"
+  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
+  values       = { external-secrets = var.external_secrets_values }
 }
 
 module "load_balancer_controller" {

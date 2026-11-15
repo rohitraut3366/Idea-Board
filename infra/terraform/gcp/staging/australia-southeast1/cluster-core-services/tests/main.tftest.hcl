@@ -7,6 +7,7 @@ mock_provider "google" {
 }
 
 mock_provider "helm" {}
+mock_provider "github" {}
 override_data {
   target = data.terraform_remote_state.cluster
   values = { outputs = { cluster_name = "idea-board-test", node_security_group_id = "sg-11111111" } }
@@ -23,6 +24,10 @@ variables {
 
 run "configuration" {
   command = plan
+  assert {
+    condition     = module.external_secrets_values.file_path == "charts/external-secrets/values/gcp/idea-board-test/values-terraform.yaml"
+    error_message = "Publish GCP values for the cluster read from state."
+  }
   assert {
     condition     = output.argocd_namespace == "argocd"
     error_message = "Install the shared Argo CD module."
