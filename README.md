@@ -141,7 +141,7 @@ These commands require Node.js 24.
 
 The test loads the page and its JavaScript files, then creates, reads, and deletes ideas through the frontend's API connection. It also checks pagination, invalid input, and duplicate ideas.
 
-A passing test exits with code `0`. If something fails, inspect the logs:
+To check logs:
 
 ```bash
 docker compose logs frontend backend migrate
