@@ -1,47 +1,95 @@
 # Deployment tool
 
-This tool turns a validated Codex recommendation into two Argo CD Applications, prepares the database Secret, and waits for a working release. It is shared by the GitHub Actions workflow and local execution.
+The tool turns validated AI recommendations into Helm values, a Terraform sizing proposal, and a release plan. It deploys the two services through Argo CD, gathers rollout evidence, and supports restoring the last verified application release.
 
-## Local use
+## Plan a release locally
 
-Install Python 3.12, uv, Helm, kubectl, Node.js, and Codex CLI. Use an existing Kubernetes cluster with Argo CD and publicly readable app images. The tool always requires an explicit kube context for mutations.
+Install Python 3.12, uv, Helm, kubectl, Node.js, and an AI runner. The runner must follow the deployment skill and return JSON matching the supplied schema. The examples below use Codex CLI, which is also the runner currently configured in GitHub Actions. Another compatible runner can produce the same JSON files for the deployment tool.
 
-From the repository root, set the full published image and chart commit SHAs. They may differ for a local verification run, but the cloud workflow uses the same tested source commit for both:
+Use an existing Kubernetes cluster with Argo CD and publicly readable application images. Run commands from the repository root:
 
 ```bash
 export IMAGE_TAG=FULL_40_CHARACTER_IMAGE_COMMIT_SHA
 export CHART_REVISION=FULL_40_CHARACTER_CHART_COMMIT_SHA
 uv sync --project tools/deploy --locked --all-groups
 
-python tools/deploy/deploy.py prompt \
+uv run --project tools/deploy python tools/deploy/deploy.py prompt \
   --cloud kind --environment staging \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --request 'Low-traffic staging for a few reviewers' > /tmp/idea-board-deployment-prompt.md
+  --request 'Low-traffic staging for a few reviewers' > /tmp/idea-board-prompt.md
 
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
   --output-last-message /tmp/idea-board-recommendation.json \
-  - < /tmp/idea-board-deployment-prompt.md
+  - < /tmp/idea-board-prompt.md
 
-python tools/deploy/deploy.py render \
+uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --cloud kind --environment staging \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation /tmp/idea-board-recommendation.json
 ```
 
-Review the recommendation and rendered Applications. For a local kind release, export `IDEA_BOARD_DATABASE_URL` for a database reachable **from the cluster**, then replace `render` with `release` and add `--context kind-idea-board`. Use `uv run --project tools/deploy python tools/deploy/deploy.py` for `release` and `cleanup`, which need psycopg. No `.env` file is read. Never point a local staging test at a production database.
+Review `release-plan/plan.md` and `release-plan/applications.json`. The plan includes individual service replicas, CPU and memory values, an ordered deployment explanation, and a release command built by Python. The model cannot change the cloud, namespace, image, or revision, or supply executable shell text. `render` prints only the Applications; `prepare` writes the review files. All commands validate the recommendation first.
 
-Local staging uses namespace `idea-board-staging`, leaving the existing `idea-board` namespace separate. The tool creates new namespaces with ownership labels and refuses to adopt unrelated existing namespaces. A local PostgreSQL instance must already be provisioned; the tool does not create a Kubernetes database server. Ports and database names depend on that setup.
+For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both commands. `prepare` also writes `release-plan/sizing.tfvars.json` for the existing Terraform root. It contains worker count/type, database tier/storage, and standby configuration. These values supplement your stack configuration. Use the Terraform plan command in `plan.md` with your own credentials, state backend, and stack variables. Review actual changes before applying, especially storage, region-specific sizes, and GCP node count (a multiple of your node-zone count). The application release does not apply infrastructure changes. Kind and PR previews have no sizing file.
 
-For a preview, pass `--environment preview --pr 123`. Staging must already be healthy because database operations execute inside its backend. Cloud releases fetch managed credentials using the Environment variables listed in the [root README](../../README.md).
+## Deploy
 
-## Preview cleanup
+For kind, export `IDEA_BOARD_DATABASE_URL` for a dedicated database reachable **from the cluster**. No `.env` file is read. Staging uses `idea-board-staging`, leaving the original `idea-board` namespace separate. The tool refuses to adopt a namespace without its ownership labels. It does not create a PostgreSQL server.
 
-The close-PR workflow runs cleanup automatically. To retry it manually, run Deploy with `environment=preview`, the original PR number, and `operation=cleanup`. No model call is needed. The tool rejects automated cleanup for staging or production. The cloud cleanup uses the staging cluster and database identity, not a separate Terraform stack per PR.
+Use the same inputs with `release` and an explicit context:
 
-## Tests
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py release \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-recommendation.json \
+  --context kind-idea-board
+```
 
-Run with the existing local Compose PostgreSQL service available:
+The backend migration stays in its separate PreSync Job. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. Cloud credentials and Environment variables are described in the [root README](../../README.md).
+
+A preview uses `--environment preview --pr 123` and shares the staging cluster/database server. Its own database and login survive redeployment. Staging must be healthy because preview administration runs inside its backend. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Cleanup rejects staging and production and refuses unrelated databases/roles.
+
+## Diagnose a rollout
+
+Every release attempt writes `deployment-diagnostics.json`. It records check outcome, pod readiness/restarts, migration Job counts, event reasons, recognized error signatures from bounded current/previous logs, and resource usage when available. Raw log lines, event messages, container environment, and Secrets stay out of the artifact. Missing APIs/logs are recorded as gaps. This is a snapshot for explaining a rollout, not continuous monitoring.
+
+```bash
+uv run --project tools/deploy python tools/deploy/analyze.py prompt \
+  --evidence deployment-diagnostics.json > /tmp/idea-board-diagnosis-prompt.md
+
+codex exec --sandbox read-only --ephemeral \
+  --output-schema .agents/skills/deploy/diagnosis.schema.json \
+  --output-last-message diagnosis.json \
+  - < /tmp/idea-board-diagnosis-prompt.md
+
+uv run --project tools/deploy python tools/deploy/analyze.py report \
+  --evidence deployment-diagnostics.json --diagnosis diagnosis.json
+```
+
+`diagnosis.md` contains validated advice with references to collected evidence. A model response cannot declare a failed deterministic check healthy, invent evidence IDs, or request rollback without a verified predecessor. Advice never executes commands. GitHub Actions runs diagnosis in a separate job after rollout, even if the deployment failed, so the model has no cloud credentials. Failures before the release tool starts have no rollout artifact.
+
+## Roll back application code
+
+Each namespace has an `idea-board-release` ConfigMap containing the last verified Application specifications and the current attempted release. It contains no database credentials. A first deployment has no predecessor. Failed releases do not replace the verified checkpoint.
+
+Confirm that the preceding application version supports the **current** database schema, then supply the failed image/chart SHAs:
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py rollback \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --context kind-idea-board --schema-compatible
+```
+
+Rollback restores both Argo sources and Helm values, pauses automatic sync, and requests an explicit Argo apply sync that skips hooks, including old migrations. It waits for that specific operation to succeed and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Automatic sync stays paused until the next regular release, which enables it again and runs migrations normally.
+
+The tool checks both Applications before changing either. It refuses a mismatched failed SHA, an Application changed since the attempt, a missing predecessor, or an active Argo operation. Terminate a stuck sync in Argo CD and inspect its hooks before retrying. A partial rollback remains visible and can be retried after the underlying problem is resolved. GitHub Actions exposes the same operation as `operation=rollback` with `schema_compatible=true`; it uses the target's existing deployment Environment rules.
+
+## Verification
+
+With the local Compose PostgreSQL service running:
 
 ```bash
 uv run --project tools/deploy --locked ruff check tools/deploy
@@ -50,15 +98,18 @@ uv run --project tools/deploy --locked mypy tools/deploy --check-untyped-defs --
 uv run --project tools/deploy --locked pytest tools/deploy/tests
 ```
 
-Tests create uniquely named preview databases and roles on the local test PostgreSQL server, then remove them. Set `IDEA_BOARD_TEST_DATABASE_URL` to use another dedicated test server whose identity can create and delete databases and roles. Tests cover profile validation, generated chart rendering, stale rollout status, namespace ownership, preview persistence/cleanup, refusal to delete unrelated databases, and fork/stale-PR filtering.
+PostgreSQL tests create uniquely named preview databases/roles and remove them. Set `IDEA_BOARD_TEST_DATABASE_URL` for another dedicated test server whose identity can create/drop databases and roles. Tests cover independent sizing, environment limits, Helm rendering, Terraform input mapping, evidence filtering, unsupported model advice, rollback state/drift checks, preview persistence/ownership/cleanup, and PR provenance.
 
-No test substitutes a fixed profile for a live Codex result while claiming a model call occurred. Live model authentication, cloud OIDC trust, managed PostgreSQL role permissions, and external load-balancer behavior need separate verification in the target accounts.
+The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against both roots using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
 
-For the full local Argo check, use an existing test kind cluster with Argo CD and the chart test PostgreSQL Deployment/Secret in namespace `idea-board`:
+For the full integration check, use the existing test kind cluster with Argo CD and the chart-test PostgreSQL Deployment/Secret in namespace `idea-board`:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
-  --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION"
+  --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --evidence-output /tmp/idea-board-failed-rollout.json
 ```
 
-This check refuses to use existing staging or test-preview namespaces and databases. It creates isolated test resources, verifies staging, preview migration/deployment, preview redeployment, HTTP access, and cleanup, then removes only what it created. The current chart commit must be reachable from the public Git repository because Argo CD fetches it there. CI runs this check after publishing the tested images.
+It refuses existing staging/test-preview resources, creates isolated test databases and namespaces, checks staging and preview redeployment, removes the preview, injects an unpublished frontend image, checks failure evidence, restores the verified release, reruns HTTP checks, and removes only resources it created. The chart commit must be publicly reachable because Argo fetches it from Git. CI repeats the flow with its newly published images.
+
+The integration test uses explicit recommendation fixtures, independently of model availability. A live AI runner invocation tests the skill separately. Hosted runner authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.

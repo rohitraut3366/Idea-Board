@@ -5,13 +5,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 REPOSITORY = "https://github.com/rohitraut3366/Idea-Board.git"
 SKILL = Path(__file__).resolve().parents[2] / ".agents/skills/deploy/SKILL.md"
-PROFILES = {
-    "small": {"replicas": 1, "backend_memory": "256Mi", "frontend_memory": "128Mi"},
-    "standard": {"replicas": 2, "backend_memory": "256Mi", "frontend_memory": "128Mi"},
-    "resilient": {"replicas": 3, "backend_memory": "512Mi", "frontend_memory": "128Mi"},
-}
+ACTIONS = ("render", "sync_backend", "sync_frontend", "verify")
+
+
+def validate_schema(value, filename):
+    schema = json.loads(SKILL.with_name(filename).read_text())
+    errors = list(Draft202012Validator(schema).iter_errors(value))
+    if errors:
+        error = errors[0]
+        raise ValueError(f"Invalid {filename} at {list(error.path)}: {error.message}")
 
 
 @dataclass(frozen=True)
@@ -42,20 +48,67 @@ class Target:
         return f"idea-board-{suffix}"
 
 
-def validate_recommendation(recommendation, environment):
-    if not isinstance(recommendation, dict) or set(recommendation) != {"profile", "reason"}:
-        raise ValueError("skill must return only profile and reason")
-    profile = recommendation["profile"]
-    if not isinstance(profile, str) or profile not in PROFILES:
-        raise ValueError("unknown deployment profile")
-    reason = recommendation["reason"]
-    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 2000:
-        raise ValueError("skill must explain its choice in at most 2000 characters")
-    if environment == "preview" and profile != "small":
-        raise ValueError("previews use the small profile")
-    if environment == "production" and profile == "small":
-        raise ValueError("production requires standard or resilient")
-    return PROFILES[profile]
+def validate_recommendation(recommendation, environment, cloud):
+    validate_schema(recommendation, "output.schema.json")
+    if [step["action"] for step in recommendation["steps"]] != list(ACTIONS):
+        raise ValueError("steps must render, sync backend, sync frontend, then verify")
+    for service in ("backend", "frontend"):
+        sizing = recommendation[service]
+        if sizing["memory_request_mib"] > sizing["memory_limit_mib"]:
+            raise ValueError("memory limit must cover its request")
+        if environment == "production" and sizing["replicas"] < 2:
+            raise ValueError("production requires at least two replicas per service")
+        if environment == "preview" and (
+            sizing["replicas"] != 1
+            or sizing["cpu_millicores"] > 250
+            or sizing["memory_limit_mib"] > 512
+        ):
+            raise ValueError("preview exceeds its resource budget")
+    infrastructure = recommendation["infrastructure"]
+    if environment == "preview" or cloud == "kind":
+        if infrastructure is not None:
+            raise ValueError("previews and kind cannot resize shared infrastructure")
+    elif cloud in {"aws", "gcp"}:
+        if infrastructure is None:
+            raise ValueError("cloud releases require an infrastructure proposal")
+        sizes = {
+            "aws": ({"t3.medium", "t3.large"}, {"db.t4g.micro", "db.t4g.small", "db.t4g.medium"}),
+            "gcp": (
+                {"e2-standard-2", "e2-standard-4"},
+                {"db-custom-1-3840", "db-custom-2-7680"},
+            ),
+        }
+        nodes, databases = sizes[cloud]
+        if (
+            infrastructure["node_size"] not in nodes
+            or infrastructure["database_size"] not in databases
+        ):
+            raise ValueError("infrastructure size does not belong to the selected cloud")
+        if cloud == "gcp" and infrastructure["node_count"] % 2:
+            raise ValueError("GCP node count must be divisible by the documented two zones")
+        if environment == "production" and (
+            infrastructure["node_count"] < 2 or not infrastructure["database_high_availability"]
+        ):
+            raise ValueError("production infrastructure needs two nodes and a standby database")
+    return recommendation
+
+
+def terraform_variables(target, recommendation):
+    validate_recommendation(recommendation, target.environment, target.cloud)
+    sizing = recommendation["infrastructure"]
+    if sizing is None:
+        return None
+    node_key, database_key, availability_key = {
+        "aws": ("node_instance_type", "database_instance_class", "database_multi_az"),
+        "gcp": ("node_machine_type", "database_tier", "database_regional"),
+    }[target.cloud]
+    return {
+        "node_count": sizing["node_count"],
+        node_key: sizing["node_size"],
+        database_key: sizing["database_size"],
+        "database_storage_gb": sizing["database_storage_gb"],
+        availability_key: sizing["database_high_availability"],
+    }
 
 
 def prompt(target, request):
@@ -71,7 +124,7 @@ def prompt(target, request):
 
 
 def manifests(target, recommendation):
-    profile = validate_recommendation(recommendation, target.environment)
+    validate_recommendation(recommendation, target.environment, target.cloud)
     namespace = target.namespace
     project = {
         "apiVersion": "argoproj.io/v1alpha1",
@@ -91,18 +144,19 @@ def manifests(target, recommendation):
     }
     applications = []
     for service in ("backend", "frontend"):
-        values = {
+        sizing = recommendation[service]
+        values: dict = {
             "image": {
                 "repository": f"ghcr.io/rohitraut3366/idea-board-{service}",
                 "tag": target.image_tag,
             },
-            "replicas": profile["replicas"],
+            "replicas": int(sizing["replicas"]),
             "resources": {
                 "requests": {
-                    "cpu": "100m" if service == "backend" else "50m",
-                    "memory": "128Mi" if service == "backend" else "32Mi",
+                    "cpu": f"{sizing['cpu_millicores']}m",
+                    "memory": f"{sizing['memory_request_mib']}Mi",
                 },
-                "limits": {"memory": profile[f"{service}_memory"]},
+                "limits": {"memory": f"{sizing['memory_limit_mib']}Mi"},
             },
         }
         if service == "backend":

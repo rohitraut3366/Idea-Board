@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "assessment": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "unhealthy",
+        "inconclusive"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 20
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "none",
+        "investigate",
+        "rollback"
+      ]
+    },
+    "next_steps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "minItems": 1,
+      "maxItems": 5
+    }
+  },
+  "required": [
+    "assessment",
+    "summary",
+    "evidence_ids",
+    "action",
+    "next_steps"
+  ],
+  "additionalProperties": false
+}

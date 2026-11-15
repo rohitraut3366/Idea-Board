@@ -88,6 +88,14 @@ class Cluster:
                 if not current:
                     continue
                 status = current.get("status", {})
+                if "operation" in expected:
+                    operation_state = status.get("operationState", {})
+                    if (
+                        operation_state.get("operation", {}).get("info")
+                        != expected["operation"]["info"]
+                        or operation_state.get("phase") != "Succeeded"
+                    ):
+                        continue
                 source = expected["spec"]["source"]
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (
@@ -211,11 +219,3 @@ class Cluster:
                         pass  # Cloud load balancers can publish an address before serving traffic.
             time.sleep(5)
         raise TimeoutError("frontend did not become publicly reachable")
-
-    def diagnostics(self):
-        # Events and status are enough to locate failed hooks and image or scheduling failures.
-        # Application logs are intentionally excluded: they may contain submitted ideas or secrets.
-        return {
-            kind: self.run("--namespace", self.namespace, "get", kind, "-o", "json")
-            for kind in ("pods", "jobs", "events")
-        }
