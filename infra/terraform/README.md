@@ -10,7 +10,7 @@ infra/terraform/
 │       └── ap-southeast-2/
 │           ├── networking/             # VPC, subnets, routing, NAT
 │           ├── cluster/                # EKS and workers
-│           ├── cluster-core-services/  # Argo CD and AWS load-balancer controller
+│           ├── cluster-core-services/  # Argo CD, root Application, AWS load-balancer controller
 │           └── applications/
 │               └── idea-board/         # RDS and its credential secret
 ├── gcp/
@@ -18,7 +18,7 @@ infra/terraform/
 │       └── australia-southeast1/
 │           ├── networking/             # VPC, subnet, NAT, private database connectivity
 │           ├── cluster/                # GKE and workers
-│           ├── cluster-core-services/  # Argo CD
+│           ├── cluster-core-services/  # Argo CD and root Application
 │           └── applications/
 │               └── idea-board/         # Cloud SQL and its credential secret
 └── modules/                            # Reusable Terraform code
@@ -119,9 +119,11 @@ make output PROJECT=aws/staging/ap-southeast-2/cluster ARGS=-json
 
 Use an absolute path for files passed through `ARGS`; Terraform runs inside the selected project directory. To select a different Terraform executable, set `TERRAFORM=/path/to/terraform`.
 
-`cluster-core-services` waits for its Helm releases to become ready. It pins Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and AWS Load Balancer Controller chart `3.6.3`. Upgrade the controller chart and its vendored IAM policy together. GKE provides its HTTP load-balancing controller through the cluster addon.
+`cluster-core-services` installs Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and bootstraps the `cluster-core-services` root Application. The root renders child Applications from `gitops/cluster-core-services` and installs the External Secrets umbrella chart as its first child. Set `gitops_revision` in the core-services project's variables to select a pushed branch, tag or commit; it defaults to `master`. Set `external_secrets_values` for environment overrides such as service-account annotations.
 
-Terraform owns the platform Helm releases. Argo CD owns application releases.
+Terraform waits for its Helm releases. Wait for the root Application to become Synced and Healthy before using its services; see [cluster services](../../gitops/cluster-core-services/README.md#deploy). Argo CD manages the operator's installation and updates from Git.
+
+AWS Load Balancer Controller chart `3.6.3` is installed by Terraform. Upgrade its chart and vendored IAM policy together. GKE provides its HTTP load-balancing controller through the cluster addon.
 
 ## Connect and release the application
 

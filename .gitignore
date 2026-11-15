@@ -12,6 +12,7 @@ htmlcov/
 dist/
 build/
 node_modules/
+/charts/external-secrets/charts/
 .terraform/
 *.tfstate
 *.tfstate.*

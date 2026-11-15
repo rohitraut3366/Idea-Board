@@ -3,6 +3,18 @@ variable "name" {
   type        = string
 }
 
+variable "gitops_revision" {
+  description = "Git branch, tag, or commit used by the cluster services root Application."
+  type        = string
+  default     = "master"
+}
+
+variable "external_secrets_values" {
+  description = "External Secrets chart overrides, including service account annotations for IAM."
+  type        = any
+  default     = {}
+}
+
 variable "project_id" {
   description = "Existing GCP project with billing enabled."
   type        = string

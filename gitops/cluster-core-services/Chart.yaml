@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cluster-core-services-apps
+description: Child Argo CD Applications for cluster services.
+type: application
+version: 0.1.0

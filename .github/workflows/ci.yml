@@ -136,8 +136,12 @@ jobs:
           version: v4.2.4
       - name: Lint charts
         run: |
+          helm dependency build charts/external-secrets
           helm lint charts/idea-board-backend --strict -f gitops/kind/backend-values.yaml
           helm lint charts/idea-board-frontend --strict -f gitops/kind/frontend-values.yaml
+          helm lint infra/terraform/modules/argocd/bootstrap --strict
+          helm lint gitops/cluster-core-services --strict
+          helm lint charts/external-secrets --strict
       - name: Render GitOps Applications
         run: kubectl kustomize gitops/kind
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
@@ -285,10 +289,11 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check . ../terraform
-      - run: uv run --no-sync ruff format --check . ../terraform
-      - run: uv run --no-sync mypy . --check-untyped-defs --ignore-missing-imports
-      - run: uv run --no-sync pytest
+      - run: uv run --no-sync ruff check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
+      - run: uv run --no-sync ruff format --check . ../terraform ../../gitops/tests ../../charts/external-secrets/tests
+      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
+      - run: helm dependency build ../../charts/external-secrets
+      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests
 
   publish:
     name: Publish images to GHCR
@@ -370,6 +375,9 @@ jobs:
         with:
           node-version-file: apps/frontend/.node-version
           package-manager-cache: false
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v4.2.4
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           version: v0.32.0
@@ -384,6 +392,10 @@ jobs:
           kubectl --context kind-idea-board apply --server-side -k gitops/argocd
           kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
           kubectl --context kind-idea-board --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+      - name: Verify the cluster services app-of-apps
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 gitops/tests/check_core_services.py --context kind-idea-board --revision "$SOURCE_SHA"
       - name: Exercise release, preview redeployment, and cleanup
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

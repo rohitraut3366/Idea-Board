@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-core-services
+  namespace: {{ .Release.Namespace }}
+spec:
+  project: cluster-core-services
+  source:
+    repoURL: {{ .Values.repositoryURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: gitops/cluster-core-services
+    helm:
+      valuesObject:
+        repositoryURL: {{ .Values.repositoryURL | quote }}
+        targetRevision: {{ .Values.targetRevision | quote }}
+        applications:
+          external-secrets:
+            values:
+              external-secrets:
+                {{- toYaml .Values.externalSecrets | nindent 16 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Release.Namespace }}
+  syncPolicy:
+    automated:
+      selfHeal: true
