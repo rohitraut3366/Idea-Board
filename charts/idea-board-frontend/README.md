@@ -11,7 +11,6 @@ helm upgrade --install frontend charts/idea-board-frontend \
   --namespace idea-board \
   --set image.repository=ghcr.io/rohitraut3366/idea-board-frontend \
   --set image.tag=YOUR_COMMIT \
-  --set backendUpstream=backend:8000 \
   --wait --timeout 5m
 ```
 
@@ -27,18 +26,18 @@ Open `http://localhost:3001`. Port `3001` leaves Compose's default port `3000` a
 
 ## Configuration
 
-| Value | Default | Purpose |
-| --- | --- | --- |
-| `image.repository` | `idea-board-frontend` | Container repository |
-| `image.tag` | `local` | Image tag; use a commit tag for published images |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `backendUpstream` | `backend:8000` | Backend Service address and port |
-| `replicas` | `1` | Frontend replicas |
-| `resources` | See `values.yaml` | Container resource requests and limits |
+| Value              | Default               | Purpose                                          |
+| ------------------ | --------------------- | ------------------------------------------------ |
+| `image.repository` | `idea-board-frontend` | Container repository                             |
+| `image.tag`        | `local`               | Image tag; use a commit tag for published images |
+| `image.pullPolicy` | `IfNotPresent`        | Image pull policy                                |
+| `backendUpstream`  | `backend:8000`        | Backend Service address and port                 |
+| `replicas`         | `1`                   | Frontend replicas                                |
+| `resources`        | See `values.yaml`     | Container resource requests and limits           |
 
 If the backend release has a different name or namespace, set `backendUpstream` to its Service address, for example `api.idea-board.svc.cluster.local:8000`.
 
-The container reads the upstream address at startup. Probes use `/`; the app runs as non-root, disables privilege escalation, and does not mount service-account tokens. Public routing and TLS are configured separately.
+Nginx refreshes the backend address through cluster DNS. Probes use `/`; the app runs as non-root, disables privilege escalation, and does not mount service-account tokens. Public routing and TLS are configured separately.
 
 ## Checks
 

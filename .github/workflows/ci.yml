@@ -119,6 +119,11 @@ jobs:
         run: docker compose up --no-build --wait --wait-timeout 90
       - name: Run full-stack HTTP tests
         run: npm --prefix apps/frontend run test:stack
+      - name: Verify API access after replacing the backend
+        run: |
+          docker compose up --no-build --no-deps --force-recreate --wait --wait-timeout 90 backend
+          sleep 6
+          npm --prefix apps/frontend run test:stack
       - name: Check concurrent requests
         env:
           LOAD_CYCLES: "20"
