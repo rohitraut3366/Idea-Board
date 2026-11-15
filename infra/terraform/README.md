@@ -121,7 +121,7 @@ Use an absolute path for files passed through `ARGS`; Terraform runs inside the 
 
 `cluster-core-services` installs Argo CD chart `10.18.0` (Argo CD `v3.6.1`) and bootstraps the `cluster-core-services` root Application. The root renders child Applications from `gitops/cluster-core-services` and installs the External Secrets umbrella chart as its first child. Set `gitops_revision` in the core-services project's variables to select a pushed branch, tag or commit; it defaults to `master`. Set `external_secrets_values` for environment overrides such as service-account annotations.
 
-Terraform waits for its Helm releases. Wait for the root Application to become Synced and Healthy before using its services; see [cluster services](../../gitops/cluster-core-services/README.md#deploy). Argo CD manages the operator's installation and updates from Git.
+Terraform waits for its Helm releases. Wait for each child Application to become Synced and Healthy before using its service; see [cluster services](../../gitops/cluster-core-services/README.md#deploy). Argo CD manages the operator's installation and updates from Git.
 
 AWS Load Balancer Controller chart `3.6.3` is installed by Terraform. Upgrade its chart and vendored IAM policy together. GKE provides its HTTP load-balancing controller through the cluster addon.
 

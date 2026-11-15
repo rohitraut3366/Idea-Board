@@ -23,25 +23,6 @@ def main():
         raise ValueError("this check requires an explicit kind context")
     kubectl = ("kubectl", "--context", args.context)
     run(
-        *kubectl,
-        "--namespace",
-        "argocd",
-        "patch",
-        "configmap",
-        "argocd-cm",
-        "--type=merge",
-        "--patch",
-        json.dumps(
-            {
-                "data": {
-                    "resource.customizations.health.argoproj.io_Application": (
-                        ARGOCD_MODULE / "application-health.lua"
-                    ).read_text()
-                }
-            }
-        ),
-    )
-    run(
         "helm",
         "--kube-context",
         args.context,

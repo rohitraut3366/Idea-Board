@@ -15,7 +15,6 @@ Both AWS and GCP use this setup. The first child installs our External Secrets u
 ```text
 infra/terraform/modules/argocd/
 ├── main.tf                      # Argo CD installation and root bootstrap
-├── application-health.lua       # Root waits for child sync and health
 └── bootstrap/
     └── templates/
         ├── project.yaml         # Allowed repositories, namespaces and resource types
@@ -37,17 +36,19 @@ charts/external-secrets/
 
 1. Apply `networking` and `cluster` using the [Terraform instructions](../../infra/terraform/README.md).
 2. Plan and apply the cloud's `cluster-core-services` project. The root watches `master`; set `gitops_revision` in that project's `terraform.tfvars` to select another pushed branch, tag or commit.
-3. Select the cloud cluster context and wait for the root and its child:
+3. Select the cloud cluster context and wait for the root to sync, then for the service to become ready:
 
 ```bash
 kubectl --context YOUR_CONTEXT --namespace argocd wait application/cluster-core-services \
   --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m
-kubectl --context YOUR_CONTEXT --namespace argocd wait application/cluster-core-services \
+kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
+  --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m
+kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
   --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m
 kubectl --context YOUR_CONTEXT --namespace argocd get applications
 ```
 
-Terraform waits for the Argo CD Helm installation and root bootstrap. The commands above wait for the services installed by Argo CD. A failed child sync makes the root unhealthy.
+Terraform waits for the Argo CD Helm installation and root bootstrap. The commands above wait directly for External Secrets Operator. Wait for each child Application to be Synced and Healthy as you add services.
 
 ## Update a service
 

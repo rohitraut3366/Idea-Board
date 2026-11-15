@@ -22,10 +22,6 @@ run "configuration" {
     error_message = "Bootstrap the root Application in Argo CD using the requested Git revision."
   }
   assert {
-    condition     = yamldecode(helm_release.this.values[0]).configs.cm["resource.customizations.health.argoproj.io_Application"] == file("${path.module}/application-health.lua")
-    error_message = "The root must wait for child Application health."
-  }
-  assert {
     condition     = yamldecode(helm_release.core_services.values[0]).externalSecrets.serviceAccount.annotations["eks.amazonaws.com/role-arn"] == "arn:aws:iam::123456789012:role/external-secrets"
     error_message = "Pass operator IAM annotations to the root Application."
   }

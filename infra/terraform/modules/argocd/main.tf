@@ -11,11 +11,6 @@ resource "helm_release" "this" {
   timeout          = 600
   values = [yamlencode({
     server = { service = { type = "ClusterIP" } }
-    configs = {
-      cm = {
-        "resource.customizations.health.argoproj.io_Application" = file("${path.module}/application-health.lua")
-      }
-    }
   })]
 }
 
