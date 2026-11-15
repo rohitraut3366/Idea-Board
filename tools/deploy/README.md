@@ -116,6 +116,6 @@ The integration test uses explicit recommendation fixtures, independently of mod
 
 ## Public routing
 
-Follow the [post-cluster ingress setup](../../infra/ingress/README.md) before cloud releases. AWS uses the AWS Load Balancer Controller; GCP uses GKE's built-in Ingress controller. The tool generates provider-specific annotations, GCP BackendConfig resources, and an Ingress routing to both ClusterIP Services. Previews use the same model in their own namespaces; no Terraform updates or preconfigured target-group IDs are needed per preview.
+Follow the [public routing setup](../../infra/ingress/README.md) before cloud releases. AWS uses the AWS Load Balancer Controller; GCP uses GKE's built-in Ingress controller. The tool generates provider-specific annotations, GCP BackendConfig resources, and an Ingress routing to both ClusterIP Services. Previews use the same model in their own namespaces; no Terraform updates or preconfigured target-group IDs are needed per preview.
 
 The final public check reads `Ingress/frontend` in the release namespace and verifies both the page and API at its reported hostname/IP. Controllers must remain available during preview cleanup so deleting the Ingress also removes its cloud resources. Local kind keeps Ingress disabled and uses its existing port-forward.

@@ -107,8 +107,8 @@ Common commands:
 docker compose ps --all                 # Service status
 docker compose logs -f frontend backend # Application logs
 docker compose logs migrate             # Migration logs
-docker compose up --build --wait         # Rebuild after code changes
-docker compose down                      # Stop; keep database data
+docker compose up --build --wait        # Rebuild after code changes
+docker compose down                     # Stop; keep database data
 ```
 
 To reset the database, **delete its volume** and restart:
@@ -215,64 +215,97 @@ Follow steps 1–3 to set up an environment. Use step 4 whenever you want to rel
 
 ### 1. Create the cloud resources
 
+Terraform manages four projects for each cloud. Each project can be planned and applied separately:
+
 ```text
 infra/terraform/
-├── aws/                  # AWS stack: calls the AWS modules
-├── gcp/                  # GCP stack: calls the GCP modules
-└── modules/
-    ├── aws/
-    │   ├── network/      # VPC, subnets, routing, NAT
-    │   ├── cluster/      # EKS and managed workers
-    │   └── psql/         # Private RDS PostgreSQL
-    └── gcp/
-        ├── network/      # VPC, subnet, routing, Cloud NAT
-        ├── cluster/      # GKE and worker pool
-        └── psql/         # Private Cloud SQL PostgreSQL
+├── aws/
+│   └── staging/
+│       └── ap-southeast-2/
+│           ├── backend.json.example     # Shared state bucket settings
+│           ├── networking/              # VPC, subnets, routing, NAT
+│           ├── cluster/                 # EKS and workers
+│           ├── cluster-core-services/   # Argo CD and AWS load-balancer controller
+│           └── applications/
+│               └── idea-board/          # PostgreSQL and its credential secret
+├── gcp/
+│   └── staging/
+│       └── australia-southeast1/
+│           ├── backend.json.example
+│           ├── networking/              # VPC, subnet, routing, NAT
+│           ├── cluster/                 # GKE and workers
+│           ├── cluster-core-services/   # Argo CD
+│           └── applications/
+│               └── idea-board/          # PostgreSQL and its credential secret
+└── modules/                             # Reusable Terraform code
 ```
+
+The directory identifies the cloud, environment, region, and project. Production uses the same structure under `production/`.
 
 Before running Terraform:
 
-1. Sign in to your AWS or GCP account.
-2. Create a Terraform state bucket with encryption and versioning enabled.
-3. Use separate state paths and stack names for staging and production.
+1. Install Terraform 1.17.x, Make, Python 3, and your cloud CLI.
+2. Sign in to your AWS or GCP account. GCP requires a billed project and Application Default Credentials.
+3. Create a Terraform state bucket with encryption, versioning, and restricted access. State records the resources Terraform manages.
+4. Copy the region's `backend.json.example` to `backend.json` and enter the state bucket settings.
+5. In each project, copy `terraform.tfvars.example` to `terraform.tfvars` and fill in its settings. Use one stack name across the four projects, and a different name for each environment or region.
 
-For AWS, start from the repository root:
-
-```bash
-cd infra/terraform/aws
-cp terraform.tfvars.example terraform.tfvars
-cp backend.hcl.example backend.hcl
-```
-
-For GCP, use `infra/terraform/gcp`. Fill in the example files with your region, cluster settings, identity, and state bucket. GCP also requires a billed project, Application Default Credentials, and `TF_VAR_database_password` in the environment.
-
-Use Terraform 1.17.x. Initialize the project, check the configuration, and generate a plan:
+For example, start AWS configuration from the repository root:
 
 ```bash
-terraform init -backend-config=backend.hcl
-terraform validate
-terraform plan -out=stack.tfplan
+cp infra/terraform/aws/staging/ap-southeast-2/backend.json.example \
+  infra/terraform/aws/staging/ap-southeast-2/backend.json
+cp infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars.example \
+  infra/terraform/aws/staging/ap-southeast-2/networking/terraform.tfvars
 ```
 
-The plan shows what Terraform will create or change. Review it and the expected costs, then apply it:
+For GCP, use `infra/terraform/gcp/staging/australia-southeast1`. Supply `TF_VAR_database_password` through your environment when planning its application project.
+
+The Makefile calculates the state location from the project path. AWS networking, for example, uses `infra/terraform/aws/staging/ap-southeast-2/networking.tfstate` in the configured bucket. Dependencies use the same convention to read the projects they need.
+
+From the repository root, initialize networking, check it, and create its plan:
 
 ```bash
-terraform apply stack.tfplan
-terraform output
+make init PROJECT=aws/staging/ap-southeast-2/networking
+make validate PROJECT=aws/staging/ap-southeast-2/networking
+make plan PROJECT=aws/staging/ap-southeast-2/networking
 ```
 
-The outputs include the cluster name and database connection details. You will use them in step 3. The [Terraform guide](infra/terraform/README.md) explains inputs, authentication, state, and teardown.
+Review the plan and expected costs, then apply the saved plan:
 
-### 2. Set up deployment and public access
+```bash
+make apply PROJECT=aws/staging/ap-southeast-2/networking
+make output PROJECT=aws/staging/ap-southeast-2/networking
+```
+
+Repeat these commands for `cluster`, `cluster-core-services`, and `applications/idea-board`, in that order. Apply each project before planning the next one, because later projects read earlier outputs.
+
+The `cluster` project provides `cluster_name`. The `applications/idea-board` project provides the database connection details and secret reference used in step 3. The [Terraform guide](infra/terraform/README.md) covers both clouds, inputs, state, and teardown.
+
+### 2. Connect to the cluster and check public routing
 
 **Argo CD** runs inside the cluster. It reads the app's configuration from Git and makes the running services match it. Each service has a **Helm chart**, a template describing what Kubernetes should run.
 
-Connect `kubectl`, the Kubernetes command-line tool, to the new cluster. Install Argo CD using the installation steps in the [GitOps guide](gitops/README.md), selecting your cloud cluster context.
+The `cluster-core-services` project installs Argo CD and waits for it to be ready. On AWS it also installs the AWS Load Balancer Controller and its IAM permissions. GKE's HTTP load-balancing controller is enabled by the `cluster` project.
 
-- **AWS:** apply the separate `infra/ingress/aws` Terraform project for controller IAM and Pod Identity, then install its generated Argo CD Application. Wait for the AWS Load Balancer Controller to be healthy.
-- **GCP:** the cluster module enables GKE's built-in HTTP load-balancing controller.
+Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 
-Follow the [ingress setup guide](infra/ingress/README.md) for the commands. After this setup, deploying the application Ingress will cause the controller to create its public HTTP load balancer.
+```bash
+# AWS
+aws eks update-kubeconfig --name YOUR_CLUSTER --region YOUR_REGION
+
+# GCP
+gcloud container clusters get-credentials YOUR_CLUSTER \
+  --region YOUR_REGION --project YOUR_PROJECT
+```
+
+Check the Argo CD pods in the selected context:
+
+```bash
+kubectl --context YOUR_CONTEXT --namespace argocd get pods
+```
+
+When the app is released, its Ingress tells the controller to create a public load balancer and route browser requests to the frontend or API. The [ingress guide](infra/ingress/README.md) explains the routes, health checks, and cleanup.
 
 ### 3. Configure GitHub Actions
 
@@ -285,17 +318,17 @@ A **GitHub Environment** groups the settings and approval rules for a deployment
 
 Set these Environment variables:
 
-| Variable                                          | Value                          |
-| ------------------------------------------------- | ------------------------------ |
-| `CLOUD_REGION`                                    | AWS region or GKE location     |
-| `CLUSTER_NAME`                                    | Terraform cluster output       |
-| `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME` | Terraform database outputs     |
-| `DATABASE_CREDENTIAL_SECRET_ID`                   | Database secret reference      |
-| `DATABASE_USERNAME`                               | GCP database username          |
-| `AWS_ROLE_ARN`                                    | AWS deployment role            |
-| `GCP_PROJECT_ID`                                  | GCP project                    |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER`                  | GCP federation provider        |
-| `GCP_SERVICE_ACCOUNT`                             | GCP deployment service account |
+| Variable                                          | Value                             |
+| ------------------------------------------------- | --------------------------------- |
+| `CLOUD_REGION`                                    | AWS region or GKE location        |
+| `CLUSTER_NAME`                                    | `cluster`: `cluster_name` output  |
+| `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME` | `applications/idea-board` outputs |
+| `DATABASE_CREDENTIAL_SECRET_ID`                   | Database secret reference         |
+| `DATABASE_USERNAME`                               | GCP database username             |
+| `AWS_ROLE_ARN`                                    | AWS deployment role               |
+| `GCP_PROJECT_ID`                                  | GCP project                       |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER`                  | GCP federation provider           |
+| `GCP_SERVICE_ACCOUNT`                             | GCP deployment service account    |
 
 Add `OPENAI_API_KEY` as an Actions secret. The deployment job reads the cloud database secret and creates the Kubernetes Secret consumed by the backend and migration job.
 
@@ -342,7 +375,7 @@ You describe what the environment is for, for example:
 
 The AI uses the [deployment skill](.agents/skills/deploy/SKILL.md), a set of instructions for planning and diagnosing releases. It suggests how many copies of each service to run, how much CPU and memory to give them, and what cloud machine and database sizes fit the request. It explains its choices.
 
-The deployment tool checks the suggested values, then writes the app configuration and a separate Terraform sizing proposal. Infrastructure changes go through a reviewed Terraform plan.
+The deployment tool checks the suggested values, then writes the app configuration and separate Terraform sizing proposals for the cluster and database projects. Infrastructure changes go through a reviewed Terraform plan.
 
 The skill includes a defined JSON response format so compatible AI tools can use it. The current GitHub workflow runs it through the Codex Action.
 
@@ -356,7 +389,7 @@ The resource proposal helps an operator choose settings for a workload. The diag
 
 **Restore a previous version (rollback):** the deployment tool saves the last release that passed its checks. Run Deploy with `operation=rollback`, the failed image SHA, and `schema_compatible=true` after confirming the previous app supports the current schema. Rollback restores the application version and preserves the database schema and data. See the [rollback procedure](tools/deploy/README.md).
 
-**Remove the cloud setup:** remove application Ingress resources and wait for their load balancers to disappear while the controller is running. Then remove the AWS controller setup and destroy the Terraform stack. The [Terraform guide](infra/terraform/README.md) covers deletion protection, snapshots, and retained resources.
+**Remove the cloud setup:** remove application Ingress resources and wait for their load balancers to disappear while the controller is running. Then destroy `applications/idea-board`, `cluster-core-services`, `cluster`, and `networking`, in that order. The [Terraform guide](infra/terraform/README.md) covers deletion protection, snapshots, and retained resources.
 
 ## How AWS and GCP use the same app
 
@@ -366,6 +399,6 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 ## What has been tested
 
-Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. AWS infrastructure has been provisioned, tested through a port-forward, and destroyed. GCP has Terraform validation and mock-test coverage.
+Compose, application tests, local load checks, Helm checks, and Argo CD release/preview/rollback tests have run locally or in CI. The earlier combined AWS stack was provisioned, tested through a port-forward, and destroyed. The independent AWS and GCP projects have Terraform validation and mock-test coverage.
 
-Live cloud ingress, a GCP deployment, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
+Live deployment of the independent projects, cloud ingress, a successful live AI response, and measured cloud capacity remain to be verified. There are currently no hosted application URLs.
