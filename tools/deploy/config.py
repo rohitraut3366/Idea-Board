@@ -145,7 +145,7 @@ def manifests(target, recommendation):
     applications = []
     for service in ("backend", "frontend"):
         sizing = recommendation[service]
-        values = {
+        values: dict = {
             "image": {
                 "repository": f"ghcr.io/rohitraut3366/idea-board-{service}",
                 "tag": target.image_tag,
