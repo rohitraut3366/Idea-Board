@@ -114,14 +114,13 @@ def cleanup(cluster, target):
     namespace = cluster.get("namespace", target.namespace)
     if namespace:
         cluster.ensure_namespace("preview")
-    root = environment_root(cluster, target)
-    children = root["spec"]["source"]["helm"]["valuesObject"].setdefault("applications", {})
+    # Remove the Ingress owner first so cloud backends can detach before Service cleanup.
     for service in ("frontend", "backend"):
+        root = environment_root(cluster, target)
+        children = root["spec"]["source"]["helm"]["valuesObject"].setdefault("applications", {})
         children.pop(application_key(target, service), None)
-    cluster.apply(root)
-    cluster.wait([root])
-    # Delete the Ingress owner first so cloud backends can detach before Service cleanup.
-    for service in ("frontend", "backend"):
+        cluster.apply(root)
+        cluster.wait([root])
         cluster.run(
             "--namespace",
             "argocd",

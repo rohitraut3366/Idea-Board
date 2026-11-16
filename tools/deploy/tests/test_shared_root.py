@@ -111,10 +111,21 @@ def test_cleanup_removes_only_requested_preview_from_shared_root(cloud):
     for target in previews:
         root = shared_root(target, manifests(target, recommendation(cloud, "preview"))[1:], root)
     cluster = Mock(namespace=previews[0].namespace)
+
+    def apply(document):
+        nonlocal root
+        root = deepcopy(document)
+
+    cluster.apply.side_effect = apply
     cluster.get.side_effect = lambda kind, name, *args: (
         deepcopy(root) if name == "idea-board" else None
     )
     cleanup(cluster, previews[0])
+    first = cluster.apply.call_args_list[0].args[0]["spec"]["source"]["helm"]["valuesObject"][
+        "applications"
+    ]
+    assert application_key(previews[0], "backend") in first
+    assert application_key(previews[0], "frontend") not in first
     updated = cluster.apply.call_args.args[0]
     entries = updated["spec"]["source"]["helm"]["valuesObject"]["applications"]
     for service in ("backend", "frontend"):
