@@ -51,7 +51,7 @@ def database_url() -> Iterator[str]:
 
 @pytest.fixture(autouse=True)
 def database_environment(database_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", database_url)
+    monkeypatch.setenv("DATABASE_URL", database_url)
 
 
 @pytest.fixture

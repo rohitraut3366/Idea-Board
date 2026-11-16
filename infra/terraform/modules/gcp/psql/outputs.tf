@@ -19,6 +19,6 @@ output "username" {
 }
 
 output "credential_secret_id" {
-  description = "Secret Manager resource ID containing the database credentials."
+  description = "Secret Manager resource ID containing the database connection URL."
   value       = google_secret_manager_secret.database.id
 }

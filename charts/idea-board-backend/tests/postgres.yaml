@@ -4,7 +4,7 @@ kind: Secret
 metadata:
   name: idea-board-database
 stringData:
-  IDEA_BOARD_DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
+  DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -53,7 +53,12 @@ resource "google_secret_manager_secret" "database" {
 resource "google_secret_manager_secret_version" "database" {
   secret = google_secret_manager_secret.database.id
   secret_data = jsonencode({
-    username = google_sql_user.this.name
-    password = random_password.database.result
+    DATABASE_URL = format(
+      "postgresql+psycopg://%s:%s@%s:5432/%s?sslmode=require",
+      replace(urlencode(google_sql_user.this.name), "+", "%20"),
+      replace(urlencode(random_password.database.result), "+", "%20"),
+      google_sql_database_instance.this.private_ip_address,
+      google_sql_database.this.name,
+    )
   })
 }

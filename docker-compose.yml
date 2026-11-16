@@ -21,7 +21,7 @@ services:
     build: ./apps/backend
     command: ["alembic", "upgrade", "head"]
     environment:
-      IDEA_BOARD_DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
+      DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,7 +31,7 @@ services:
     image: idea-board-backend:local
     build: ./apps/backend
     environment:
-      IDEA_BOARD_DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
+      DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

@@ -7,7 +7,7 @@ from idea_board.server import create_app
 
 def test_unavailable_database_fails_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "IDEA_BOARD_DATABASE_URL",
+        "DATABASE_URL",
         "postgresql+psycopg://idea_board:private-password@127.0.0.1:1/unavailable",
     )
     with pytest.raises(RuntimeError, match="Database or schema unavailable") as error:

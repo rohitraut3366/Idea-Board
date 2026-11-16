@@ -5,11 +5,16 @@ mock_provider "aws" {
 
   mock_resource "aws_db_instance" {
     defaults = {
-      address            = "postgres.test.internal"
-      master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test" }]
+      address = "postgres.test.internal"
     }
   }
+
+  mock_resource "aws_secretsmanager_secret" {
+    defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test" }
+  }
 }
+
+mock_provider "random" {}
 
 override_data {
   target = data.terraform_remote_state.networking
@@ -56,12 +61,12 @@ run "backend_secret_values" {
     error_message = "Configure External Secrets to create the backend database Secret."
   }
   assert {
-    condition     = yamldecode(module.backend_values.file_content).externalSecret.host == output.database_host && yamldecode(module.backend_values.file_content).externalSecret.remoteKey == output.database_credential_secret_id && yamldecode(module.backend_values.file_content).externalSecret.provider.aws.region == var.region
-    error_message = "Pass the actual database address, provider, and remote secret reference to External Secrets."
+    condition     = yamldecode(module.backend_values.file_content).externalSecret.remoteKey == output.database_credential_secret_id && yamldecode(module.backend_values.file_content).externalSecret.provider.aws.region == var.region
+    error_message = "Pass the provider and remote secret reference to External Secrets."
   }
   assert {
-    condition     = !can(yamldecode(module.backend_values.file_content).externalSecret.password)
-    error_message = "Database passwords must stay in the cloud secret manager."
+    condition     = !can(yamldecode(module.backend_values.file_content).externalSecret.password) && !can(yamldecode(module.backend_values.file_content).externalSecret.DATABASE_URL)
+    error_message = "Database passwords and connection URLs must not be published to GitHub."
   }
 
 }

@@ -56,9 +56,6 @@ module "backend_values" {
       enabled   = true
       provider  = { aws = { service = "SecretsManager", region = var.region } }
       remoteKey = module.psql.credential_secret_id
-      host      = module.psql.host
-      port      = module.psql.port
-      database  = module.psql.database_name
     }
   }
 }

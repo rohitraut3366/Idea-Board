@@ -39,7 +39,7 @@ Each project contains its Terraform files and a `terragrunt.hcl`. The directory 
 
 AWS staging uses Kubernetes 1.35 and two `c7i-flex.large` workers. Automated RDS backups default to disabled (`database_backup_retention_days = 0`). A positive retention value enables them. Final snapshots and deletion protection have their own settings.
 
-GCP staging uses the declared REGULAR-channel minimum version and two `e2-standard-2` workers. Its PostgreSQL module generates a 32-character password and stores it in Google Secret Manager. The generated password remains in Terraform state across applies. AWS RDS manages its owner password in AWS Secrets Manager.
+GCP staging uses the declared REGULAR-channel minimum version and two `e2-standard-2` workers. Both PostgreSQL modules generate a 32-character password and store the complete connection URL under `DATABASE_URL` in AWS Secrets Manager or Google Secret Manager. Passwords and connection URLs remain in Terraform state across applies.
 
 Change the declarations in Git when settings need to change. A production deployment needs its own environment directory, stack name, and reviewed capacity and protection settings.
 
@@ -126,7 +126,7 @@ The core-services External Secrets module creates the operator's IRSA role on AW
 
 The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [GitOps Applications](../../gitops/applications/README.md#bootstrap-the-root).
 
-The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, database address and cloud secret reference. The backend child loads this file from `master`. Its chart creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to fetch credentials and build the database connection Secret.
+The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, cloud provider and cloud secret reference. The backend child loads this file from `master`. Its chart creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to copy `DATABASE_URL` from the cloud secret into Kubernetes.
 
 ## Release the application
 

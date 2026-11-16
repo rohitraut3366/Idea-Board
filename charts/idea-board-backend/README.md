@@ -2,7 +2,7 @@
 
 Deploys the FastAPI backend and a ClusterIP Service on port `8000`. A separate Job runs `alembic upgrade head` before the backend deployment. A failed migration blocks the deployment. Failed Jobs remain for inspection until the next attempt; successful Jobs are removed.
 
-By default, the chart uses an existing PostgreSQL database and a Kubernetes Secret containing `IDEA_BOARD_DATABASE_URL`. Use a `postgresql+psycopg://` URL. Both the backend and migration Job read that key as an environment variable.
+By default, the chart uses an existing PostgreSQL database and a Kubernetes Secret containing `DATABASE_URL`. Use a `postgresql+psycopg://` URL. Both the backend and migration Job read that key as an environment variable.
 
 ## Install
 
@@ -23,7 +23,7 @@ The application’s Terraform project publishes this file through the GitHub pro
 charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml
 ```
 
-It supplies `databaseSecretName` and the `externalSecret` settings: cloud provider, remote secret reference, host, port and database name. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP to read the username and password.
+It supplies `databaseSecretName`, the cloud provider and the remote secret reference. Terraform builds the complete connection URL and stores it under `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP to copy that key into Kubernetes.
 
 ```text
 Terraform → generated values → Argo CD → SecretStore → ExternalSecret
@@ -33,9 +33,9 @@ Terraform → generated values → Argo CD → SecretStore → ExternalSecret
                                                    migration Job → backend
 ```
 
-The SecretStore uses wave -3, the ExternalSecret uses wave -2, and the migration Job uses a Sync hook at wave -1. The generated Secret contains `IDEA_BOARD_DATABASE_URL` with encoded credentials and TLS enabled. Credentials stay in the cloud secret manager and Kubernetes.
+The SecretStore uses wave -3, the ExternalSecret uses wave -2, and the migration Job uses a Sync hook at wave -1. The generated Secret contains `DATABASE_URL`. Terraform encodes the credentials and enables TLS in the URL. The connection URL stays in Terraform state, the cloud secret manager and Kubernetes; GitHub stores only the secret reference.
 
-Changes to the database connection references roll out backend pods. After rotating a password inside the same cloud secret, restart backend pods so they read the refreshed Kubernetes Secret.
+After changing the connection URL in Terraform, apply the application project and restart backend pods once External Secrets refreshes the Kubernetes Secret.
 
 ## Local PostgreSQL
 
@@ -73,7 +73,7 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 | Value                    | Default                                    | Purpose                                                   |
 | ------------------------ | ------------------------------------------ | --------------------------------------------------------- |
-| `databaseSecretName`     | Required for an external database          | Existing Secret with `IDEA_BOARD_DATABASE_URL`            |
+| `databaseSecretName`     | Required for an external database          | Existing Secret with `DATABASE_URL`            |
 | `image.repository`       | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                      |
 | `image.tag`              | Published commit tag                       | Image tag; use a commit tag for published images          |
 | `image.pullPolicy`       | `IfNotPresent`                             | Image pull policy                                         |

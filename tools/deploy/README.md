@@ -35,7 +35,7 @@ For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both
 
 ## Deploy
 
-For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `IDEA_BOARD_DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
+For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
 
 Use the same inputs with `release` and an explicit context:
 

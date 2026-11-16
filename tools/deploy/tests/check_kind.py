@@ -89,7 +89,7 @@ def main():
         )
     )
     try:
-        os.environ["IDEA_BOARD_DATABASE_URL"] = stage_url
+        os.environ["DATABASE_URL"] = stage_url
         proposal = recommendation()
         with tempfile.TemporaryDirectory(prefix="idea-board-release-check-") as directory:
             os.chdir(directory)

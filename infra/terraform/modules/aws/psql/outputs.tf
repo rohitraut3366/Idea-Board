@@ -19,6 +19,6 @@ output "username" {
 }
 
 output "credential_secret_id" {
-  description = "AWS Secrets Manager ARN containing the managed database password."
-  value       = aws_db_instance.this.master_user_secret[0].secret_arn
+  description = "AWS Secrets Manager ARN containing the database connection URL."
+  value       = aws_secretsmanager_secret.database.arn
 }

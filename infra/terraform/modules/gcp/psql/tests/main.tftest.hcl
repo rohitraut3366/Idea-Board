@@ -1,13 +1,16 @@
 mock_provider "google" {
   override_during = plan
 
+  mock_resource "google_sql_database_instance" {
+    defaults = { private_ip_address = "10.30.0.2" }
+  }
 }
 
 mock_provider "random" {
   override_during = plan
 
   mock_resource "random_password" {
-    defaults = { result = "test-only-generated-password-123!" }
+    defaults = { result = "test+password:?%&" }
   }
 }
 
@@ -41,8 +44,8 @@ run "configuration" {
   }
 
   assert {
-    condition     = jsondecode(google_secret_manager_secret_version.database.secret_data).password == google_sql_user.this.password && jsondecode(google_secret_manager_secret_version.database.secret_data).username == google_sql_user.this.name
-    error_message = "The stored credentials must match the SQL user."
+    condition     = jsondecode(google_secret_manager_secret_version.database.secret_data).DATABASE_URL == "postgresql+psycopg://idea_board_admin:test%2Bpassword%3A%3F%25%26@10.30.0.2:5432/idea_board?sslmode=require"
+    error_message = "Store the complete TLS connection URL with encoded credentials."
   }
 }
 

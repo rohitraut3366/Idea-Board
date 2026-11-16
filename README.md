@@ -293,7 +293,7 @@ Terraform → Argo CD → idea-board
                          └── frontend
 ```
 
-Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. Terraform publishes the database references, External Secrets creates the Kubernetes database Secret, and the release workflow updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. Terraform stores the connection URL in the cloud secret manager and publishes its reference, External Secrets copies the URL into the Kubernetes database Secret, and the release workflow updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
 External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 

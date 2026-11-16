@@ -56,9 +56,6 @@ module "backend_values" {
       enabled   = true
       provider  = { gcpsm = { projectID = var.project_id } }
       remoteKey = basename(module.psql.credential_secret_id)
-      host      = module.psql.host
-      port      = module.psql.port
-      database  = module.psql.database_name
     }
   }
 }

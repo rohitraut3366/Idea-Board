@@ -15,7 +15,7 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
     monkeypatch, tmp_path, failed_check
 ):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", "postgresql://local")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://local")
     evidence = Mock(return_value={"evidence": []})
     monkeypatch.setattr("diagnosis.collect", evidence)
     cluster = Mock(namespace="idea-board-staging")

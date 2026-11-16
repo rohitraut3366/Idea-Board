@@ -1,6 +1,24 @@
 mock_provider "aws" {
   override_during = plan
 
+  mock_resource "aws_db_instance" {
+    defaults = { address = "postgres.test.internal" }
+  }
+
+  mock_resource "aws_secretsmanager_secret" {
+    defaults = {
+      id  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test"
+      arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test"
+    }
+  }
+}
+
+mock_provider "random" {
+  override_during = plan
+
+  mock_resource "random_password" {
+    defaults = { result = "test+password:?%&" }
+  }
 }
 
 variables {
@@ -24,8 +42,8 @@ run "configuration" {
   }
 
   assert {
-    condition     = aws_db_instance.this.manage_master_user_password && aws_db_instance.this.password == null
-    error_message = "AWS must manage the password without a Terraform password input."
+    condition     = random_password.database.length == 32 && random_password.database.special && aws_db_instance.this.password == random_password.database.result
+    error_message = "Generate the RDS password with the Random provider."
   }
 
   assert {
@@ -62,5 +80,19 @@ run "disposable_database" {
   assert {
     condition     = !aws_db_instance.this.deletion_protection && aws_db_instance.this.skip_final_snapshot && aws_db_instance.this.final_snapshot_identifier == null && aws_db_instance.this.backup_retention_period == 1
     error_message = "A disposable database must support deletion without retaining a final snapshot."
+  }
+}
+
+run "connection_secret" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(aws_secretsmanager_secret_version.database.secret_string).DATABASE_URL == "postgresql+psycopg://idea_board_admin:test%2Bpassword%3A%3F%25%26@postgres.test.internal:5432/idea_board?sslmode=require"
+    error_message = "Store the complete TLS connection URL with encoded credentials."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.database.secret_id == aws_secretsmanager_secret.database.id && output.credential_secret_id == aws_secretsmanager_secret.database.arn
+    error_message = "Publish the secret reference containing the connection URL."
   }
 }

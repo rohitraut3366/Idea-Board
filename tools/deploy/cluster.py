@@ -73,7 +73,7 @@ class Cluster:
         secret = self.get("secret", "idea-board-database", self.namespace)
         if not secret:
             return None
-        return base64.b64decode(secret["data"]["IDEA_BOARD_DATABASE_URL"]).decode()
+        return base64.b64decode(secret["data"]["DATABASE_URL"]).decode()
 
     def set_database_url(self, url):
         self.apply(
@@ -82,7 +82,7 @@ class Cluster:
                 "kind": "Secret",
                 "metadata": {"name": "idea-board-database", "namespace": self.namespace},
                 "type": "Opaque",
-                "stringData": {"IDEA_BOARD_DATABASE_URL": url},
+                "stringData": {"DATABASE_URL": url},
             }
         )
 

@@ -60,7 +60,7 @@ def test_release_preserves_serving_frontend_until_backend_is_verified(monkeypatc
         deepcopy(previous) if name.endswith("-frontend") else None
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", "postgresql://local")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://local")
     monkeypatch.setattr("diagnosis.collect", lambda *args: {})
     release(cluster, target, recommendation())
     parents = [
@@ -126,7 +126,7 @@ def test_remote_database_script_is_self_contained(monkeypatch, preview):
     connection = MagicMock()
     connection.__enter__.return_value.execute.return_value.fetchone.return_value = None
     monkeypatch.setattr("psycopg.connect", lambda *args, **kwargs: connection)
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", "postgresql://owner:local@localhost:5432/test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://owner:local@localhost:5432/test")
     cluster = Mock()
     cluster.database_url.return_value = None
 

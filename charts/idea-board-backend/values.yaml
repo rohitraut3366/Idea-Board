@@ -22,6 +22,3 @@ externalSecret:
   refreshInterval: 1h
   provider: {}
   remoteKey: ""
-  host: ""
-  port: 5432
-  database: ""

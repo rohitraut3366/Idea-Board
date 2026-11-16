@@ -26,11 +26,11 @@ def preview_database(cluster, target, delete=False):
     # Run here rather than opening the private database to a hosted Actions runner.
     database_source = Path(__file__).with_name("database.py").read_text()
     if delete:
-        operation = f'delete_preview(os.environ["IDEA_BOARD_DATABASE_URL"], {target.pr})'
+        operation = f'delete_preview(os.environ["DATABASE_URL"], {target.pr})'
     else:
         existing = cluster.database_url()
         operation = (
-            f'print(json.dumps(prepare_preview(os.environ["IDEA_BOARD_DATABASE_URL"], '
+            f'print(json.dumps(prepare_preview(os.environ["DATABASE_URL"], '
             f"{target.pr}, {existing!r})))"
         )
     return cluster.run(
@@ -49,7 +49,7 @@ def preview_database(cluster, target, delete=False):
 def local_database(cluster, target):
     source = Path(__file__).with_name("database.py").read_text()
     operation = (
-        'print(json.dumps(prepare_local_database(os.environ["IDEA_BOARD_DATABASE_URL"], '
+        'print(json.dumps(prepare_local_database(os.environ["DATABASE_URL"], '
         f"{target.environment!r})))"
     )
     return json.loads(
@@ -112,7 +112,7 @@ def release(cluster, target, recommendation):
             if target.environment == "preview":
                 url = json.loads(preview_database(cluster, target))
             else:
-                url = os.environ.get("IDEA_BOARD_DATABASE_URL") or local_database(cluster, target)
+                url = os.environ.get("DATABASE_URL") or local_database(cluster, target)
             cluster.set_database_url(url)
             chart_source(documents[1])["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
                 url.encode()
