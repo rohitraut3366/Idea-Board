@@ -51,7 +51,7 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 | Value                | Default                                    | Purpose                                                |
 | -------------------- | ------------------------------------------ | ------------------------------------------------------ |
-| `databaseSecretName` | Required                                   | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
+| `databaseSecretName` | Required for an external database          | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
 | `image.repository`   | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                   |
 | `image.tag`          | Published commit tag                       | Image tag; use a commit tag for published images       |
 | `image.pullPolicy`   | `IfNotPresent`                             | Image pull policy                                      |

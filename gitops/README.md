@@ -64,26 +64,6 @@ The database has a 1 GiB persistent volume. Data survives replacing its pod. Del
 
 Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `imageTag` in `local/values-kind.yaml` and merge. Argo CD applies that tag to both services.
 
-### Updating an existing local stack
-
-The database previously belonged to the local root. Before syncing this change, protect its namespace and volume:
-
-```bash
-kubectl --context kind-idea-board annotate namespace idea-board \
-  argocd.argoproj.io/sync-options=Prune=false --overwrite
-kubectl --context kind-idea-board --namespace idea-board annotate pvc postgres-data \
-  argocd.argoproj.io/sync-options=Prune=false --overwrite
-```
-
-After the backend Application is Synced and Healthy, remove the namespace's old root tracking annotation:
-
-```bash
-kubectl --context kind-idea-board annotate namespace idea-board \
-  argocd.argoproj.io/tracking-id-
-```
-
-The backend Application now manages PostgreSQL and its volume. These steps keep the existing namespace and database data while ownership changes.
-
 ## 4. Open the app and Argo CD
 
 Open [localhost:8081](http://localhost:8081).
