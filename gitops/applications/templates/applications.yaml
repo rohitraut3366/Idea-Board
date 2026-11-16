@@ -23,5 +23,5 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ $.Values.namespace }}
   syncPolicy:
-    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true))) | nindent 4 }}
+    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true"))) | nindent 4 }}
 {{- end }}

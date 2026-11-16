@@ -158,13 +158,13 @@ jobs:
           kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
       - name: Install charts and test both services
         run: |
-          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set postgres.enabled=false --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Verify upgrade and repeat migrations
         run: |
-          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set postgres.enabled=false --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
@@ -320,7 +320,7 @@ jobs:
           helm repo add traefik https://traefik.github.io/charts
           helm dependency build ../../charts/external-secrets
           helm dependency build ../../charts/ingress-controller
-      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../gitops/tests
+      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/idea-board-backend/tests ../../gitops/tests
 
   publish:
     name: Publish images to GHCR

@@ -1,14 +1,23 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
+  {{- if .Values.postgres.enabled }}
+  name: {{ .Release.Name | trunc 40 | trimSuffix "-" }}-migrate-{{ toJson .Values | sha256sum | trunc 8 }}
+  {{- else }}
   name: {{ .Release.Name }}-migrate
+  {{- end }}
   labels:
     {{- include "idea-board-backend.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
+    {{- if .Values.postgres.enabled }}
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-1"
+    {{- else }}
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
     argocd.argoproj.io/hook: PreSync
+    {{- end }}
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 0
@@ -34,7 +43,7 @@ spec:
             - name: IDEA_BOARD_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ required "databaseSecretName must reference an existing database Secret" .Values.databaseSecretName | quote }}
+                  name: {{ include "idea-board-backend.databaseSecretName" . | quote }}
                   key: IDEA_BOARD_DATABASE_URL
           securityContext:
             allowPrivilegeEscalation: false

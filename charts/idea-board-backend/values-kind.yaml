@@ -1,1 +1,5 @@
 databaseSecretName: idea-board-database
+postgres:
+  enabled: true
+  fullnameOverride: postgres
+  password: idea_board_local

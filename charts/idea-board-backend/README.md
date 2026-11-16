@@ -1,8 +1,8 @@
 # Backend Helm chart
 
-Deploys the FastAPI backend and a ClusterIP Service on port `8000`. A separate Job runs `alembic upgrade head` before Helm install/upgrade or as an Argo CD `PreSync` hook. A failed migration blocks the deployment. Failed Jobs remain for inspection until the next attempt; successful Jobs are removed.
+Deploys the FastAPI backend and a ClusterIP Service on port `8000`. A separate Job runs `alembic upgrade head` before the backend deployment. A failed migration blocks the deployment. Failed Jobs remain for inspection until the next attempt; successful Jobs are removed.
 
-PostgreSQL and an existing Secret containing `IDEA_BOARD_DATABASE_URL` must be provisioned before installing this chart. Use a `postgresql+psycopg://` URL. Both the backend and migration Job read that key directly as an environment variable. The chart does not provision PostgreSQL.
+By default, the chart uses an existing PostgreSQL database and a Kubernetes Secret containing `IDEA_BOARD_DATABASE_URL`. Use a `postgresql+psycopg://` URL. Both the backend and migration Job read that key as an environment variable.
 
 ## Install
 
@@ -15,7 +15,29 @@ helm upgrade --install backend charts/idea-board-backend \
   --wait --timeout 5m
 ```
 
-For local kind, use `--kube-context kind-idea-board` and `-f charts/idea-board-backend/values-kind.yaml` for the local settings. The chart defaults select a published GHCR image; use `--set image.tag=YOUR_COMMIT` to select another release.
+## Local PostgreSQL
+
+The chart includes an optional PostgreSQL child chart in `charts/postgres`. It is disabled by default. The local `values-kind.yaml` enables it:
+
+```yaml
+postgres:
+  enabled: true
+  fullnameOverride: postgres
+  password: idea_board_local
+```
+
+The child chart creates PostgreSQL and its persistent volume. The backend chart creates the database connection Secret. Argo CD deploys them in this order:
+
+```text
+PostgreSQL and database Secret → migration Job → backend
+          wave -2                  wave -1        wave 0
+```
+
+The local migration Job uses a `Sync` hook so PostgreSQL can start first. With an existing database, migrations keep the `PreSync` hook for Argo CD and the pre-install/pre-upgrade hooks for Helm. A failed migration blocks backend deployment in Argo CD.
+
+Use the [kind guide](../../gitops/README.md) to deploy the local profile. Local data survives pod replacement; the volume is retained when the PostgreSQL resources are pruned or the Helm release is removed. Deleting the namespace or cluster removes the data.
+
+The chart defaults select a published GHCR image. Override `image.tag` to select another release.
 
 The Service name matches the Helm release name: `backend` in this example. The frontend chart defaults to connecting to `backend:8000` in the same namespace. The charts are separate releases and can be upgraded independently.
 
@@ -29,16 +51,17 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 | Value                | Default                                    | Purpose                                                |
 | -------------------- | ------------------------------------------ | ------------------------------------------------------ |
-| `databaseSecretName` | Required                                   | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
+| `databaseSecretName` | Required for an external database          | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
 | `image.repository`   | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                   |
 | `image.tag`          | Published commit tag                       | Image tag; use a commit tag for published images       |
 | `image.pullPolicy`   | `IfNotPresent`                             | Image pull policy                                      |
 | `replicas`           | `1`                                        | Backend replicas                                       |
+| `postgres.enabled`   | `false`                                    | Deploy the local PostgreSQL child chart                |
 | `resources`          | See `values.yaml`                          | Backend and migration Job resource requests and limits |
 
 Readiness uses `/health`; startup and liveness use TCP probes. A database outage removes traffic without repeatedly restarting healthy API processes. Pods run as non-root, disable privilege escalation, and do not mount service-account tokens.
 
-The database and Secret must already exist before an Argo CD sync reaches the migration hook. Helm rollback restores application manifests, not database migrations; migrations must remain compatible with the previous application version.
+With an external database, the database and Secret must exist before the migration hook runs. Helm rollback restores application manifests, not database migrations; migrations must remain compatible with the previous application version.
 
 ## Checks
 

@@ -1,5 +1,5 @@
 apiVersion: v2
 name: idea-board-local
-description: Local app-of-apps root and development PostgreSQL.
+description: Local app-of-apps root.
 type: application
 version: 0.1.0

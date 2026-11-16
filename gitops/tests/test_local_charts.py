@@ -15,17 +15,16 @@ def render(chart, *arguments):
     ).stdout
 
 
-def test_local_root_disables_external_secrets_and_creates_development_database():
+def test_local_root_disables_external_secrets_and_delegates_to_applications():
     output = render("gitops/local", "-f", str(ROOT / "gitops/local/values-kind.yaml"))
     assert "name: ingress-controller" in output
     assert "name: idea-board\n" in output
     assert "name: external-secrets\n" not in output
     assert "kind: ExternalSecret" not in output and "kind: SecretStore" not in output
     assert "kind: CustomResourceDefinition" not in output
-    assert "kind: PersistentVolumeClaim" in output
-    assert "kind: Secret\n" in output
-    assert "postgres.idea-board.svc.cluster.local:5432/idea_board" in output
-    assert 'argocd.argoproj.io/sync-wave: "-1"' in output
+    assert "kind: PersistentVolumeClaim" not in output
+    assert "kind: Secret\n" not in output
+    assert "kind: Deployment" not in output
 
 
 def test_local_environment_has_two_child_applications_with_existing_chart_overrides():
@@ -35,6 +34,7 @@ def test_local_environment_has_two_child_applications_with_existing_chart_overri
         assert f"name: {service}\n" in output
         assert f'path: "charts/idea-board-{service}"' in output
     assert output.count("- values-kind.yaml") == 2
+    assert output.count("- CreateNamespace=true") == 2
 
 
 def test_ingress_wrapper_uses_native_ingress_without_provider_crds():

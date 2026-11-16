@@ -1,0 +1,12 @@
+fullnameOverride: ""
+image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+database: idea_board
+username: idea_board
+password: ""
+storage: 1Gi
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
