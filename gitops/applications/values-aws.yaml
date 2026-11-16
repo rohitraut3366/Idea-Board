@@ -2,3 +2,17 @@ cloud: aws
 applications:
   external-secrets:
     enabled: true
+    namespace: external-secrets
+    cascadeDelete: false
+    clusterValues: true
+    source:
+      path: charts/external-secrets
+      helm:
+        releaseName: external-secrets
+        skipTests: true
+    syncPolicy:
+      automated:
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true

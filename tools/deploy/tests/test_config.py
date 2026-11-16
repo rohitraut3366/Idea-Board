@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests, prompt, validate_recommendation
+from config import Target, manifests, parent_application, prompt, validate_recommendation
 
 SHA = "a" * 40
 
@@ -194,3 +194,33 @@ def test_database_credential_revision_changes_backend_pod_template():
     assert 'checksum/database: "' + "a" * 64 + '"' in result.stdout
     assert "secretKeyRef:" in result.stdout
     assert "argocd.argoproj.io/hook: PreSync" in result.stdout
+
+
+@pytest.mark.parametrize("service_count", [1, 2])
+def test_environment_parent_renders_owned_children_without_provider_defaults(service_count):
+    target = Target("kind", "preview", SHA, SHA, 42)
+    children = manifests(target, recommendation("kind", "preview"))[1 : 1 + service_count]
+    values = parent_application(target, children)["spec"]["source"]["helm"]["valuesObject"]
+    root = Path(__file__).resolve().parents[3]
+    output = subprocess.run(
+        [
+            "helm",
+            "template",
+            "environment",
+            str(root / "gitops/applications"),
+            "--namespace",
+            "argocd",
+            "--values",
+            "-",
+        ],
+        input=json.dumps(values),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert output.count("kind: Application") == service_count
+    assert output.count("resources-finalizer.argocd.argoproj.io") == service_count
+    assert "name: idea-board-pr-42-backend" in output
+    assert "namespace: idea-board-pr-42" in output
+    assert "external-secrets" not in output
+    assert "ingress-controller" not in output

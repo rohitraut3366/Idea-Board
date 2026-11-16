@@ -1,17 +1,48 @@
+cloud: kind
 applications:
   external-secrets:
     enabled: false
+    namespace: external-secrets
+    cascadeDelete: false
+    clusterValues: true
+    source:
+      path: charts/external-secrets
+      helm:
+        releaseName: external-secrets
+        skipTests: true
+    syncPolicy:
+      automated:
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true
   ingress-controller:
     enabled: true
+    namespace: ingress-system
+    cascadeDelete: true
+    source:
+      path: charts/ingress-controller
+      helm:
+        releaseName: ingress-controller
+        skipTests: true
+        skipCrds: true
   backend:
     enabled: true
+    cascadeDelete: true
     source:
+      path: charts/idea-board-backend
       helm:
+        releaseName: backend
+        skipTests: true
         valueFiles:
           - values-kind.yaml
   frontend:
     enabled: true
+    cascadeDelete: true
     source:
+      path: charts/idea-board-frontend
       helm:
+        releaseName: frontend
+        skipTests: true
         valueFiles:
           - values-kind.yaml

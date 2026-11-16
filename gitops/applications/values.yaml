@@ -6,46 +6,4 @@ namePrefix: ""
 imageTag: ""
 cloud: kind
 clusterName: idea-board
-applications:
-  external-secrets:
-    enabled: false
-    namespace: external-secrets
-    cascadeDelete: false
-    clusterValues: true
-    source:
-      path: charts/external-secrets
-      helm:
-        releaseName: external-secrets
-        skipTests: true
-    syncPolicy:
-      automated:
-        selfHeal: true
-      syncOptions:
-        - CreateNamespace=true
-        - ServerSideApply=true
-  ingress-controller:
-    enabled: false
-    namespace: ingress-system
-    cascadeDelete: true
-    source:
-      path: charts/ingress-controller
-      helm:
-        releaseName: ingress-controller
-        skipTests: true
-        skipCrds: true
-  backend:
-    enabled: false
-    cascadeDelete: true
-    source:
-      path: charts/idea-board-backend
-      helm:
-        releaseName: backend
-        skipTests: true
-  frontend:
-    enabled: false
-    cascadeDelete: true
-    source:
-      path: charts/idea-board-frontend
-      helm:
-        releaseName: frontend
-        skipTests: true
+applications: {}

@@ -290,7 +290,7 @@ Terraform also creates a root Argo CD Application called `idea-board`. Its cloud
 Terraform → Argo CD → idea-board → External Secrets Operator
 ```
 
-Services are listed under `applications` in `gitops/applications/values.yaml`. The `values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` files enable the services for each cloud. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
 External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 

@@ -66,6 +66,7 @@ class ExternalSecretsChartTests(unittest.TestCase):
                     }
                 },
             },
+            value_files=[REPOSITORY / "gitops/applications/values-aws.yaml"],
         )
         self.assertIn(f'targetRevision: "{REVISION}"', output)
         self.assertIn('path: "charts/external-secrets"', output)
@@ -96,6 +97,7 @@ class ExternalSecretsChartTests(unittest.TestCase):
                         "clusterName": "idea-board-staging",
                         "applications": {"external-secrets": {"enabled": True}},
                     },
+                    value_files=[REPOSITORY / f"gitops/applications/values-{cloud}.yaml"],
                 )
                 self.assertIn("ignoreMissingValueFiles: true", output)
                 files = [

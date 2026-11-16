@@ -5,10 +5,10 @@ One chart renders the Argo CD Applications for cluster services and application 
 ```text
 gitops/applications/
 ├── Chart.yaml
-├── values.yaml                  # Application definitions; disabled by default
-├── values-kind.yaml             # Enables ingress, backend and frontend
-├── values-aws.yaml              # Enables External Secrets on AWS
-├── values-gcp.yaml              # Enables External Secrets on GCP
+├── values.yaml                  # Shared settings; empty applications map
+├── values-kind.yaml             # Full kind app declarations
+├── values-aws.yaml              # Full AWS app declarations
+├── values-gcp.yaml              # Full GCP app declarations
 └── templates/applications.yaml  # Shared Application template
 ```
 
@@ -16,18 +16,22 @@ Each service has its own chart under `charts/`. The backend's kind override enab
 
 ## Select applications
 
-Set `enabled` in the matching values file:
+Each provider file declares its apps, including their chart paths, namespaces and Helm settings. The default `values.yaml` contains shared settings and an empty `applications` map.
+
+For example, the backend entry in `values-kind.yaml` includes:
 
 ```yaml
 applications:
-  external-secrets:
-    enabled: false
-  ingress-controller:
-    enabled: true
   backend:
     enabled: true
-  frontend:
-    enabled: true
+    cascadeDelete: true
+    source:
+      path: charts/idea-board-backend
+      helm:
+        releaseName: backend
+        skipTests: true
+        valueFiles:
+          - values-kind.yaml
 ```
 
 `gitops/applications/values-kind.yaml` selects the local services. Their settings stay in each service's chart. Staging and preview parents use the same shared template with their own enabled services, namespaces, image tags and sizing.
@@ -67,8 +71,8 @@ Keep credentials in the cloud secret manager. Generated values contain configura
 ## Add a service
 
 1. Add its Helm chart under `charts/`.
-2. Add its `source.path`, Helm settings and destination namespace under `applications` in this chart's `values.yaml`.
-3. Enable it in the appropriate profile.
+2. Declare its chart path, Helm settings and destination namespace under `applications` in each provider values file where it should run.
+3. Set `enabled: true` in those entries.
 4. Allow its namespace and resource types in the bootstrap AppProject.
 
 Disabling an app removes its child Application. `cascadeDelete: true` also removes that child's installed resources. External Secrets keeps cascading deletion and automatic pruning disabled. Review its installed resources separately when retiring the operator.
