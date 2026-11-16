@@ -126,6 +126,39 @@ def test_matching_healthy_release_passes(monkeypatch):
     cluster.wait([app], timeout=1)
 
 
+@pytest.mark.parametrize("cloud", ["kind", "aws", "gcp"])
+def test_root_matches_argo_status_without_null_values(monkeypatch, cloud):
+    from root import shared_root
+
+    target = Target(cloud, "staging", SHA, SHA)
+    root = shared_root(target, manifests(target, recommendation(cloud))[1:])
+    root["spec"]["source"]["targetRevision"] = SHA
+    compared_source = deepcopy(root["spec"]["source"])
+    # Argo omits null source/sources fields in its recorded comparison.
+    entries = compared_source["helm"]["valuesObject"]["applications"]
+    for name, entry in entries.items():
+        entries[name] = {key: value for key, value in entry.items() if value is not None}
+    cluster = Cluster("kind-test", target.namespace)
+    monkeypatch.setattr(
+        cluster,
+        "get",
+        Mock(
+            return_value={
+                "status": {
+                    "sync": {
+                        "status": "Synced",
+                        "revision": SHA,
+                        "comparedTo": {"source": compared_source},
+                    },
+                    "health": {"status": "Healthy"},
+                    "operationState": {"phase": "Succeeded"},
+                },
+            }
+        ),
+    )
+    cluster.wait([root], timeout=1)
+
+
 @pytest.mark.parametrize("phase", [None, "Running", "Failed", "Succeeded"])
 @pytest.mark.parametrize("matching_operation", [False, True])
 def test_rollback_waits_for_its_own_successful_operation(monkeypatch, phase, matching_operation):

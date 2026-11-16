@@ -59,8 +59,6 @@ def shared_root(target, applications, current=None):
             "namespace": application["spec"]["destination"]["namespace"],
             "project": application["spec"]["project"],
             "enabled": True,
-            "source": None,
-            "sources": None,
             **deepcopy(source_fields(application)),
             "syncPolicy": deepcopy(application["spec"]["syncPolicy"]),
         }
