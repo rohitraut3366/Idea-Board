@@ -7,7 +7,6 @@ import sys
 import tempfile
 from copy import deepcopy
 from pathlib import Path
-from urllib.parse import unquote, urlsplit, urlunsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -43,27 +42,19 @@ def main():
         for document in manifests(target, recommendation()):
             if source.get(document["kind"].lower(), document["metadata"]["name"], "argocd"):
                 raise ValueError("release-check Argo resources already exist")
-    original = source.database_url()
-    if not original:
-        raise ValueError("idea-board requires the chart test PostgreSQL database and Secret")
-    parsed = urlsplit(original)
-    if not parsed.username or not parsed.password:
-        raise ValueError("the test database URL requires a username and password")
-    username = unquote(parsed.username)
-    database = unquote(parsed.path[1:])
 
-    def psql(statement, database_name=database):
-        return source.run(
+    def psql(cluster, statement):
+        return cluster.run(
             "--namespace",
-            "idea-board",
+            cluster.namespace,
             "exec",
             "deployment/postgres",
             "--",
             "psql",
             "-U",
-            username,
+            "idea_board",
             "-d",
-            database_name,
+            "idea_board",
             "-At",
             "-v",
             "ON_ERROR_STOP=1",
@@ -71,53 +62,40 @@ def main():
             statement,
         )
 
-    existing = psql(
-        "SELECT datname FROM pg_database WHERE datname IN "
-        "('idea_board_release_check', 'idea_board_pr_999999999')"
-    )
-    existing_role = psql("SELECT rolname FROM pg_roles WHERE rolname = 'idea_board_pr_999999999'")
-    if existing.strip() or existing_role.strip():
-        raise ValueError("local release-check database or role already exists")
-    psql('CREATE DATABASE "idea_board_release_check"')
-    stage_url = urlunsplit(
-        (
-            parsed.scheme,
-            f"{parsed.username}:{parsed.password}@postgres.idea-board.svc.cluster.local:5432",
-            "/idea_board_release_check",
-            parsed.query,
-            "",
-        )
-    )
     try:
-        os.environ["DATABASE_URL"] = stage_url
         proposal = recommendation()
         with tempfile.TemporaryDirectory(prefix="idea-board-release-check-") as directory:
             os.chdir(directory)
             release(staging_cluster, staging, proposal)
             release(preview_cluster, preview, proposal)
+            assert staging_cluster.database_url() != preview_cluster.database_url()
+            psql(
+                preview_cluster,
+                "CREATE TABLE preview_canary (content text); "
+                "INSERT INTO preview_canary VALUES ('keep across redeploy')",
+            )
             first_url = preview_cluster.database_url()
             release(preview_cluster, preview, proposal)
             assert preview_cluster.database_url() == first_url, (
                 "redeploy rotated preview credentials"
             )
+            assert psql(preview_cluster, "SELECT content FROM preview_canary").strip() == (
+                "keep across redeploy"
+            )
+            assert psql(staging_cluster, "SELECT to_regclass('preview_canary')").strip() == ""
+            assert preview_cluster.get("persistentvolumeclaim", "postgres-data", preview.namespace)
             cleanup(preview_cluster, preview)
             assert not source.get("namespace", preview.namespace)
-            assert not psql(
-                "SELECT datname FROM pg_database WHERE datname = 'idea_board_pr_999999999'"
-            ).strip()
-            assert not psql(
-                "SELECT rolname FROM pg_roles WHERE rolname = 'idea_board_pr_999999999'"
-            ).strip()
+            assert staging_cluster.get("persistentvolumeclaim", "postgres-data", staging.namespace)
+            staging_cluster.verify()
             # Fail a frontend rollout with an unpublished image, then restore Argo desired state.
             # The checkpoint retains the last release that passed all HTTP checks.
             psql(
+                staging_cluster,
                 "CREATE TABLE rollback_canary (content text); "
                 "INSERT INTO rollback_canary VALUES ('preserve through rollback')",
-                "idea_board_release_check",
             )
-            schema_version = psql(
-                "SELECT version_num FROM alembic_version", "idea_board_release_check"
-            )
+            schema_version = psql(staging_cluster, "SELECT version_num FROM alembic_version")
             failed = Target("kind", "staging", "f" * 40, args.revision)
             bad_applications = deepcopy(state(staging_cluster)["healthy"])
             bad_applications[1]["spec"]["source"]["helm"]["valuesObject"]["image"]["tag"] = (
@@ -158,24 +136,24 @@ def main():
             assert operation["operation"]["sync"]["syncStrategy"] == {"apply": {}}
             assert restored_backend["spec"]["syncPolicy"]["automated"]["enabled"] is False
             sync_resources = operation["syncResult"].get("resources", [])
-            assert not any(resource.get("hookType") == "PreSync" for resource in sync_resources), (
-                "rollback ran a migration hook"
-            )
+            assert not any(
+                resource.get("kind") == "Job" and "migrate" in resource.get("name", "")
+                for resource in sync_resources
+            ), "rollback ran a migration hook"
             assert state(staging_cluster)["attempt"] is None
             assert (
-                psql("SELECT content FROM rollback_canary", "idea_board_release_check").strip()
+                psql(staging_cluster, "SELECT content FROM rollback_canary").strip()
                 == "preserve through rollback"
             )
             assert (
-                psql("SELECT version_num FROM alembic_version", "idea_board_release_check")
-                == schema_version
+                psql(staging_cluster, "SELECT version_num FROM alembic_version") == schema_version
             )
             print(
                 "Passed staging, preview persistence/cleanup, image failure detection, "
                 "Argo rollback, and HTTP checks."
             )
     finally:
-        # These namespaces, database names, and role were checked absent before this test.
+        # Only these environments were checked absent and created by this test.
         for target in (preview, staging):
             source.run(
                 "--namespace",
@@ -207,9 +185,6 @@ def main():
                 "--wait=true",
                 "--timeout=3m",
             )
-        psql('DROP DATABASE IF EXISTS "idea_board_pr_999999999" WITH (FORCE)')
-        psql('DROP ROLE IF EXISTS "idea_board_pr_999999999"')
-        psql('DROP DATABASE "idea_board_release_check" WITH (FORCE)')
         print(json.dumps({"cleanup": "complete", "context": args.context}))
 
 

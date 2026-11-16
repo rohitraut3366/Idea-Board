@@ -194,7 +194,7 @@ Use `cloud=gcp` for GCP. See the [deployment tool guide](../tools/deploy/README.
 
 Staging and production each have their own infrastructure and deployment settings. A **namespace** groups an environment's resources inside Kubernetes.
 
-Set the repository variable `PREVIEW_CLOUD` to `aws` or `gcp` to enable previews for same-repository PRs. Each preview deploys both apps into its own namespace with a dedicated database, login, Secret, and public load balancer. Previews share the staging cluster and database server; the staging database identity needs permission to create databases and roles.
+Set the repository variable `PREVIEW_CLOUD` to `aws` or `gcp` to enable previews for same-repository PRs. Each preview deploys both apps and a PostgreSQL instance into its own namespace, with a persistent volume, generated credentials and a public load balancer. Previews share the staging cluster. Each preview uses its own database server. The cluster needs a default storage provisioner: EKS requires the EBS CSI driver and a default StorageClass, which the current AWS Terraform stack does not install; GKE uses Persistent Disk.
 
 Successful PR CI triggers deployment. Updates preserve preview data. Closing the PR removes its application and database resources. See the [deployment guide](../tools/deploy/README.md) for permissions and cleanup.
 

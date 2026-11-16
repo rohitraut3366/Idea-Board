@@ -82,6 +82,7 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 | `image.pullPolicy`       | `IfNotPresent`                             | Image pull policy                                         |
 | `replicas`               | `1`                                        | Backend replicas                                          |
 | `externalSecret.enabled` | `false`                                    | Create the cloud database Secret through External Secrets |
+| `postgres.existingSecret` | Empty | Existing Secret containing `POSTGRES_PASSWORD` for bundled PostgreSQL |
 | `postgres.enabled`       | `false`                                    | Deploy the local PostgreSQL child chart                   |
 | `resources`              | See `values.yaml`                          | Backend and migration Job resource requests and limits    |
 
@@ -98,7 +99,7 @@ helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board
 
 GitHub Actions installs this chart into kind, runs the smoke test, upgrades it to rerun migrations, and repeats the smoke test. `tests/postgres.yaml` is an ephemeral database fixture for those CI tests; it is not installed by the chart and is not a persistent development database.
 
-The deployment tool sets `databaseRevision` to a hash of the database connection configuration. A changed credential Secret then changes the pod template and rolls out backend pods so they read the current environment value. The Secret value itself is not included in the Application or Helm values.
+For local staging and PR previews, the deployment tool selects `values-postgres.yaml`. Each namespace gets its own PostgreSQL Deployment and volume. The tool creates a stable Kubernetes Secret with `DATABASE_URL` for the backend and `POSTGRES_PASSWORD` for PostgreSQL. `postgres.existingSecret` selects this Secret, so credentials are referenced rather than stored in Argo CD Application values.
 
 ## Ingress health configuration
 

@@ -125,7 +125,7 @@ GitHub Actions runs the automated bootstrap, cluster-service, preview and rollba
 
 ## 6. Plan and deploy with AI
 
-Ask for a small local staging environment:
+Staging gets its own PostgreSQL instance and volume in `idea-board-staging`. The release tool generates and retains its credentials. Ask for a small local staging environment:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
@@ -165,7 +165,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
 ```
 
-The tool creates staging's database and parent Application, waits for the backend, then releases the frontend. It checks HTTP responses before recording the release as healthy.
+The tool creates staging's database credentials and parent Application. Its backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend. It checks HTTP responses before recording the release as healthy.
 
 Open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). For command-line clients that do not resolve `.localhost` names, leave this port-forward running in another terminal:
 
@@ -178,7 +178,7 @@ Staging is then also available at [localhost:3002](http://localhost:3002).
 
 ## 7. Create a preview
 
-Preview `123` gets a parent Application, frontend, backend, namespace, database and login. It shares staging's PostgreSQL server. Staging must be healthy first.
+Preview `123` gets a parent Application, frontend, backend, namespace, PostgreSQL instance, persistent volume and credentials. Its backend chart deploys a PostgreSQL instance and volume in the preview namespace. It uses neither staging nor production database credentials.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
@@ -225,7 +225,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" --context kind-idea-board
 ```
 
-This removes the preview's parent, services, namespace, database and login.
+This removes the preview's parent, services, namespace, database credentials and PostgreSQL volume.
 
 ## 8. Test performance and scaling
 

@@ -1,0 +1,5 @@
+databaseSecretName: idea-board-database
+postgres:
+  enabled: true
+  fullnameOverride: postgres
+  existingSecret: idea-board-database

@@ -54,7 +54,7 @@ Paths are relative to the repository root. This map explains ownership; it does 
 | `tools/deploy/planning.py` | Writes `release-plan/plan.md`, `applications.json`, and cloud sizing proposals. |
 | `tools/deploy/deploy.py` | Release, preview cleanup, and rollback entry point; coordinates database setup, Argo sync, and verification. |
 | `tools/deploy/root.py` | Updates the existing cloud root while retaining its ownership of service Applications. |
-| `tools/deploy/database.py` | Local/preview database and login creation, persistence, and preview cleanup. |
+| `tools/deploy/database.py` | Creates and reuses credentials for each environment's bundled PostgreSQL instance. |
 | `tools/deploy/cluster.py` | Kubernetes and Argo operations, rollout checks, and HTTP verification. |
 | `tools/deploy/diagnosis.py` and `analyze.py` | Collect bounded rollout evidence, build the diagnosis prompt, validate advice, and write the report. |
 | `tools/deploy/rollback.py` | Saves verified releases and restores application configuration after explicit schema-compatibility confirmation. |
@@ -76,7 +76,7 @@ On kind, staging and previews use environment parent Applications with backend/f
 
 Cloud staging/production uses RDS on AWS or Cloud SQL on GCP. Terraform generates credentials and stores a complete `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator's IRSA role on AWS or Workload Identity on GCP to copy it into a Kubernetes Secret. The API and migration Job consume that Secret.
 
-Local kind uses PostgreSQL from the backend chart. Local staging gets its own database using the base database owner; each PR preview gets its own database and login on the staging server. Redeployment preserves preview data; cleanup removes the preview's resources. A preview is not a new cloud network, cluster, or database server.
+Each kind environment and each PR preview uses the backend chart's PostgreSQL subchart in its own namespace, with its own Deployment, persistent volume and generated credentials. Preview setup and cleanup do not connect to staging or production databases. Redeployment preserves credentials and data; preview cleanup deletes its namespace and volume. Previews share a cluster, not a PostgreSQL server.
 
 ## Kind demo context
 
@@ -90,19 +90,19 @@ kind-idea-board (Kubernetes context)
 │   └── preview parent → preview backend, preview frontend
 ├── ingress-system namespace → Traefik
 ├── idea-board namespace → base frontend, backend, PostgreSQL, database Secret
-├── idea-board-staging namespace → staging frontend, backend, database Secret
-└── idea-board-pr-<PR> namespace → preview frontend, backend, database Secret
+├── idea-board-staging namespace → staging frontend, backend, PostgreSQL, volume, database Secret
+└── idea-board-pr-<PR> namespace → preview frontend, backend, PostgreSQL, volume, database Secret
 ```
 
-The base root is installed manually using `infra/terraform/modules/argocd/bootstrap` with `cloud=kind`. It selects `gitops/applications/values-kind.yaml`. The deployment tool creates the staging and preview parents; their databases live on the base PostgreSQL server. A healthy staging backend is required to administer preview databases. These are the documented names and topology, not proof that resources currently exist or are healthy.
+The base root is installed manually using `infra/terraform/modules/argocd/bootstrap` with `cloud=kind`. It selects `gitops/applications/values-kind.yaml`. The deployment tool creates the staging and preview parents; each backend child owns its PostgreSQL instance and volume. Preview deployment needs no healthy staging backend or staging database access. These are the documented names and topology, not proof that resources currently exist or are healthy.
 
 ### Local configuration and access
 
 | Setting | Kind behavior |
 | --- | --- |
 | Cluster | `gitops/kind/config.yaml` declares one control-plane node running in Docker. Application replicas share this node and the host's resources. |
-| App overrides | `charts/idea-board-backend/values-kind.yaml` enables the PostgreSQL child chart; `charts/idea-board-frontend/values-kind.yaml` enables Traefik ingress. |
-| Database | The base chart supplies development credentials and a 1 GiB persistent volume. Replacing the PostgreSQL pod retains its volume; deleting the cluster removes its data. |
+| App overrides | `charts/idea-board-backend/values-kind.yaml` enables base PostgreSQL; `values-postgres.yaml` enables isolated PostgreSQL for tool-managed environments. `charts/idea-board-frontend/values-kind.yaml` enables base Traefik ingress. |
+| Database | The base chart supplies development credentials and a 1 GiB volume. Staging and previews use generated credentials with a separate PostgreSQL instance and 1 GiB volume per namespace. Replacing a PostgreSQL pod retains its volume; deleting its namespace or the cluster removes its data. |
 | Secrets | The local app profile uses Kubernetes Secrets without cloud secret managers or ExternalSecret resources. The separate core-service test can install the operator and CRDs; that does not exercise cloud secret retrieval. |
 | Routing | Traefik routes `/api/` to the backend and other paths to the frontend. Host port `8081` maps to Traefik's NodePort `30080`. |
 | Addresses | Base: `http://localhost:8081`; staging: `http://idea-board-staging.localhost:8081`; preview: `http://idea-board-pr-<PR>.localhost:8081`. These are local demo addresses. |
@@ -168,7 +168,7 @@ These instructions define the model's permitted behavior; they do not reduce the
 ### How to debug a release
 
 1. Check Argo sync/health and the pod/job summaries for the target. A healthy root alone does not establish that its children or the HTTP paths work.
-2. If the backend is blocked, inspect migration Job counts. On kind, also check the base namespace's PostgreSQL pod status. Describe the failed Job or pod and read the relevant container logs. On AWS/GCP, use application errors and supplied database/secret-reconciliation evidence for the managed database; do not start cloud CLI sessions or retrieve credentials. Distinguish schema, authentication, connection, and application failures; failed counts alone do not establish a cause.
+2. If the backend is blocked, inspect migration Job counts. For kind and previews, check the target namespace's PostgreSQL pod status. Describe the failed Job or pod and read the relevant container logs. On AWS/GCP, use application errors and supplied database/secret-reconciliation evidence for the managed database; do not start cloud CLI sessions or retrieve credentials. Distinguish schema, authentication, connection, and application failures; failed counts alone do not establish a cause.
 3. For image failures, compare the deployed image to the caller's requested image when supplied. Describe the affected pod and inspect its pull events. Explain what was observed without assuming which registry or network condition caused it.
 4. For Pending pods, describe the affected pod and node, compare requests to node allocatable capacity, and inspect scheduling events. Allocatable capacity is a node ceiling, not currently unused headroom; other namespaces also consume resources. For memory failures, correlate restart/termination reasons with limits and available usage metrics. A single metrics sample cannot establish peak load.
 5. If pods are ready but a page/API check failed, use the deterministic HTTP result to localize the failure. Check frontend/backend readiness and, on kind, Traefik; inspect Services, endpoints, Ingress, and relevant logs. For cloud controller/operator debugging, stay within the explicitly allowed namespace scope. For storage-related startup failures, describe the pod and its persistent volume claim. Report checks that still need investigation. Pod readiness alone cannot override a failed HTTP check.

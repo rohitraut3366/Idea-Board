@@ -24,7 +24,14 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.username | quote }}
             - name: POSTGRES_PASSWORD
+              {{- if .Values.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret | quote }}
+                  key: POSTGRES_PASSWORD
+              {{- else }}
               value: {{ required "postgres.password is required when PostgreSQL is enabled" .Values.password | quote }}
+              {{- end }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:

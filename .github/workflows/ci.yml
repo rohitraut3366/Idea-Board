@@ -286,20 +286,6 @@ jobs:
     defaults:
       run:
         working-directory: tools/deploy
-    services:
-      postgres:
-        image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_DB: idea_board
-          POSTGRES_USER: idea_board
-          POSTGRES_PASSWORD: idea_board_local
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U idea_board -d idea_board"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

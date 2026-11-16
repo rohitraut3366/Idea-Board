@@ -118,3 +118,18 @@ def test_cloud_and_bundled_database_cannot_own_the_same_secret():
     )
     assert result.returncode != 0
     assert "cannot both be enabled" in result.stderr
+
+
+def test_isolated_postgres_uses_existing_credentials_and_its_own_volume():
+    output = render("-f", str(CHART / "values-postgres.yaml"))
+    postgres = next(
+        document
+        for document in output.split("---")
+        if "kind: Deployment" in document and "name: postgres\n" in document
+    )
+    assert 'name: "idea-board-database"' in postgres
+    assert "key: POSTGRES_PASSWORD" in postgres
+    assert "kind: Secret\n" not in output
+    assert "kind: PersistentVolumeClaim" in output
+    assert "claimName: postgres-data" in postgres
+    assert "argocd.argoproj.io/hook: Sync\n" in job(output)

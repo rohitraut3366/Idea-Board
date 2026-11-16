@@ -1,7 +1,6 @@
 """Run with `uv run python deploy.py --help` from tools/deploy."""
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -18,53 +17,8 @@ from config import (
     prompt,
     validate_recommendation,
 )
+from database import ensure_database_secret
 from root import cloud_root
-
-
-def preview_database(cluster, target, delete=False):
-    # psycopg and the staging owner credential are already available in the backend.
-    # Run here rather than opening the private database to a hosted Actions runner.
-    database_source = Path(__file__).with_name("database.py").read_text()
-    if delete:
-        operation = f'delete_preview(os.environ["DATABASE_URL"], {target.pr})'
-    else:
-        existing = cluster.database_url()
-        operation = (
-            f'print(json.dumps(prepare_preview(os.environ["DATABASE_URL"], '
-            f"{target.pr}, {existing!r})))"
-        )
-    return cluster.run(
-        "--namespace",
-        "idea-board-staging",
-        "exec",
-        "-i",
-        "deployment/backend",
-        "--",
-        "python",
-        "-",
-        data=database_source + "\nimport json\nimport os\n" + operation + "\n",
-    )
-
-
-def local_database(cluster, target):
-    source = Path(__file__).with_name("database.py").read_text()
-    operation = (
-        'print(json.dumps(prepare_local_database(os.environ["DATABASE_URL"], '
-        f"{target.environment!r})))"
-    )
-    return json.loads(
-        cluster.run(
-            "--namespace",
-            "idea-board",
-            "exec",
-            "-i",
-            "deployment/backend",
-            "--",
-            "python",
-            "-",
-            data=source + "\nimport json\nimport os\n" + operation + "\n",
-        )
-    )
 
 
 def cleanup_closed_preview(cluster, target):
@@ -109,14 +63,7 @@ def release(cluster, target, recommendation):
         cluster.ensure_namespace(target.environment)
         rollback_available = bool(state(cluster)["healthy"])
         if not target.uses_cloud_root:
-            if target.environment == "preview":
-                url = json.loads(preview_database(cluster, target))
-            else:
-                url = os.environ.get("DATABASE_URL") or local_database(cluster, target)
-            cluster.set_database_url(url)
-            chart_source(documents[1])["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
-                url.encode()
-            ).hexdigest()
+            ensure_database_secret(cluster)
         release_documents = documents
         if target.cloud == "kind":
             release_documents = [documents[0], parent_application(target, documents[1:])]
@@ -217,7 +164,6 @@ def cleanup(cluster, target):
             "--wait=true",
             "--timeout=10m",
         )
-    preview_database(cluster, target, delete=True)
     if namespace:
         cluster.run("delete", "namespace", target.namespace, "--wait=true", "--timeout=5m")
     cluster.run(

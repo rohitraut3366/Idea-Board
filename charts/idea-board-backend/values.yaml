@@ -5,7 +5,6 @@ image:
 replicas: 1
 # Required when using an existing Kubernetes database Secret.
 databaseSecretName: ""
-databaseRevision: ""
 gcpBackendConfig: false
 service:
   annotations: {}

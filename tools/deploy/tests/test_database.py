@@ -1,81 +1,69 @@
-import os
-from uuid import uuid4
+import base64
+from unittest.mock import Mock
+from urllib.parse import urlsplit
 
-import psycopg
 import pytest
-from psycopg import sql
 
-from database import (
-    delete_preview,
-    driver_url,
-    prepare_preview,
-    preview_names,
-)
-
-ADMIN_URL = os.environ.get(
-    "IDEA_BOARD_TEST_DATABASE_URL",
-    "postgresql+psycopg://idea_board:idea_board_local@127.0.0.1:55432/idea_board",
-)
+from database import ensure_database_secret
 
 
-@pytest.fixture
-def preview():
-    pr = uuid4().int % 800000000 + 100000000
-    database, username, _ = preview_names(pr)
-    yield pr
-    with psycopg.connect(driver_url(ADMIN_URL), autocommit=True) as connection:
-        connection.execute(
-            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database))
-        )
-        connection.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(username)))
+def stored_secret(document):
+    return {
+        "data": {
+            key: base64.b64encode(value.encode()).decode()
+            for key, value in document["stringData"].items()
+        }
+    }
 
 
-def test_preview_database_survives_redeploy_and_is_deleted_on_cleanup(preview):
-    url = prepare_preview(ADMIN_URL, preview)
-    with psycopg.connect(driver_url(url), autocommit=True) as connection:
-        connection.execute("CREATE TABLE saved_ideas (content text)")
-        connection.execute("INSERT INTO saved_ideas VALUES ('keep across redeploy')")
-        assert connection.execute(
-            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
-        ).fetchone() == (False,)
-    assert prepare_preview(ADMIN_URL, preview, url) == url
-    with psycopg.connect(driver_url(url)) as connection:
-        assert connection.execute("SELECT content FROM saved_ideas").fetchone() == (
-            "keep across redeploy",
-        )
-    delete_preview(ADMIN_URL, preview)
-    delete_preview(ADMIN_URL, preview)  # Cleanup can be retried.
-    with psycopg.connect(driver_url(ADMIN_URL)) as connection:
-        assert (
-            connection.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s", (preview_names(preview)[0],)
-            ).fetchone()
-            is None
-        )
+def test_environment_credentials_are_local_unique_and_stable_on_redeploy():
+    passwords = []
+    for namespace in ("idea-board-staging", "idea-board-pr-42", "idea-board-pr-43"):
+        cluster = Mock(namespace=namespace)
+        cluster.get.return_value = None
+        ensure_database_secret(cluster)
+        secret = cluster.apply.call_args.args[0]
+        url = urlsplit(secret["stringData"]["DATABASE_URL"])
+        assert secret["metadata"]["namespace"] == namespace
+        assert url.hostname == f"postgres.{namespace}.svc.cluster.local"
+        assert url.password == secret["stringData"]["POSTGRES_PASSWORD"]
+        passwords.append(url.password)
+        cluster.get.return_value = stored_secret(secret)
+        cluster.apply.reset_mock()
+        ensure_database_secret(cluster)
+        cluster.apply.assert_not_called()
+        assert all(call.args[2] == namespace for call in cluster.get.call_args_list)
+    assert len(set(passwords)) == 3
 
 
-def test_unrelated_database_is_not_reused_or_deleted(preview):
-    database, _, _ = preview_names(preview)
-    with psycopg.connect(driver_url(ADMIN_URL), autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    with pytest.raises(ValueError, match="unrelated database"):
-        prepare_preview(ADMIN_URL, preview)
-    with psycopg.connect(driver_url(ADMIN_URL)) as connection:
-        assert (
-            connection.execute(
-                "SELECT 1 FROM pg_roles WHERE rolname = %s", (preview_names(preview)[1],)
-            ).fetchone()
-            is None
-        )
-    with pytest.raises(ValueError, match="unrelated database"):
-        delete_preview(ADMIN_URL, preview)
-    with psycopg.connect(driver_url(ADMIN_URL)) as connection:
-        assert connection.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (database,)
-        ).fetchone()
+@pytest.mark.parametrize("host", ["postgres.idea-board.svc.cluster.local", "staging.example.com"])
+def test_shared_database_credentials_are_rejected_without_modification(host):
+    cluster = Mock(namespace="idea-board-pr-42")
+    cluster.get.return_value = stored_secret(
+        {
+            "stringData": {
+                "DATABASE_URL": f"postgresql://idea_board:secret@{host}/idea_board",
+                "POSTGRES_PASSWORD": "secret",
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="migrate its data or recreate"):
+        ensure_database_secret(cluster)
+    cluster.apply.assert_not_called()
 
 
-def test_one_preview_cannot_reuse_another_previews_secret(preview):
-    url = prepare_preview(ADMIN_URL, preview)
-    with pytest.raises(ValueError, match="does not match"):
-        prepare_preview(ADMIN_URL, preview + 1, url)
+def test_inconsistent_passwords_are_rejected_without_rotation():
+    cluster = Mock(namespace="idea-board-staging")
+    cluster.get.return_value = stored_secret(
+        {
+            "stringData": {
+                "DATABASE_URL": (
+                    "postgresql://idea_board:old@postgres.idea-board-staging.svc.cluster.local/idea_board"
+                ),
+                "POSTGRES_PASSWORD": "new",
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="existing database Secret"):
+        ensure_database_secret(cluster)
+    cluster.apply.assert_not_called()
