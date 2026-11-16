@@ -9,12 +9,6 @@ variable "gitops_revision" {
   default     = "master"
 }
 
-variable "external_secrets_values" {
-  description = "Non-secret External Secrets overrides published to the cluster's generated values file."
-  type        = any
-  default     = {}
-}
-
 variable "project_id" {
   description = "Existing GCP project with billing enabled."
   type        = string

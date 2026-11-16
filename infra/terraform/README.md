@@ -122,7 +122,7 @@ The core-services project installs Argo CD and the root `cluster-core-services` 
 
 AWS core services also install AWS Load Balancer Controller with its IAM permissions. GKE's HTTP load-balancing controller is enabled by the cluster project. See [public routing](../ingress/README.md).
 
-Set `external_secrets_values` in the core-services Terragrunt inputs for settings such as service-account IAM annotations. Terraform publishes them to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. Child Applications load chart defaults, provider settings, cluster settings, then generated settings. Missing files are ignored.
+The core-services External Secrets module creates the operator's IRSA role on AWS or Workload Identity on GCP, grants secret-read access, and publishes its service-account annotation to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. Child Applications load chart defaults, provider settings, cluster settings, then generated settings. Missing files are ignored.
 
 The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [cluster services](../../gitops/cluster-core-services/README.md#deploy).
 

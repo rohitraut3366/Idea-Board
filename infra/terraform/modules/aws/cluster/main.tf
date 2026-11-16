@@ -24,6 +24,11 @@ resource "aws_eks_cluster" "this" {
   ]
 }
 
+resource "aws_iam_openid_connect_provider" "this" {
+  url            = aws_eks_cluster.this.identity[0].oidc[0].issuer
+  client_id_list = ["sts.amazonaws.com"]
+}
+
 resource "aws_eks_access_entry" "admin" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = var.admin_role_arn

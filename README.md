@@ -303,9 +303,9 @@ values/<cloud>/<cluster-name>/values-terraform.yaml
 
 Provider and cluster files are optional. Argo CD ignores missing files and picks them up when they appear on the watched Git branch.
 
-For External Secrets settings such as an IAM role annotation, set `external_secrets_values` under `inputs` in the cloud's `cluster-core-services/terragrunt.hcl`. Applying that project writes `values-terraform.yaml` directly to `master`. Keep `gitops_revision = "master"` to receive these updates. Store credentials in the cloud secret manager; the values file holds configuration only.
+The External Secrets module creates the operator's cloud identity and secret-read permissions automatically: IRSA on AWS, Workload Identity on GCP. It writes the service-account annotation to `values-terraform.yaml` on `master`. Argo CD loads that file when rendering the operator chart. Keep `gitops_revision = "master"` to receive these updates.
 
-The [cluster services guide](gitops/cluster-core-services/README.md) includes the chart layout and an IAM annotation example.
+The [cluster services guide](gitops/cluster-core-services/README.md) explains the identity setup and generated values.
 
 Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 

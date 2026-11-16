@@ -1,6 +1,11 @@
 mock_provider "aws" {
   override_during = plan
 
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      identity = [{ oidc = [{ issuer = "https://oidc.eks.us-east-1.amazonaws.com/id/test" }] }]
+    }
+  }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/test-role" }
   }

@@ -1,11 +1,18 @@
 mock_provider "aws" {
   override_during = plan
+  mock_data "aws_iam_policy_document" {
+    defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
 
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/test-role" }
   }
   mock_data "aws_eks_cluster" {
-    defaults = { endpoint = "https://cluster.example.com", certificate_authority = [{ data = "bW9jay1jYQ==" }] }
+    defaults = {
+      endpoint              = "https://cluster.example.com"
+      certificate_authority = [{ data = "bW9jay1jYQ==" }]
+      identity              = [{ oidc = [{ issuer = "https://oidc.eks.us-east-1.amazonaws.com/id/test" }] }]
+    }
   }
 }
 
@@ -32,7 +39,11 @@ variables {
 run "configuration" {
   command = plan
   assert {
-    condition     = module.external_secrets_values.file_path == "charts/external-secrets/values/aws/idea-board-test/values-terraform.yaml"
+    condition     = module.external_secrets.helm_values.serviceAccount.annotations["eks.amazonaws.com/role-arn"] == "arn:aws:iam::123456789012:role/test-role"
+    error_message = "Generate the operator annotation from its provisioned cloud identity."
+  }
+  assert {
+    condition     = module.external_secrets.values_file_path == "charts/external-secrets/values/aws/idea-board-test/values-terraform.yaml"
     error_message = "Publish AWS values for the cluster read from state."
   }
   assert {
