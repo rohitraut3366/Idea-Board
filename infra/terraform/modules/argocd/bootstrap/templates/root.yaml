@@ -11,7 +11,11 @@ spec:
     path: gitops/applications
     helm:
       valueFiles:
-        - values-{{ .Values.cloud }}.yaml
+        {{- if eq .Values.cloud "kind" }}
+        - values-kind.yaml
+        {{- else }}
+        - values-cloud.yaml
+        {{- end }}
       valuesObject:
         repositoryURL: {{ .Values.repositoryURL | quote }}
         targetRevision: {{ .Values.targetRevision | quote }}

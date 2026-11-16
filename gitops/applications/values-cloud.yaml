@@ -1,4 +1,3 @@
-cloud: aws
 applications:
   external-secrets:
     enabled: true

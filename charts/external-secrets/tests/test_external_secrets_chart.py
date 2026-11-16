@@ -81,7 +81,7 @@ class ExternalSecretsChartTests(unittest.TestCase):
         )
         self.assertEqual(output.count(f'targetRevision: "{REVISION}"'), 2)
         self.assertIn("path: gitops/applications", output)
-        self.assertIn("- values-aws.yaml", output)
+        self.assertIn("- values-cloud.yaml", output)
         self.assertIn('cloud: "aws"', output)
         self.assertIn('clusterName: "idea-board-staging"', output)
 

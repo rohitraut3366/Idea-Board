@@ -37,7 +37,11 @@ def test_kind_profile_enables_only_ingress_and_application_services():
 @pytest.mark.parametrize("cloud", ["aws", "gcp"])
 def test_cloud_profile_enables_only_external_secrets(cloud):
     output = render(
-        "gitops/applications", "-f", str(ROOT / f"gitops/applications/values-{cloud}.yaml")
+        "gitops/applications",
+        "-f",
+        str(ROOT / "gitops/applications/values-cloud.yaml"),
+        "--set",
+        f"cloud={cloud}",
     )
     assert output.count("kind: Application") == 1
     assert "name: external-secrets\n" in output
@@ -85,12 +89,13 @@ def test_ingress_wrapper_uses_native_ingress_without_provider_crds():
     assert "--providers.kubernetesingress.ingressendpoint.ip=127.0.0.1" in output
 
 
-@pytest.mark.parametrize("cloud", ["kind", "aws", "gcp"])
-def test_same_bootstrap_selects_the_cloud_profile_and_reconciles_applications(cloud):
+@pytest.mark.parametrize("cloud,profile", [("kind", "kind"), ("aws", "cloud"), ("gcp", "cloud")])
+def test_same_bootstrap_selects_the_profile_and_preserves_cloud_identity(cloud, profile):
     output = render("infra/terraform/modules/argocd/bootstrap", "--set", f"cloud={cloud}")
     root = next(document for document in output.split("---") if "\nkind: Application\n" in document)
     assert "name: idea-board" in root
     assert "path: gitops/applications" in root
-    assert f"- values-{cloud}.yaml" in root
+    assert f"- values-{profile}.yaml" in root
+    assert f'cloud: "{cloud}"' in root
     assert "prune: true" in root
     assert "- ServerSideApply=true" in root
