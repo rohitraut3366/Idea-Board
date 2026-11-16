@@ -4,6 +4,24 @@ Idea Board is a web app where you can write an idea, see ideas from others, and 
 
 This guide explains how the app works, how to run it on your computer, and how to deploy it to AWS or GCP.
 
+## Contents
+
+- [Architecture and API](#how-the-app-works)
+- [Local development with Docker Compose](#local-development)
+- [App tests and performance testing](#testing)
+- [Local Kubernetes: complete kind walkthrough](gitops/README.md)
+  - [Cluster, Argo CD and root Application](gitops/README.md#1-create-the-cluster)
+  - [App and deployment checks](gitops/README.md#5-test-the-app-and-deployment-process)
+  - [Live AI planning and deployment](gitops/README.md#6-plan-and-deploy-with-ai)
+  - [PR preview deployment and cleanup](gitops/README.md#7-create-a-preview)
+  - [Performance and scaling tests](gitops/README.md#8-test-performance-and-scaling)
+  - [Live AI rollout diagnosis](gitops/README.md#9-explain-a-failed-rollout-with-ai)
+  - [Logs and cluster cleanup](gitops/README.md#inspect-or-stop)
+- [Cloud deployment](#cloud-deployment) and [Terraform reference](infra/terraform/README.md)
+- [AI integration and design](#ai-integration)
+- [Troubleshooting and rollback](#when-something-goes-wrong)
+- [Verification results and limits](#what-has-been-tested)
+
 ## How the app works
 
 The app has three parts:
@@ -206,9 +224,18 @@ GitHub Actions creates temporary kind clusters to run the Kubernetes deployment 
 
 ## Local Kubernetes deployment
 
-The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy Traefik ingress, the backend with its PostgreSQL child chart, and the frontend. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
+Use the [complete kind walkthrough](gitops/README.md) to run the platform locally. It covers:
 
-The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
+| Step | What you run |
+| ---- | ------------ |
+| [Setup](gitops/README.md#1-create-the-cluster) | kind, Argo CD, the root Application, ingress, frontend, backend and PostgreSQL |
+| [Deployment checks](gitops/README.md#5-test-the-app-and-deployment-process) | App requests, cluster services, staging, preview redeployment, cleanup, failed rollout and rollback |
+| [Live AI deployment](gitops/README.md#6-plan-and-deploy-with-ai) | Ask for settings, review the generated plan and deploy staging |
+| [Preview](gitops/README.md#7-create-a-preview) | Generate a preview plan and deploy its frontend, backend and isolated database |
+| [Performance](gitops/README.md#8-test-performance-and-scaling) | Send concurrent requests and compare backend replica counts |
+| [Live AI diagnosis](gitops/README.md#9-explain-a-failed-rollout-with-ai) | Ask AI to explain evidence captured from the failed-rollout check |
+
+The app opens at [localhost:8081](http://localhost:8081). The [verification results](gitops/kind/verification.md) record previous runs. AWS and GCP configuration is included below; there are no current hosted application URLs.
 
 ## Cloud deployment
 
@@ -415,7 +442,7 @@ Open the workflow run's **Artifacts** to download:
 
 Review infrastructure proposals through a Terraform plan before applying them. Preview environments share staging infrastructure; kind uses the local cluster.
 
-To try the planning flow locally, follow [Plan a release locally](tools/deploy/README.md#plan-a-release-locally). It shows how to generate the prompt, run the AI and inspect the resulting files.
+To run this on your computer, follow [Live AI planning and deployment on kind](gitops/README.md#6-plan-and-deploy-with-ai).
 
 ### Example 2: Explain a failed rollout
 
@@ -427,7 +454,7 @@ The workflow passes that evidence to the AI. A diagnosis can say:
 
 The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. Our [recorded diagnosis](gitops/kind/evidence/diagnosis.json) shows this case.
 
-You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [diagnosis guide](tools/deploy/README.md#diagnose-a-rollout) shows how to run this locally.
+You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [local AI diagnosis example](gitops/README.md#9-explain-a-failed-rollout-with-ai) uses evidence captured by the kind deployment check.
 
 ## When something goes wrong
 

@@ -4,48 +4,17 @@ The tool turns validated AI recommendations into Helm values, a Terraform sizing
 
 ## Plan a release locally
 
-Install Python 3.12, uv, Helm, kubectl, Node.js, and an AI runner. The runner must follow the deployment skill and return JSON matching the supplied schema. The examples below use Codex CLI, which is also the runner currently configured in GitHub Actions. Another compatible runner can produce the same JSON files for the deployment tool.
-
-Use an existing Kubernetes cluster with Argo CD and publicly readable application images. Run commands from the repository root:
-
-```bash
-export IMAGE_TAG=FULL_40_CHARACTER_IMAGE_COMMIT_SHA
-export CHART_REVISION=FULL_40_CHARACTER_CHART_COMMIT_SHA
-uv sync --project tools/deploy --locked --all-groups
-
-uv run --project tools/deploy python tools/deploy/deploy.py prompt \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --request 'Low-traffic staging for a few reviewers' > /tmp/idea-board-prompt.md
-
-codex exec --sandbox read-only --ephemeral \
-  --output-schema .agents/skills/deploy/output.schema.json \
-  --output-last-message /tmp/idea-board-recommendation.json \
-  - < /tmp/idea-board-prompt.md
-
-uv run --project tools/deploy python tools/deploy/deploy.py prepare \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation /tmp/idea-board-recommendation.json
-```
+For setup, live AI prompts and runnable commands, follow [Plan and deploy with AI on kind](../../gitops/README.md#6-plan-and-deploy-with-ai). The runner must follow the deployment skill and return JSON matching its schema. The walkthrough uses Codex CLI; another compatible runner can provide the same JSON.
 
 Review `release-plan/plan.md` and `release-plan/applications.json`. The plan includes individual service replicas, CPU and memory values, an ordered deployment explanation, and a release command built by Python. The model cannot change the cloud, namespace, image, or revision, or supply executable shell text. `render` prints only the Applications; `prepare` writes the review files. All commands validate the recommendation first.
 
-For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both commands. `prepare` also writes separate `release-plan/terraform/cluster/sizing.tfvars.json` and `release-plan/terraform/applications/idea-board/sizing.tfvars.json` proposals for their Terraform projects. The files contain worker count/type and database tier/storage/standby configuration respectively. These values supplement your stack configuration. Use the Terragrunt plan commands in `plan.md`, replacing `YOUR_REGION` with your target region, with your own credentials, state backend, and stack variables. Review actual changes before applying, especially storage, region-specific sizes, and GCP node count (a multiple of your node-zone count). The application release does not apply infrastructure changes. Kind and PR previews have no sizing file.
+For AWS/GCP staging or production, select `--cloud aws` or `--cloud gcp` when generating the prompt and preparing the release. `prepare` also writes separate `release-plan/terraform/cluster/sizing.tfvars.json` and `release-plan/terraform/applications/idea-board/sizing.tfvars.json` proposals for their Terraform projects. The files contain worker count/type and database tier/storage/standby configuration respectively. These values supplement your stack configuration. Use the Terragrunt plan commands in `plan.md`, replacing `YOUR_REGION` with your target region, with your own credentials, state backend, and stack variables. Review actual changes before applying, especially storage, region-specific sizes, and GCP node count (a multiple of your node-zone count). The application release does not apply infrastructure changes. Kind and PR previews have no sizing file.
 
 ## Deploy
 
 For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
 
-Use the same inputs with `release` and an explicit context:
-
-```bash
-uv run --project tools/deploy python tools/deploy/deploy.py release \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation /tmp/idea-board-recommendation.json \
-  --context kind-idea-board
-```
+Use `release` with the same image, revision and recommendation as `prepare`, plus an explicit Kubernetes context. The [kind walkthrough](../../gitops/README.md#6-plan-and-deploy-with-ai) contains the release command and [preview example](../../gitops/README.md#7-create-a-preview).
 
 On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP staging/production releases update the existing `idea-board` root in the same order. The root owns the service Applications. Cloud previews have their own Applications.
 
@@ -57,18 +26,7 @@ A preview uses `--environment preview --pr 123` and shares the staging cluster/d
 
 Every release attempt writes `deployment-diagnostics.json`. It records check outcome, pod readiness/restarts, migration Job counts, event reasons, recognized error signatures from bounded current/previous logs, and resource usage when available. Raw log lines, event messages, container environment, and Secrets stay out of the artifact. Missing APIs/logs are recorded as gaps. This is a snapshot for explaining a rollout, not continuous monitoring.
 
-```bash
-uv run --project tools/deploy python tools/deploy/analyze.py prompt \
-  --evidence deployment-diagnostics.json > /tmp/idea-board-diagnosis-prompt.md
-
-codex exec --sandbox read-only --ephemeral \
-  --output-schema .agents/skills/deploy/diagnosis.schema.json \
-  --output-last-message diagnosis.json \
-  - < /tmp/idea-board-diagnosis-prompt.md
-
-uv run --project tools/deploy python tools/deploy/analyze.py report \
-  --evidence deployment-diagnostics.json --diagnosis diagnosis.json
-```
+Follow [Explain a failed rollout with AI](../../gitops/README.md#9-explain-a-failed-rollout-with-ai) for the prompt, model invocation and report commands. Use `deployment-diagnostics.json` to inspect your own release attempt.
 
 `diagnosis.md` contains validated advice with references to collected evidence. A model response cannot declare a failed deterministic check healthy, invent evidence IDs, or request rollback without a verified predecessor. Advice never executes commands. GitHub Actions runs diagnosis in a separate job after rollout, even if the deployment failed, so the model has no cloud credentials. Failures before the release tool starts have no rollout artifact.
 
