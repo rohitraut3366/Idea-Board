@@ -3,11 +3,11 @@
 import json
 import shlex
 
-from config import manifests, terraform_variables
+from config import deployment_manifests, terraform_variables
 
 
 def prepare(target, recommendation, directory, recommendation_path):
-    documents = manifests(target, recommendation)
+    documents = deployment_manifests(target, recommendation)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "applications.json").write_text(
         json.dumps({"apiVersion": "v1", "kind": "List", "items": documents}, indent=2) + "\n"

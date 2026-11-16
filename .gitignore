@@ -13,6 +13,7 @@ dist/
 build/
 node_modules/
 /charts/external-secrets/charts/
+/charts/ingress-controller/charts/
 .terraform/
 .terragrunt-cache/
 rendered.json

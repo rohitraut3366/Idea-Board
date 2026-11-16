@@ -15,8 +15,9 @@ backendUpstream: ""
 gcpBackendConfig: false
 
 ingress:
+  host: ""
   enabled: false
-  className: ''
+  className: ""
   annotations: {}
   backendServiceName: backend
   backendServicePort: 8000

@@ -1,0 +1,17 @@
+applications:
+  backend:
+    source:
+      path: charts/idea-board-backend
+      helm:
+        releaseName: backend
+        skipTests: true
+        valueFiles:
+          - ../../gitops/kind/backend-values.yaml
+  frontend:
+    source:
+      path: charts/idea-board-frontend
+      helm:
+        releaseName: frontend
+        skipTests: true
+        valueFiles:
+          - ../../gitops/kind/frontend-values.yaml

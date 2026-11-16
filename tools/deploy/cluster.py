@@ -37,9 +37,15 @@ class Cluster:
         output = self.run(*arguments)
         return json.loads(output) if output.strip() else None
 
-    def apply(self, document):
+    def apply(self, document, force=False):
         self.run(
-            "apply", "--server-side", "--field-manager=idea-board-deploy", "-f", "-", data=document
+            "apply",
+            "--server-side",
+            "--field-manager=idea-board-deploy",
+            *(["--force-conflicts"] if force else []),
+            "-f",
+            "-",
+            data=document,
         )
 
     def ensure_namespace(self, environment):
@@ -119,6 +125,12 @@ class Cluster:
                     status.get("sync", {}).get("status") != "Synced"
                     or status.get("health", {}).get("status") != "Healthy"
                 ):
+                    continue
+                if source["path"] == "gitops/applications":
+                    # Child readiness is checked separately, after the parent has reconciled.
+                    if status.get("operationState", {}).get("phase") != "Succeeded":
+                        continue
+                    pending.remove(expected)
                     continue
                 release = source["helm"]["releaseName"]
                 deployment = self.get("deployment", release, self.namespace)

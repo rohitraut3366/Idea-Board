@@ -2,9 +2,10 @@
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from uuid import uuid4
 
-from config import REPOSITORY
+from config import REPOSITORY, parent_application
 
 STATE_NAME = "idea-board-release"
 
@@ -99,11 +100,46 @@ def rollback(cluster, target, schema_compatible):
                 "syncStrategy": {"apply": {}},
             },
         }
+    if target.cloud == "kind":
+        parent = cluster.get("application", target.namespace, "argocd")
+        children = [previous, attempt["applications"], [attempt["applications"][0], previous[1]]]
+        revisions = {target.revision, previous[0]["spec"]["source"]["targetRevision"]}
+        allowed_sources = [
+            parent_application(replace(target, revision=revision), applications)["spec"]["source"]
+            for revision in revisions
+            for applications in children
+        ]
+        if not parent or parent["spec"]["source"] not in allowed_sources:
+            raise ValueError("parent Application changed since the failed attempt")
+        if parent.get("operation") or parent.get("status", {}).get("operationState", {}).get(
+            "phase"
+        ) in {"Running", "Terminating"}:
+            raise ValueError("parent Argo sync is still running; inspect before rollback")
+        # Pause its reconciliation before restoring children it normally owns.
+        parent["spec"]["syncPolicy"]["automated"]["enabled"] = False
+        cluster.apply(
+            {
+                "apiVersion": parent["apiVersion"],
+                "kind": "Application",
+                "metadata": {"name": target.namespace, "namespace": "argocd"},
+                "spec": parent["spec"],
+            }
+        )
     for application in restored:
-        cluster.apply(application)
+        # The parent owns these fields through SSA; takeover follows the drift guards above.
+        cluster.apply(application, force=target.cloud == "kind")
         cluster.wait([application])
         # An operation is a one-time request, not part of a release checkpoint.
         del application["operation"]
+    if target.cloud == "kind":
+        restored_target = replace(target, revision=previous[0]["spec"]["source"]["targetRevision"])
+        parent = parent_application(restored_target, restored, automated=False)
+        parent["operation"] = {
+            "info": [{"name": "idea-board/rollback-id", "value": str(uuid4())}],
+            "sync": {"revision": restored_target.revision, "syncStrategy": {"apply": {}}},
+        }
+        cluster.apply(parent)
+        cluster.wait([parent])
     cluster.verify()
     if target.cloud != "kind":
         cluster.public_url()

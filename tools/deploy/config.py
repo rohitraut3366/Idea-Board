@@ -2,6 +2,7 @@
 
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -133,7 +134,7 @@ def prompt(target, request):
 def manifests(target, recommendation):
     validate_recommendation(recommendation, target.environment, target.cloud)
     namespace = target.namespace
-    project = {
+    project: dict = {
         "apiVersion": "argoproj.io/v1alpha1",
         "kind": "AppProject",
         "metadata": {"name": namespace, "namespace": "argocd"},
@@ -155,7 +156,7 @@ def manifests(target, recommendation):
             ],
         },
     }
-    applications = []
+    applications: list[dict] = []
     for service in ("backend", "frontend"):
         sizing = recommendation[service]
         values: dict = {
@@ -233,4 +234,68 @@ def manifests(target, recommendation):
                 },
             }
         )
+    if target.cloud == "kind":
+        project["spec"]["destinations"].append(
+            {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
+        )
+        project["spec"]["namespaceResourceWhitelist"].append(
+            {"group": "argoproj.io", "kind": "Application"}
+        )
+        for application in applications:
+            if application["spec"]["source"]["helm"]["releaseName"] == "frontend":
+                application["spec"]["source"]["helm"]["valuesObject"]["ingress"] = {
+                    "enabled": True,
+                    "className": "traefik",
+                    "host": f"{namespace}.localhost",
+                }
+    return [project, *applications]
+
+
+def parent_application(target, applications, automated=True):
+    """Keep each environment's child sources in one declarative parent."""
+    return {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {
+            "name": target.namespace,
+            "namespace": "argocd",
+            "finalizers": ["resources-finalizer.argocd.argoproj.io"],
+        },
+        "spec": {
+            "project": target.namespace,
+            "source": {
+                "repoURL": REPOSITORY,
+                "targetRevision": target.revision,
+                "path": "gitops/applications",
+                "helm": {
+                    "valuesObject": {
+                        "project": target.namespace,
+                        "namespace": target.namespace,
+                        "namePrefix": target.namespace + "-",
+                        "applications": {
+                            app["spec"]["source"]["helm"]["releaseName"]: {
+                                "source": deepcopy(app["spec"]["source"]),
+                                "syncPolicy": deepcopy(app["spec"]["syncPolicy"]),
+                            }
+                            for app in applications
+                        },
+                    }
+                },
+            },
+            "destination": {
+                "server": "https://kubernetes.default.svc",
+                "namespace": "argocd",
+            },
+            "syncPolicy": {
+                "automated": {"enabled": automated, "prune": True, "selfHeal": True},
+                "syncOptions": ["ServerSideApply=true"],
+            },
+        },
+    }
+
+
+def deployment_manifests(target, recommendation):
+    project, *applications = manifests(target, recommendation)
+    if target.cloud == "kind":
+        return [project, parent_application(target, applications)]
     return [project, *applications]

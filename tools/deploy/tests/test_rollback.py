@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests
+from config import Target, manifests, parent_application
 from rollback import checkpoint, record_healthy, rollback, state
 
 OLD = "a" * 40
@@ -16,7 +16,7 @@ def cluster():
     client = Mock(namespace="idea-board-staging")
     documents = {}
 
-    def apply(document):
+    def apply(document, force=False):
         documents[(document["kind"].lower(), document["metadata"]["name"])] = deepcopy(document)
 
     def get(kind, name, namespace=None):
@@ -29,6 +29,7 @@ def cluster():
     new = manifests(Target("kind", "staging", NEW, NEW), recommendation())[1:]
     for app in new:
         apply(app)
+    apply(parent_application(Target("kind", "staging", NEW, NEW), new))
     record_healthy(client, old)
     checkpoint(client, Target("kind", "staging", NEW, NEW), new)
     client.apply.reset_mock()
@@ -53,7 +54,19 @@ def test_rollback_restores_both_argo_sources_and_skips_migration_hooks(cluster):
     assert all("operation" not in app for app in state(cluster)["healthy"])
 
 
-@pytest.mark.parametrize("failure", ["schema", "sha", "drift", "running", "pending", "no_previous"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "schema",
+        "sha",
+        "drift",
+        "running",
+        "pending",
+        "no_previous",
+        "parent_drift",
+        "parent_running",
+    ],
+)
 def test_rollback_guards_run_before_any_application_mutation(cluster, failure):
     target = Target("kind", "staging", NEW, NEW)
     if failure == "sha":
@@ -67,6 +80,14 @@ def test_rollback_guards_run_before_any_application_mutation(cluster, failure):
             app["status"] = {"operationState": {"phase": "Running"}}
         else:
             app["operation"] = {"sync": {"syncStrategy": {"hook": {}}}}
+    elif failure == "parent_drift":
+        cluster.documents[("application", "idea-board-staging")]["spec"]["source"][
+            "targetRevision"
+        ] = "c" * 40
+    elif failure == "parent_running":
+        cluster.documents[("application", "idea-board-staging")]["status"] = {
+            "operationState": {"phase": "Running"}
+        }
     elif failure == "no_previous":
         record_healthy(cluster, None)
         cluster.apply.reset_mock()
@@ -83,3 +104,18 @@ def test_unverified_rollback_does_not_replace_the_healthy_checkpoint(cluster):
         rollback(cluster, Target("kind", "staging", NEW, NEW), True)
     assert state(cluster)["healthy"] == previous
     assert state(cluster)["attempt"] is not None
+
+
+def test_rollback_leaves_parent_consistent_and_paused(cluster):
+    rollback(cluster, Target("kind", "staging", NEW, NEW), True)
+    parent = cluster.get("application", "idea-board-staging")
+    assert parent["spec"]["syncPolicy"]["automated"]["enabled"] is False
+    values = parent["spec"]["source"]["helm"]["valuesObject"]
+    for service in ("backend", "frontend"):
+        child = values["applications"][service]
+        assert child["source"]["targetRevision"] == OLD
+        assert child["syncPolicy"]["automated"]["enabled"] is False
+        assert "operation" not in child
+    mutations = [entry.args[0] for entry in cluster.apply.call_args_list]
+    assert mutations[0]["metadata"]["name"] == "idea-board-staging"
+    assert mutations[0]["spec"]["syncPolicy"]["automated"]["enabled"] is False

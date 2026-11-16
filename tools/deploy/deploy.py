@@ -9,7 +9,14 @@ import sys
 from pathlib import Path
 
 from cluster import Cluster
-from config import Target, manifests, prompt, validate_recommendation
+from config import (
+    Target,
+    deployment_manifests,
+    manifests,
+    parent_application,
+    prompt,
+    validate_recommendation,
+)
 
 
 def preview_database(cluster, target, delete=False):
@@ -34,6 +41,27 @@ def preview_database(cluster, target, delete=False):
         "python",
         "-",
         data=database_source + "\n" + operation + "\n",
+    )
+
+
+def local_database(cluster, target):
+    source = Path(__file__).with_name("database.py").read_text()
+    operation = (
+        'print(json.dumps(prepare_local_database(os.environ["IDEA_BOARD_DATABASE_URL"], '
+        f"{target.environment!r})))"
+    )
+    return json.loads(
+        cluster.run(
+            "--namespace",
+            "idea-board",
+            "exec",
+            "-i",
+            "deployment/backend",
+            "--",
+            "python",
+            "-",
+            data=source + "\n" + operation + "\n",
+        )
     )
 
 
@@ -75,6 +103,8 @@ def release(cluster, target, recommendation):
         rollback_available = bool(state(cluster)["healthy"])
         if target.environment == "preview":
             url = json.loads(preview_database(cluster, target))
+        elif target.cloud == "kind" and not os.environ.get("IDEA_BOARD_DATABASE_URL"):
+            url = local_database(cluster, target)
         else:
             url = managed_database_url(target.cloud)
         cluster.set_database_url(url)
@@ -82,15 +112,41 @@ def release(cluster, target, recommendation):
             url.encode()
         ).hexdigest()
         Path("applications.json").write_text(
-            json.dumps({"apiVersion": "v1", "kind": "List", "items": documents}, indent=2) + "\n"
+            json.dumps(
+                {
+                    "apiVersion": "v1",
+                    "kind": "List",
+                    "items": (
+                        [documents[0], parent_application(target, documents[1:])]
+                        if target.cloud == "kind"
+                        else documents
+                    ),
+                },
+                indent=2,
+            )
+            + "\n"
         )
         checkpoint(cluster, target, documents[1:])
         cluster.apply(documents[0])
-        # The frontend resolves the backend Service at startup.
-        for application in documents[1:]:
-            phase = application["spec"]["source"]["helm"]["releaseName"]
-            cluster.apply(application)
-            cluster.wait([application])
+        if target.cloud == "kind":
+            # Keep the serving frontend while the new backend runs its migration and checks.
+            existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
+            children = [documents[1]] + ([existing_frontend] if existing_frontend else [])
+            phase = "backend"
+            parent = parent_application(target, children)
+            cluster.apply(parent)
+            cluster.wait([parent])
+            cluster.wait([documents[1]])
+            phase = "frontend"
+            parent = parent_application(target, documents[1:])
+            cluster.apply(parent)
+            cluster.wait([parent])
+            cluster.wait([documents[2]])
+        else:
+            for application in documents[1:]:
+                phase = application["spec"]["source"]["helm"]["releaseName"]
+                cluster.apply(application)
+                cluster.wait([application])
         phase = "http"
         cluster.verify()
         phase = "public_http" if target.cloud != "kind" else "http"
@@ -130,6 +186,17 @@ def cleanup(cluster, target):
     namespace = cluster.get("namespace", target.namespace)
     if namespace:
         cluster.ensure_namespace("preview")
+    if target.cloud == "kind":
+        cluster.run(
+            "--namespace",
+            "argocd",
+            "delete",
+            "application",
+            target.namespace,
+            "--ignore-not-found",
+            "--wait=true",
+            "--timeout=10m",
+        )
     # Delete the Ingress owner first so cloud backends can detach before Service cleanup.
     for service in ("frontend", "backend"):
         cluster.run(
@@ -206,7 +273,11 @@ def main():
     elif arguments.command == "render":
         print(
             json.dumps(
-                {"apiVersion": "v1", "kind": "List", "items": manifests(target, recommendation)},
+                {
+                    "apiVersion": "v1",
+                    "kind": "List",
+                    "items": deployment_manifests(target, recommendation),
+                },
                 indent=2,
             )
         )

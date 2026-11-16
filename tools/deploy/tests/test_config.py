@@ -87,7 +87,9 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
         assert "kubernetes.io/ingress.class: gce" in result.stdout
         assert "kind: BackendConfig" in result.stdout
         assert "cloud.google.com/neg:" in result.stdout
-    assert ("kind: Ingress" in result.stdout) == (cloud != "kind")
+    assert "kind: Ingress" in result.stdout
+    if cloud == "kind":
+        assert 'host: "idea-board-staging.localhost"' in result.stdout
     assert "service.k8s.aws/nlb" not in result.stdout
 
 
