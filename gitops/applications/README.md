@@ -7,7 +7,8 @@ gitops/applications/
 ├── Chart.yaml
 ├── values.yaml                  # Application definitions; disabled by default
 ├── values-kind.yaml             # Enables ingress, backend and frontend
-├── values-cloud.yaml            # Enables External Secrets on AWS and GCP
+├── values-aws.yaml              # Enables External Secrets on AWS
+├── values-gcp.yaml              # Enables External Secrets on GCP
 └── templates/applications.yaml  # Shared Application template
 ```
 
@@ -33,12 +34,12 @@ applications:
 
 ## Bootstrap the root
 
-The bootstrap chart in `infra/terraform/modules/argocd/bootstrap` creates the `idea-board` AppProject and root Application. The root points to this chart and selects `values-kind.yaml` for kind or `values-cloud.yaml` for AWS and GCP. Terraform passes the cloud and cluster name to the root; child Applications use them to select their service-specific overrides.
+The bootstrap chart in `infra/terraform/modules/argocd/bootstrap` creates the `idea-board` AppProject and root Application. The root points to this chart. The bootstrap selects `values-aws.yaml`, `values-gcp.yaml` or `values-kind.yaml` from the cloud Terraform passes in. The cloud and cluster name also reach the root, so each child Application can select its service-specific overrides.
 
 - **kind:** install Argo CD, then apply the bootstrap chart manually. Follow the [kind guide](../README.md).
 - **AWS or GCP:** apply the cloud's Terraform `cluster-core-services` project. It installs Argo CD and the same bootstrap chart. Follow the [Terraform guide](../../infra/terraform/README.md).
 
-The shared cloud profile enables External Secrets. Application releases use their environment settings and database credentials through the deployment workflow.
+The cloud profiles enable External Secrets. Application releases use their environment settings and database credentials through the deployment workflow.
 
 Wait for the root and each enabled child to become Synced and Healthy:
 

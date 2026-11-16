@@ -118,7 +118,7 @@ If existing state is in another bucket or GCS, migrate it to the declared S3 buc
 
 ## Cluster services
 
-The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with `values-cloud.yaml` for both AWS and GCP, starting with the External Secrets umbrella chart.
+The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with the cloud's values file, starting with the External Secrets umbrella chart.
 
 AWS core services also install AWS Load Balancer Controller with its IAM permissions. GKE's HTTP load-balancing controller is enabled by the cluster project. See [public routing](../ingress/README.md).
 

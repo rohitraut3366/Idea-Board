@@ -142,8 +142,8 @@ jobs:
           helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
           helm lint infra/terraform/modules/argocd/bootstrap --strict
           helm lint gitops/applications --strict -f gitops/applications/values-kind.yaml
-          helm lint gitops/applications --strict -f gitops/applications/values-cloud.yaml --set cloud=aws
-          helm lint gitops/applications --strict -f gitops/applications/values-cloud.yaml --set cloud=gcp
+          helm lint gitops/applications --strict -f gitops/applications/values-aws.yaml
+          helm lint gitops/applications --strict -f gitops/applications/values-gcp.yaml
           helm lint charts/external-secrets --strict
       - name: Render GitOps Applications
         run: helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd --set cloud=kind

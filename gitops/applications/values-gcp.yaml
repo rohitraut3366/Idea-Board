@@ -1,0 +1,4 @@
+cloud: gcp
+applications:
+  external-secrets:
+    enabled: true
