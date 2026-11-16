@@ -28,11 +28,12 @@ The image tag identifies published frontend and backend images. The chart revisi
 
 ## 1. Create the cluster
 
-If `kind-idea-board` already exists, continue to step 2.
+If `kind-idea-board` already exists, select it with `kubectl config use-context kind-idea-board`, then continue to step 2.
 
 ```bash
 kind create cluster --name idea-board --config gitops/kind/config.yaml
-kubectl --context kind-idea-board get nodes
+kubectl config use-context kind-idea-board
+kubectl get nodes
 ```
 
 The kind configuration maps local port `8081` to Traefik's NodePort.
@@ -40,11 +41,11 @@ The kind configuration maps local port `8081` to Traefik's NodePort.
 ## 2. Install Argo CD
 
 ```bash
-kubectl --context kind-idea-board create namespace argocd
-kubectl --context kind-idea-board apply --server-side -k gitops/argocd
-kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-server --timeout=5m
-kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
-kubectl --context kind-idea-board --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+kubectl create namespace argocd
+kubectl apply --server-side -k gitops/argocd
+kubectl --namespace argocd rollout status deployment/argocd-server --timeout=5m
+kubectl --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
+kubectl --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
 ```
 
 If the namespace already exists, continue with the apply command.
@@ -53,8 +54,8 @@ If the namespace already exists, continue with the apply command.
 
 ```bash
 helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
-  --set cloud=kind --set targetRevision="$CHART_REVISION" | kubectl --context kind-idea-board apply --server-side -f -
-kubectl --context kind-idea-board --namespace argocd get applications --watch
+  --set cloud=kind | kubectl apply -f -
+kubectl --namespace argocd get applications --watch
 ```
 
 Wait for `idea-board`, `ingress-controller`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
@@ -83,19 +84,19 @@ Open [localhost:8081](http://localhost:8081).
 For an existing cluster created without the port mapping, run this in a separate terminal:
 
 ```bash
-kubectl --context kind-idea-board --namespace ingress-system port-forward service/ingress-controller 8081:80
+kubectl --namespace ingress-system port-forward service/ingress-controller 8081:80
 ```
 
 To open Argo CD, leave this running in another terminal:
 
 ```bash
-kubectl --context kind-idea-board --namespace argocd port-forward service/argocd-server 8080:443
+kubectl --namespace argocd port-forward service/argocd-server 8080:443
 ```
 
 Open [localhost:8080](https://localhost:8080). Argo CD uses a local self-signed certificate. Sign in as `admin` with the initial password:
 
 ```bash
-kubectl --context kind-idea-board --namespace argocd get secret argocd-initial-admin-secret \
+kubectl --namespace argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 --decode
 ```
 
@@ -176,7 +177,7 @@ The tool creates staging's database and parent Application, waits for the backen
 Open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). For command-line clients that do not resolve `.localhost` names, leave this port-forward running in another terminal:
 
 ```bash
-kubectl --context kind-idea-board --namespace idea-board-staging \
+kubectl --namespace idea-board-staging \
   port-forward service/frontend 3002:80
 ```
 
@@ -238,7 +239,7 @@ This removes the preview's parent, services, namespace, database and login.
 Use the staging port-forward from step 6. Check the running replica count and run a baseline load test:
 
 ```bash
-kubectl --context kind-idea-board --namespace idea-board-staging get deployments
+kubectl --namespace idea-board-staging get deployments
 IDEA_BOARD_BASE_URL=http://localhost:3002 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
   npm --prefix apps/frontend run test:load
 ```
@@ -291,10 +292,10 @@ The report links the explanation to collected evidence. AI provides advice; the 
 ## Inspect or stop
 
 ```bash
-kubectl --context kind-idea-board --namespace argocd get applications
-kubectl --context kind-idea-board --namespace idea-board get pods,jobs,pvc,ingress
-kubectl --context kind-idea-board --namespace idea-board logs deployment/backend
-kubectl --context kind-idea-board --namespace idea-board logs -l app.kubernetes.io/component=migrate --all-containers=true
+kubectl --namespace argocd get applications
+kubectl --namespace idea-board get pods,jobs,pvc,ingress
+kubectl --namespace idea-board logs deployment/backend
+kubectl --namespace idea-board logs -l app.kubernetes.io/component=migrate --all-containers=true
 ```
 
 Successful migration Jobs are removed, so their logs are available while they run or after a failure. Stopping a port-forward closes its local address. The cluster keeps running.
