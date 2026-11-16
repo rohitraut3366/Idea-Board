@@ -1,47 +1,228 @@
-# Run Idea Board in kind
+# Run Idea Board locally with kind and Argo CD
 
-Argo CD reads the deployment configuration from Git and keeps the cluster in sync. You install Argo CD and apply one root Application. That root creates the Applications below it:
+This walkthrough creates a Kubernetes cluster on your laptop, deploys the app, then uses AI to plan staging and preview releases.
+
+The sequence is:
 
 ```text
-idea-board
-├── ingress-controller → Traefik
-├── backend → PostgreSQL child chart, migration Job and FastAPI
-└── frontend → React, Nginx and the Ingress routes
+Create kind → install Argo CD → deploy Idea Board → test the app
+                                                    ↓
+Build a version → ask AI for settings → review → release staging
+                                                    ↓
+                                  Preview → load test → AI diagnosis
 ```
 
-The browser loads the web app at `localhost:8081`. Requests to `/api` reach the backend through Traefik. PostgreSQL is reachable inside the cluster.
+## Before you start
 
-Docker, kind, kubectl, Helm, Python 3.12, uv and Node.js 24 are needed. The live AI examples use an authenticated Codex CLI; another runner can return JSON matching the same skill schemas. Run commands from the repository root.
+Start Docker Desktop. Install kind, kubectl, Helm, Node.js 24, Python 3.12 and uv. The AI steps also need an authenticated Codex CLI.
 
-Follow the steps in order: deploy the base app, test it over HTTP, then try live AI, previews and load tests.
-
-## Prepare the tools and release
+For a new checkout, download the repository and enter it:
 
 ```bash
-npm --prefix apps/frontend ci
-uv sync --project tools/deploy --locked --all-groups
-export CHART_REVISION="$(git rev-parse HEAD)"
-export IMAGE_TAG="$CHART_REVISION"
-
-docker build -t "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" apps/backend
-docker build -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
+git clone https://github.com/rohitraut3366/Idea-Board.git
+cd Idea-Board
 ```
 
-Build from a clean checkout of a pushed commit. `CHART_REVISION` is that commit's SHA: Argo CD fetches the charts from Git. `IMAGE_TAG` gives both locally built images the same version. These variables are used by the deployment checks and AI examples below; keep using the same terminal.
+If you already have the repository, open a terminal in its root: the directory containing `apps`, `charts` and `docker-compose.yml`.
+
+Run the commands in order. Keep this terminal open: later steps reuse variables defined here. Where a step needs another terminal, leave the original one available for the next command.
 
 ## 1. Create the cluster
 
-If `kind-idea-board` already exists, select it with `kubectl config use-context kind-idea-board`, then continue to step 2.
+Kind runs Kubernetes inside Docker. This command creates a cluster named `idea-board`. The configuration file defines its node and maps local port `8081` to the app's ingress entry point.
 
 ```bash
 kind create cluster --name idea-board --config gitops/kind/config.yaml
+```
+
+If that cluster already exists, continue with the next command.
+
+Select the cluster once. The remaining `kubectl` commands use this selection. Kind stores its connection details in your kubeconfig, so it also appears in `kubectx`.
+
+```bash
 kubectl config use-context kind-idea-board
+```
+
+Check that the Kubernetes node is ready:
+
+```bash
 kubectl get nodes
 ```
 
-The kind configuration maps local port `8081` to Traefik's NodePort.
+Continue when its status is `Ready`.
 
-Load the images built above into the cluster, including when reusing an existing cluster:
+## 2. Install Argo CD
+
+Argo CD reads the deployment configuration from Git and keeps the cluster in sync with it.
+
+Create its namespace:
+
+```bash
+kubectl create namespace argocd
+```
+
+If the namespace already exists, continue. Install the Argo CD version pinned in `gitops/argocd`. Server-side apply handles its large Kubernetes resource definitions.
+
+```bash
+kubectl apply --server-side -k gitops/argocd
+```
+
+Wait for the web server:
+
+```bash
+kubectl --namespace argocd rollout status deployment/argocd-server --timeout=5m
+```
+
+Wait for the component that reads the repository:
+
+```bash
+kubectl --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
+```
+
+Wait for the controller that manages Applications:
+
+```bash
+kubectl --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+```
+
+Continue when all three report a successful rollout.
+
+## 3. Apply the root
+
+The root is an Argo CD Application that declares the other Applications to deploy. This is the app-of-apps pattern:
+
+```text
+idea-board
+├── ingress-controller → Traefik routes browser requests
+├── backend → PostgreSQL, migration Job and FastAPI
+└── frontend → React files served by Nginx
+```
+
+Helm renders the root and its permissions. The pipe sends those manifests to `kubectl apply`, which creates them in the cluster. `cloud=kind` selects the local app declarations. The root follows `master` and uses the image versions declared in the charts.
+
+```bash
+helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
+  --set cloud=kind | kubectl apply -f -
+```
+
+Watch Argo CD create and deploy the children:
+
+```bash
+kubectl --namespace argocd get applications --watch
+```
+
+Wait until `idea-board`, `ingress-controller`, `backend` and `frontend` each show `Synced` and `Healthy`. Press Ctrl+C to stop watching; the applications keep running.
+
+PostgreSQL starts first. A separate migration Job prepares its tables before FastAPI is deployed. The local chart creates the database Secret using development credentials. PostgreSQL stores data on a persistent volume.
+
+The local settings are in:
+
+| File | Purpose |
+| --- | --- |
+| [applications/values-kind.yaml](applications/values-kind.yaml) | Select the Applications for this cluster |
+| [Backend values-kind.yaml](../charts/idea-board-backend/values-kind.yaml) | Enable local PostgreSQL and database credentials |
+| [Frontend values-kind.yaml](../charts/idea-board-frontend/values-kind.yaml) | Configure the local ingress routes |
+
+## 4. Open the app and Argo CD
+
+Open [localhost:8081](http://localhost:8081). Submit an idea and refresh the page: the idea should still be there.
+
+Browser requests travel through Traefik. Page requests go to the frontend; `/api` requests go to FastAPI, which reads and writes PostgreSQL.
+
+If your existing kind cluster was created without the port mapping, expose ingress in another terminal and leave the command running:
+
+```bash
+kubectl --namespace ingress-system port-forward service/ingress-controller 8081:80
+```
+
+To see the Applications in Argo CD, use another terminal to expose its web server:
+
+```bash
+kubectl --namespace argocd port-forward service/argocd-server 8080:443
+```
+
+Leave it running and open [localhost:8080](https://localhost:8080). Accept the local self-signed certificate.
+
+Retrieve the initial admin password in your main terminal. Keep the output out of recordings:
+
+```bash
+kubectl --namespace argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 --decode
+```
+
+Sign in as `admin`. You should see the root and its three child Applications.
+
+## 5. Test the app
+
+Install the frontend project's dependencies, which are also used for the HTTP tests:
+
+```bash
+npm --prefix apps/frontend ci
+```
+
+Test the app at the ingress address. This checks the page and JavaScript files, then creates, lists and deletes test ideas through the API. It also checks pagination and invalid requests. It removes its test ideas afterward.
+
+```bash
+IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
+```
+
+Continue when the test passes. GitHub Actions runs the separate automated bootstrap, preview and rollback checks on its own kind cluster.
+
+## 6. Plan and deploy with AI
+
+You now have a base app in namespace `idea-board`. Next, create a separate staging environment using settings proposed by AI. Staging gets frontend and backend deployments, its own PostgreSQL instance, credentials and persistent volume in `idea-board-staging`.
+
+### What AI does
+
+Your request describes the environment you want. The model recommends replica counts, CPU and memory and explains its choices. The deployment tool validates the recommendation, creates a plan and applies it after you review it.
+
+```text
+Your request + deployment skill
+             ↓
+      AI recommendation
+             ↓
+   Tool validates and writes a plan
+             ↓
+       You review the plan
+             ↓
+   Tool releases and checks the app
+```
+
+The [deployment skill](../.agents/skills/deploy/SKILL.md) supplies repository context, rules and the response format. `codex exec` makes the model call. The Python commands prepare its input and handle its output.
+
+### Build the version to deploy
+
+Install the deployment tool's Python dependencies. In subsequent commands, `uv run --project tools/deploy` uses these dependencies to run the tool.
+
+```bash
+uv sync --project tools/deploy --locked --all-groups
+```
+
+Use a clean checkout of a pushed commit. Save its SHA as the chart revision so Argo CD can fetch those charts from Git:
+
+```bash
+export CHART_REVISION="$(git rev-parse HEAD)"
+```
+
+Use that same SHA as the version label for the two images you are about to build:
+
+```bash
+export IMAGE_TAG="$CHART_REVISION"
+```
+
+Build the backend image from the local backend source:
+
+```bash
+docker build -t "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" apps/backend
+```
+
+Build the frontend image from the local frontend source:
+
+```bash
+docker build -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
+```
+
+Copy both images into the kind node. Their names match the chart configuration; this command loads them locally. The charts use `IfNotPresent`, so Kubernetes can use the loaded images.
 
 ```bash
 kind load docker-image --name idea-board \
@@ -49,85 +230,9 @@ kind load docker-image --name idea-board \
   "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
 ```
 
-The charts use `IfNotPresent`, so Kubernetes can use these images directly from the kind node.
+### Ask AI for staging settings
 
-## 2. Install Argo CD
-
-```bash
-kubectl create namespace argocd
-kubectl apply --server-side -k gitops/argocd
-kubectl --namespace argocd rollout status deployment/argocd-server --timeout=5m
-kubectl --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
-kubectl --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
-```
-
-If the namespace already exists, continue with the apply command.
-
-## 3. Apply the root
-
-```bash
-helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
-  --set cloud=kind | kubectl apply -f -
-kubectl --namespace argocd get applications --watch
-```
-
-Wait for `idea-board`, `ingress-controller`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
-
-The backend chart starts its PostgreSQL child chart, runs the migration Job, then deploys the backend. A failed migration blocks backend deployment.
-
-### Where the local settings live
-
-| File                                             | Purpose                                                          |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
-| `../infra/terraform/modules/argocd/bootstrap/`   | Root Application and its permissions                             |
-| `applications/values-kind.yaml`                  | Enables ingress, backend and frontend; disables External Secrets |
-| `../charts/idea-board-backend/values-kind.yaml`  | Enables PostgreSQL with local credentials                        |
-| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                                       |
-
-Local PostgreSQL uses development credentials from the backend chart's `values-kind.yaml`. The backend chart creates the Kubernetes database Secret. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
-
-The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
-
-Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `applications.<service>.source.helm.valuesObject.image.tag` in `applications/values-kind.yaml` for each service and merge. Argo CD applies the updated values.
-
-## 4. Open the app and Argo CD
-
-Open [localhost:8081](http://localhost:8081).
-
-For an existing cluster created without the port mapping, run this in a separate terminal:
-
-```bash
-kubectl --namespace ingress-system port-forward service/ingress-controller 8081:80
-```
-
-To open Argo CD, leave this running in another terminal:
-
-```bash
-kubectl --namespace argocd port-forward service/argocd-server 8080:443
-```
-
-Open [localhost:8080](https://localhost:8080). Argo CD uses a local self-signed certificate. Sign in as `admin` with the initial password:
-
-```bash
-kubectl --namespace argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 --decode
-```
-
-## 5. Test the app
-
-From the repository root, check the page and API through ingress:
-
-```bash
-IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
-```
-
-GitHub Actions runs the automated bootstrap, cluster-service, preview and rollback checks on its own kind cluster.
-
-## 6. Plan and deploy with AI
-
-Staging gets its own PostgreSQL instance, volume and generated credentials. Run from the repository root, using the `IMAGE_TAG` and `CHART_REVISION` set during setup. `uv run --project tools/deploy` runs Python with the deployment tool's dependencies.
-
-**1. Build the prompt.** `prompt` combines your request, the kind/staging target, image and chart versions, and the [deployment skill](../.agents/skills/deploy/SKILL.md). The shell's `>` saves that text to `/tmp/idea-board-prompt.md` for the model to read.
+**1. Create the prompt.** Combine the request, staging target, image version, chart revision and skill into one prompt. `>` writes it to a temporary file. This command prepares text; it does not call the model.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
@@ -137,7 +242,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py prompt \
   >/tmp/idea-board-prompt.md
 ```
 
-**2. Ask the model for settings.** Codex reads the prompt from the file through `<`. It proposes replicas, CPU and memory, with a reason. `--output-schema` specifies the JSON response format; `--output-last-message` saves the response to `/tmp/idea-board-recommendation.json`. The session uses a read-only sandbox and `--ephemeral` skips saving its session history. This is the live model call.
+**2. Call the model.** `<` supplies the prompt file as input. The schema defines the JSON response format. The response is saved in `/tmp/idea-board-recommendation.json`. The session uses a read-only sandbox; `--ephemeral` skips saving session history.
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
@@ -146,7 +251,13 @@ codex exec --sandbox read-only --ephemeral \
   - </tmp/idea-board-prompt.md
 ```
 
-**3. Prepare the release files.** `prepare` reads the recommendation, validates its settings and execution order, and writes `release-plan/plan.md` and `release-plan/applications.json`. These files describe the proposed release; this command does not change the cluster.
+**3. Read the recommendation.** Check the proposed replica counts, CPU, memory and reasoning:
+
+```bash
+cat /tmp/idea-board-recommendation.json
+```
+
+**4. Prepare the plan.** Validate the recommendation and generate the proposed Argo CD Applications in `release-plan/applications.json` and a readable plan in `release-plan/plan.md`. This writes local files; it does not change the cluster.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
@@ -155,21 +266,13 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --recommendation /tmp/idea-board-recommendation.json
 ```
 
-The skill permits a fixed list of read-only `kubectl` commands to inspect settings, capacity, rollout status, resource descriptions, ConfigMaps, and bounded container logs. This local walkthrough uses `kind-idea-board`; AWS/GCP inspection requires an existing context explicitly supplied by the trusted caller. The runner must already have credentials and API access. The AI must not log in, change kubeconfig, configure permissions, or read Kubernetes Secrets. If access or metrics are unavailable, it states the gap and uses the supplied information. These are model instructions; Kubernetes RBAC controls actual permissions. Deployment changes stay with the deployment tool.
-
-**4. Review the recommendation.** Show the model's proposed settings and reasoning:
-
-```bash
-cat /tmp/idea-board-recommendation.json
-```
-
-**5. Review the release plan.** Show the resource settings and execution order that the tool prepared:
+**5. Review the plan.** Check its target, resource settings and execution order before deploying:
 
 ```bash
 cat release-plan/plan.md
 ```
 
-**6. Deploy the reviewed settings.** `release` changes the kind cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. `--context` explicitly identifies the cluster this tool will change:
+**6. Release staging.** This changes the cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. The deployment tool requires `--context` to identify the cluster it will change.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -178,20 +281,13 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
 ```
 
-Open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). For command-line clients that do not resolve `.localhost` names, leave this port-forward running in another terminal:
-
-```bash
-kubectl --namespace idea-board-staging \
-  port-forward service/frontend 3002:80
-```
-
-Staging is then also available at [localhost:3002](http://localhost:3002).
+When the release succeeds, open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). Argo CD should show `idea-board-staging` with backend and frontend children, all Synced and Healthy.
 
 ## 7. Create a preview
 
-Preview `123` gets a parent Application, frontend, backend, namespace, PostgreSQL instance, persistent volume and credentials. Its backend chart deploys a PostgreSQL instance and volume in the preview namespace. It uses neither staging nor production database credentials.
+Preview `123` gets a namespace, frontend, backend, PostgreSQL instance, persistent volume and generated credentials. Its database runs in the preview namespace. Preview creation and cleanup need no staging or production database access.
 
-**1. Build the preview prompt.** `--environment preview --pr 123` selects the preview identity. The command combines that target and your request with the deployment skill and saves the prompt to `/tmp/idea-board-preview-prompt.md`.
+**1. Create the preview prompt.** `--environment preview --pr 123` identifies this preview. Save its request and deployment context for the model:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
@@ -201,7 +297,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py prompt \
   >/tmp/idea-board-preview-prompt.md
 ```
 
-**2. Generate the recommendation.** Make a live model call using the preview prompt and the same JSON schema as staging. Save its settings to `/tmp/idea-board-preview-recommendation.json`.
+**2. Generate its settings.** Call the model with the preview prompt and save its JSON recommendation:
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
@@ -210,7 +306,13 @@ codex exec --sandbox read-only --ephemeral \
   - </tmp/idea-board-preview-prompt.md
 ```
 
-**3. Prepare the preview plan.** Validate the recommendation and write the preview's proposed Applications and release plan. This replaces the plan files from the staging example.
+**3. Review the recommendation.** Check the settings and reasoning for the preview:
+
+```bash
+cat /tmp/idea-board-preview-recommendation.json
+```
+
+**4. Prepare its release plan.** Validate those settings and generate the preview Applications. This replaces the staging plan files in `release-plan/`.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
@@ -219,19 +321,13 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --recommendation /tmp/idea-board-preview-recommendation.json
 ```
 
-**4. Review the preview settings.** Display the model's response:
-
-```bash
-cat /tmp/idea-board-preview-recommendation.json
-```
-
-**5. Review the preview plan.** Check its target and resource settings:
+**5. Review the plan.** Confirm that the target is `idea-board-pr-123` and inspect its resource settings:
 
 ```bash
 cat release-plan/plan.md
 ```
 
-**6. Deploy the preview.** Create its database and login, parent Application, backend and frontend in kind, then check that the release responds:
+**6. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -240,17 +336,21 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --recommendation /tmp/idea-board-preview-recommendation.json --context kind-idea-board
 ```
 
-Open [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081). Create an idea and rerun the release command to check that preview data survives redeployment.
+Open [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081). Create an idea, then open staging and check that its ideas are separate. Rerun the preview release command and refresh the preview to check that its data survives redeployment.
 
-Argo CD shows both environment parents:
+The environments now look like this:
 
 ```text
-idea-board-staging                 idea-board-pr-123
-├── idea-board-staging-backend      ├── idea-board-pr-123-backend
-└── idea-board-staging-frontend     └── idea-board-pr-123-frontend
+idea-board                  Base app created by the root in step 3
+idea-board-staging          Staging release planned with AI
+├── ...-backend
+└── ...-frontend
+idea-board-pr-123           Preview release planned with AI
+├── ...-backend
+└── ...-frontend
 ```
 
-Remove the preview when finished. `cleanup` deletes its parent and child Applications, namespace, credentials and PostgreSQL volume:
+When you finish reviewing, remove the preview. This deletes its parent and child Applications, namespace, credentials and PostgreSQL volume:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
@@ -260,22 +360,30 @@ uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
 
 ## 8. Test performance and scaling
 
-Use the staging port-forward from step 6. Show the current replica counts before measuring:
+Measure staging with one backend replica, then repeat the same workload with two.
+
+In another terminal, expose staging's frontend on port `3002`. Leave this running during the measurements:
+
+```bash
+kubectl --namespace idea-board-staging port-forward service/frontend 3002:80
+```
+
+In your main terminal, check the current replica counts:
 
 ```bash
 kubectl --namespace idea-board-staging get deployments
 ```
 
-Run 1,000 create/list/delete cycles against staging, with up to 25 cycles active at once:
+Run 1,000 cycles with up to 25 active at once. Each cycle creates an idea, lists ideas and deletes its test idea. The result reports requests per second, p95 response time and failures.
 
 ```bash
 IDEA_BOARD_BASE_URL=http://localhost:3002 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
   npm --prefix apps/frontend run test:load
 ```
 
-Each cycle creates an idea, lists ideas and deletes its test idea. Record requests per second, p95 response time and errors. Repeat with `LOAD_CONCURRENCY=10` and `50` to increase parallelism. Set `LOAD_MAX_P95_MS` to enforce a response-time limit.
+Repeat with `LOAD_CONCURRENCY=10` and `50`. `LOAD_CYCLES` controls the total work; concurrency controls how much happens in parallel. Set `LOAD_MAX_P95_MS` to enforce a response-time limit.
 
-To compare two backend replicas, copy the reviewed staging settings and change the replica count:
+Create a copy of the staging recommendation with two backend replicas. This changes a local JSON file:
 
 ```bash
 uv run --project tools/deploy python - <<'PYTHON'
@@ -289,7 +397,7 @@ Path('/tmp/idea-board-two-replicas.json').write_text(json.dumps(settings, indent
 PYTHON
 ```
 
-Apply the two-replica settings to staging and wait for the release checks:
+Release those settings to staging and wait for the deployment checks to finish:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -298,20 +406,33 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --recommendation /tmp/idea-board-two-replicas.json --context kind-idea-board
 ```
 
-Rerun the same load commands and compare results at matching concurrency. Releasing `/tmp/idea-board-recommendation.json` again restores the original sizing. These measurements describe your local machine's capacity.
+Repeat the same load commands at the same concurrency values. Compare throughput, response times and failures. If the port-forward stopped during the release, restart it first. These results describe this local machine and workload.
+
+Restore the original staging settings after the comparison:
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py release \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
+```
+
+Stop the staging port-forward with Ctrl+C when you finish.
 
 ## 9. Explain a failed rollout with AI
 
-Use the recorded evidence from an earlier failed frontend rollout to ask AI what went wrong. This example makes a live model call about that captured failure; your current deployment stays unchanged.
+This second AI feature explains a failure using collected deployment evidence. The example uses a recorded attempt where an unpublished frontend image failed to start. The previous release was restored during that earlier test.
 
-**1. Build the diagnosis prompt.** Read the recorded failure evidence and combine it with the diagnosis instructions. Save the resulting prompt for the model:
+For a failure from your own release, use its `deployment-diagnostics.json` instead of the recorded evidence path below.
+
+**1. Create the diagnosis prompt.** Combine the failure evidence and diagnosis instructions into the model's input:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/analyze.py prompt \
   --evidence gitops/kind/evidence/failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
 ```
 
-**2. Ask the model to explain the failure.** Read the prompt, request JSON matching the diagnosis schema, and save the model's response to `/tmp/idea-board-diagnosis.json`:
+**2. Call the model.** Ask it to explain the evidence and return a response matching the diagnosis schema. Save that response to `/tmp/idea-board-diagnosis.json`:
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
@@ -320,7 +441,7 @@ codex exec --sandbox read-only --ephemeral \
   - </tmp/idea-board-diagnosis-prompt.md
 ```
 
-**3. Validate the diagnosis.** Check the model's response against the evidence, including its evidence references and rollback recommendation. Write the validated result to `diagnosis.md`:
+**3. Validate the explanation.** Check its format, evidence references and rollback recommendation, then write `diagnosis.md`:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/analyze.py report \
@@ -328,26 +449,37 @@ uv run --project tools/deploy python tools/deploy/analyze.py report \
   --diagnosis /tmp/idea-board-diagnosis.json
 ```
 
-**4. Read the report.** Inspect the explanation and recommended next steps:
+**4. Read the report.** Review the explanation and suggested next steps:
 
 ```bash
 cat diagnosis.md
 ```
 
-The report links the explanation to collected evidence. AI provides advice; the deployment checks and rollback command control the actual release. For a failure during your own staging release, use `deployment-diagnostics.json` from that attempt. See the [rollback procedure](../tools/deploy/README.md#roll-back-application-code) before restoring a previous release.
+Diagnosis provides advice. To restore an application release, follow the separate [rollback procedure](../tools/deploy/README.md#roll-back-application-code), including its database compatibility check.
 
 ## Inspect or stop
 
+To check deployment status, list the Applications:
+
 ```bash
 kubectl --namespace argocd get applications
-kubectl --namespace idea-board get pods,jobs,pvc,ingress
-kubectl --namespace idea-board logs deployment/backend
-kubectl --namespace idea-board logs -l app.kubernetes.io/component=migrate --all-containers=true
 ```
 
-Successful migration Jobs are removed, so their logs are available while they run or after a failure. Stopping a port-forward closes its local address. The cluster keeps running.
+To inspect the base app's containers, migration Jobs, storage and routes:
 
-To delete the cluster and its data:
+```bash
+kubectl --namespace idea-board get pods,jobs,pvc,ingress
+```
+
+To read recent backend logs:
+
+```bash
+kubectl --namespace idea-board logs deployment/backend --tail=100
+```
+
+For staging or preview inspection, use that environment's namespace. Successful migration Jobs are removed; their logs are available while running or after failure.
+
+Stopping a port-forward closes its local address. The cluster keeps running. When you are finished with the demo, this command deletes the cluster and its database volumes:
 
 ```bash
 kind delete cluster --name idea-board
