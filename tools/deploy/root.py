@@ -8,7 +8,7 @@ from config import REPOSITORY, chart_source, source_fields
 def cloud_root(target, applications, current=None, automated=True):
     if not target.uses_cloud_root:
         raise ValueError("the cloud root only manages staging and production")
-    root = (
+    root: dict = (
         deepcopy(current)
         if current
         else {

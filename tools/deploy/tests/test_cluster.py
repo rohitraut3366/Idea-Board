@@ -240,7 +240,7 @@ def test_multi_source_backend_checks_chart_revision_and_current_values(monkeypat
     target = Target("aws", "staging", SHA, SHA)
     app = manifests(target, recommendation("aws"))[1]
     _, _, deployment = release_state()
-    status = {
+    status: dict = {
         "sync": {
             "status": "Synced",
             "revisions": [SHA, "c" * 40],
