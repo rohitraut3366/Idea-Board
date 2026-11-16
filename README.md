@@ -49,6 +49,21 @@ Idea-Board/
 │   │   ├── aws/                   # AWS Terragrunt projects
 │   │   ├── gcp/                   # GCP Terragrunt projects
 │   │   └── modules/               # Reusable Terraform modules
+│   │       ├── argocd/            # Installs Argo CD and the root Application
+│   │       │   └── bootstrap/     # Helm chart for the root Application and AppProject
+│   │       ├── aws/
+│   │       │   ├── network/       # VPC, subnets, routing, and NAT
+│   │       │   ├── cluster/       # EKS cluster and worker nodes
+│   │       │   ├── psql/          # RDS PostgreSQL and database credentials
+│   │       │   ├── external-secrets/ # IRSA and Secrets Manager access
+│   │       │   └── load-balancer-controller/ # AWS Load Balancer Controller and IAM
+│   │       ├── gcp/
+│   │       │   ├── network/       # VPC, subnets, routing, and NAT
+│   │       │   ├── cluster/       # GKE cluster and worker nodes
+│   │       │   ├── psql/          # Cloud SQL PostgreSQL and database credentials
+│   │       │   └── external-secrets/ # Workload Identity and Secret Manager access
+│   │       └── github/
+│   │           └── helm-values/   # Writes generated chart values to GitHub
 │   ├── ingress/                   # Cloud routing configuration and guides
 │   └── cloud-deployment.md        # AWS and GCP deployment instructions
 ├── tools/deploy/                  # Deployment planning, checks, diagnosis, rollback, and tests
@@ -178,29 +193,13 @@ docker compose up --build --wait
 
 We test three things: each app on its own, the services working together, and the deployment process.
 
-### Test the complete app
+### E2E Test
 
-Start the stack:
-
-```bash
-docker compose up --build --wait
-```
-
-From the repository root, run:
+Tests the running web app's HTTP endpoints through the backend to PostgreSQL, including creating, listing, and deleting ideas. Run with Compose running:
 
 ```bash
-npm --prefix apps/frontend ci             # Install dependencies
-npm --prefix apps/frontend run test:stack # Test the running stack
-```
-
-These commands require Node.js 24.
-
-This tests the running frontend and backend together over HTTP.
-
-To check logs:
-
-```bash
-docker compose logs frontend backend migrate
+npm --prefix apps/frontend ci
+npm --prefix apps/frontend run test:stack
 ```
 
 ### Test each app
