@@ -99,7 +99,7 @@ IDEA_BOARD_BASE_URL=http://localhost:8081 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
 To check staging, preview redeployment, cleanup, failed rollout and rollback:
 
 ```bash
-export IMAGE_TAG=5ae00d82541190e313a06e14f39ddc94124455a8
+export IMAGE_TAG=76058522cebbcb5ff2292e44da1356624bdfcc6d
 export CHART_REVISION="$(git rev-parse HEAD)"
 uv sync --project tools/deploy --locked --all-groups
 uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
