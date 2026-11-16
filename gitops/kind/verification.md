@@ -2,36 +2,48 @@
 
 Verified on 16 November 2026 using the existing `kind-idea-board` cluster.
 
-## Running demo
+## App-of-apps and ingress run
 
-| Service        | Address                | Namespace            |
-| -------------- | ---------------------- | -------------------- |
-| App            | http://localhost:3001  | `idea-board`         |
-| Staging        | http://localhost:3002  | `idea-board-staging` |
-| Sample preview | http://localhost:3003  | `idea-board-pr-123`  |
-| Argo CD        | https://localhost:8080 | `argocd`             |
+The existing kind cluster had no application namespaces when this run started. Argo CD was installed, then one local root bootstrapped PostgreSQL, Traefik and the Idea Board parent. Every parent and child became Synced and Healthy. External Secrets Applications and CRDs were absent.
 
-These addresses work on the machine running the port-forwards. Preview `123` is a local example. Staging and the preview have separate databases and logins on the same PostgreSQL server; an API check confirmed they cannot see each other's ideas.
+| Service        | Address                                  | Namespace            |
+| -------------- | ---------------------------------------- | -------------------- |
+| App            | http://localhost:8081                    | `idea-board`         |
+| Staging        | http://idea-board-staging.localhost:8081 | `idea-board-staging` |
+| Sample preview | http://idea-board-pr-123.localhost:8081  | `idea-board-pr-123`  |
+| Argo CD        | https://localhost:8080                   | `argocd`             |
 
-Use the [kind guide](../README.md) to start the demo or reopen its port-forwards.
+These addresses use local port-forwards on the machine running kind. Preview `123` is a local example. Use the [kind guide](../README.md) to start the demo or reopen the forwards.
 
-## What ran
+| Check               | Result                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Bootstrap           | Root → PostgreSQL, ingress controller and Idea Board parent → backend/frontend                                   |
+| Local secrets       | Kubernetes Secret from local values; External Secrets disabled                                                   |
+| Request routing     | Page, built asset and API checks passed through Traefik                                                          |
+| Environment parents | Staging and preview deployed through parents; frontend update followed backend readiness                         |
+| Preview lifecycle   | Redeployment retained credentials; cleanup removed parent, children, namespace, database and role                |
+| Failed rollout      | An intentionally unpublished frontend image produced ImagePullBackOff                                            |
+| Rollback            | Parent and child sources restored; HTTP checks passed; migration hooks skipped; schema and canary data preserved |
 
-| Check                     | Result                                                                                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shared services           | Root Application and External Secrets Operator Synced and Healthy; CRDs established                                                                  |
-| App, staging, and preview | Page, built assets, and API checks passed on all three local addresses                                                                               |
-| Persistence               | A saved staging idea survived PostgreSQL pod replacement and backend restarts using the same 1 GiB PVC                                               |
-| Preview lifecycle         | Staging and preview releases passed; preview redeployment retained credentials; cleanup removed its namespace, database, and role                    |
-| Failed rollout            | An intentionally unpublished frontend image produced ImagePullBackOff and a failed rollout check                                                     |
-| Rollback                  | Both Application configurations were restored, HTTP checks passed, migrations did not rerun, and the schema version and test data remained unchanged |
-| Scale up/down             | Staging reached two healthy backend replicas through the release tool, then returned to one after load testing                                       |
+`tools/deploy/tests/check_kind.py` ran the isolated lifecycle and rollback checks and removed its test resources. Staging and preview `123` were then deployed for the persistent demo. Staging's database was created automatically on the local PostgreSQL server. Page and API checks through all three ingress hostnames passed, and test ideas remained isolated between the databases.
 
-The isolated lifecycle and rollback checks used the existing `tools/deploy/tests/check_kind.py`. That test creates and removes its own resources. The persistent staging and sample preview were deployed afterward and left running.
+- Application image: `5ae00d82541190e313a06e14f39ddc94124455a8`.
+- Chart revision: `d671dc6822ce187919c431eb177da2cdfd98cf32`.
+- Deployment unit/integration checks: 102 passed; Ruff, mypy, Helm lint and actionlint passed.
 
-## Load results
+### Load through ingress
 
-Requests went through a local port-forward to frontend Nginx, then the backend and PostgreSQL. Each cycle created an idea, read the list, and deleted that idea. Test data was removed successfully.
+A stack check and 1,000 concurrent create/list/delete cycles ran through `http://localhost:8081` with one backend replica:
+
+| Concurrent cycles | Cycles | Requests | Seconds | Requests/sec | p95 request, ms | Failed requests |
+| ----------------- | ------ | -------- | ------- | ------------ | --------------- | --------------- |
+| 25                | 1,000  | 3,000    | 6.760   | 443.76       | 87.58           | 0               |
+
+There were no failed cycles or cleanup failures. This was a short local load check with no configured latency threshold.
+
+## Earlier scaling measurements
+
+The earlier run used direct service Applications and a port-forward to frontend Nginx, then the backend and PostgreSQL. It also checked PostgreSQL pod replacement and backend restart persistence. These measurements predate the ingress run above. Each cycle created an idea, read the list, and deleted that idea. Test data was removed successfully.
 
 | Backend replicas | Concurrent cycles | Cycles | Requests | Seconds | Requests/sec | p95 request, ms | Failed requests |
 | ---------------- | ----------------- | ------ | -------- | ------- | ------------ | --------------- | --------------- |
@@ -45,16 +57,16 @@ All 42,000 measured requests passed, with no failed cycles or cleanup failures. 
 
 The controlled comparison at concurrency 50 improved from 401 to 574 requests/second when the backend went from one replica to two. Repeated runs and longer observation would be needed to establish a reliable capacity limit.
 
-The [raw results](evidence/load-results.json) contain the test outputs. To repeat a run against staging:
+The [raw results](evidence/load-results.json) contain the earlier test outputs. To repeat a run against staging, first leave `kubectl --context kind-idea-board --namespace idea-board-staging port-forward service/frontend 3002:80` running in another terminal:
 
 ```bash
 IDEA_BOARD_BASE_URL=http://127.0.0.1:3002 LOAD_CYCLES=1000 LOAD_CONCURRENCY=50 \
   npm --prefix apps/frontend run test:load
 ```
 
-For the scaling comparison, set `backend.replicas` to `2` in a copy of the recorded recommendation and release it with the same staging command in the kind guide. Repeat the load command, then release the original recommendation to return to one replica.
+For a new scaling comparison through ingress, use the base app URL from the kind guide or a separate frontend port-forward to staging. Set `backend.replicas` to `2` in a copy of the recorded recommendation and release it with the same staging command in the kind guide. Repeat the load command, then release the original recommendation to return to one replica.
 
-## Test setup
+## Earlier scaling test setup
 
 - One ARM64 kind node, Kubernetes `v1.33.1`, Argo CD `v3.6.1`, PostgreSQL `17`.
 - Docker reported 16 CPUs and 40.95 GiB available memory. The machine also ran other containers.
@@ -75,6 +87,6 @@ The integration test uses fixed recommendations so it can run independently of a
 
 ## Verification boundary
 
-This run reused an existing cluster. The persistent PostgreSQL manifest passed a Kubernetes server-side dry run and matched the running deployment. A fresh-machine bootstrap was not exercised.
+The app-of-apps run bootstrapped application resources into an existing kind cluster. Creating the kind cluster on a fresh machine was not exercised. The earlier scaling measurements used the setup described above.
 
 Metrics Server was unavailable, so per-pod CPU and memory under load were not measured. Cloud networking, managed database access, cloud secret access, and public load balancers were not exercised. The independent AWS and GCP stacks have validation and provider-mock tests, with no current public application URLs.

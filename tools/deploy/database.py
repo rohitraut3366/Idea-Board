@@ -53,6 +53,23 @@ def driver_url(url):
     return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+def prepare_local_database(admin_url, environment):
+    if environment not in {"staging", "production"}:
+        raise ValueError("unsupported local environment")
+    database = "idea_board_" + environment
+    admin = urlsplit(admin_url)
+    with psycopg.connect(driver_url(admin_url), autocommit=True) as connection:
+        owner = connection.execute(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = %s",
+            (database,),
+        ).fetchone()
+        if owner and owner[0] != unquote(admin.username or ""):
+            raise ValueError("local database belongs to another owner")
+        if not owner:
+            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    return urlunsplit((admin.scheme, admin.netloc, "/" + database, admin.query, ""))
+
+
 def preview_names(pr):
     if type(pr) is not int or not 1 <= pr <= 999999999:
         raise ValueError("invalid preview PR number")

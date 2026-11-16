@@ -1,0 +1,22 @@
+traefik:
+  fullnameOverride: ingress-controller
+  ingressClass:
+    name: traefik
+    isDefaultClass: false
+  providers:
+    kubernetesCRD:
+      enabled: false
+    kubernetesIngress:
+      ingressEndpoint:
+        ip: 127.0.0.1
+      publishedService:
+        enabled: false
+  service:
+    spec:
+      type: NodePort
+  ports:
+    web:
+      nodePort: 30080
+    websecure:
+      expose:
+        default: false

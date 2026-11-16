@@ -45,7 +45,7 @@ For GCP inspection commands, see the [GKE notes](gcp/README.md).
 
 Staging, production, and each PR preview have their own namespace and Ingress. Each Ingress creates a public load balancer. Closing a PR removes its Applications, Ingress, and associated cloud resources. Previews share staging's cluster and database server.
 
-Public routing currently serves HTTP on port 80. HTTPS requires DNS and certificate configuration. Local kind uses the frontend port-forward. Compose routes `/api/` requests through Nginx.
+Public routing currently serves HTTP on port 80. HTTPS requires DNS and certificate configuration. Local kind uses Traefik ingress; follow the [kind guide](../../gitops/README.md). Compose routes `/api/` requests through Nginx.
 
 ## Check and remove
 

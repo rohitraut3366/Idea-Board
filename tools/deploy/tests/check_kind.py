@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recommendations import recommendation  # noqa: E402
 
 from cluster import Cluster  # noqa: E402
-from config import Target, manifests  # noqa: E402
+from config import Target, manifests, parent_application  # noqa: E402
 from deploy import cleanup, release  # noqa: E402
 from diagnosis import collect  # noqa: E402
 from rollback import checkpoint, rollback, state  # noqa: E402
@@ -38,6 +38,8 @@ def main():
     for target in (staging, preview):
         if source.get("namespace", target.namespace):
             raise ValueError(f"Refusing to use existing namespace {target.namespace}")
+        if source.get("application", target.namespace, "argocd"):
+            raise ValueError("release-check parent Application already exists")
         for document in manifests(target, recommendation()):
             if source.get(document["kind"].lower(), document["metadata"]["name"], "argocd"):
                 raise ValueError("release-check Argo resources already exist")
@@ -126,9 +128,10 @@ def main():
                 "cpu"
             ] = "125m"
             checkpoint(staging_cluster, failed, bad_applications)
-            staging_cluster.apply(bad_applications[0])
+            failed_parent = parent_application(failed, bad_applications)
+            staging_cluster.apply(failed_parent)
+            staging_cluster.wait([failed_parent])
             staging_cluster.wait([bad_applications[0]])
-            staging_cluster.apply(bad_applications[1])
             try:
                 staging_cluster.wait([bad_applications[1]], timeout=45)
             except TimeoutError:
@@ -174,6 +177,16 @@ def main():
     finally:
         # These namespaces, database names, and role were checked absent before this test.
         for target in (preview, staging):
+            source.run(
+                "--namespace",
+                "argocd",
+                "delete",
+                "application",
+                target.namespace,
+                "--ignore-not-found",
+                "--wait=true",
+                "--timeout=5m",
+            )
             for document in reversed(manifests(target, recommendation())):
                 kind = document["kind"].lower()
                 source.run(

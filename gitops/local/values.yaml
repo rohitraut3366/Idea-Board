@@ -1,0 +1,20 @@
+repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
+targetRevision: master
+imageTag: ""
+postgres:
+  enabled: false
+applications:
+  ingress-controller:
+    enabled: false
+    path: charts/ingress-controller
+    namespace: ingress-system
+  external-secrets:
+    enabled: true
+    path: charts/external-secrets
+    namespace: external-secrets
+  idea-board:
+    enabled: true
+    path: gitops/applications
+    namespace: argocd
+    valueFiles:
+      - values-kind.yaml

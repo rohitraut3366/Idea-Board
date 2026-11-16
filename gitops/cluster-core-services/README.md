@@ -84,6 +84,8 @@ Automatic sync repairs drift. Removing a file does not automatically delete a cl
 
 This bootstrap installs the operator. AWS IAM access, the `SecretStore` connection and Idea Board's `ExternalSecret` are still needed to pull database credentials from AWS Secrets Manager. Those application resources belong with Idea Board's deployment configuration.
 
+The [local kind root](../README.md) uses a separate values profile with External Secrets disabled and local database credentials.
+
 ## Check on kind
 
 With Argo CD running in the existing `kind-idea-board` cluster, use a pushed revision containing these files:

@@ -1,0 +1,1 @@
+Routes Kubernetes Ingress resources using the traefik class.

@@ -1,0 +1,27 @@
+{{- range $name, $application := .Values.applications }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ printf "%s%s" $.Values.namePrefix $name }}
+  namespace: {{ $.Release.Namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ $.Values.project }}
+  source:
+    repoURL: {{ default $.Values.repositoryURL $application.source.repoURL | quote }}
+    targetRevision: {{ default $.Values.targetRevision $application.source.targetRevision | quote }}
+    path: {{ $application.source.path | quote }}
+    helm:
+      {{- $helm := deepCopy $application.source.helm }}
+      {{- if $.Values.imageTag }}
+      {{- $helm = mergeOverwrite $helm (dict "valuesObject" (dict "image" (dict "tag" $.Values.imageTag))) }}
+      {{- end }}
+      {{- toYaml $helm | nindent 6 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $.Values.namespace }}
+  syncPolicy:
+    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true))) | nindent 4 }}
+{{- end }}

@@ -1,30 +1,45 @@
+{{- if .Values.postgres.enabled }}
 # Local development credentials. Keep this database inside kind.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: idea-board
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  name: {{ .Values.postgres.namespace }}
+
 ---
 apiVersion: v1
 kind: Secret
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  namespace: {{ .Values.postgres.namespace }}
   name: idea-board-database
 stringData:
-  IDEA_BOARD_DATABASE_URL: postgresql+psycopg://idea_board:idea_board_local@postgres:5432/idea_board
+  IDEA_BOARD_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres.%s.svc.cluster.local:5432/%s" .Values.postgres.username .Values.postgres.password .Values.postgres.namespace .Values.postgres.database | quote }}
+
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  namespace: {{ .Values.postgres.namespace }}
   name: postgres-data
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: {{ .Values.postgres.storage }}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  namespace: {{ .Values.postgres.namespace }}
   name: postgres
 spec:
   replicas: 1
@@ -42,11 +57,11 @@ spec:
           image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
           env:
             - name: POSTGRES_DB
-              value: idea_board
+              value: {{ .Values.postgres.database | quote }}
             - name: POSTGRES_USER
-              value: idea_board
+              value: {{ .Values.postgres.username | quote }}
             - name: POSTGRES_PASSWORD
-              value: idea_board_local
+              value: {{ .Values.postgres.password | quote }}
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:
@@ -56,9 +71,9 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - idea_board
+                - {{ .Values.postgres.username | quote }}
                 - -d
-                - idea_board
+                - {{ .Values.postgres.database | quote }}
             periodSeconds: 2
           resources:
             requests:
@@ -75,10 +90,14 @@ spec:
             claimName: postgres-data
   strategy:
     type: Recreate
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  namespace: {{ .Values.postgres.namespace }}
   name: postgres
 spec:
   selector:
@@ -86,3 +105,4 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+{{- end }}

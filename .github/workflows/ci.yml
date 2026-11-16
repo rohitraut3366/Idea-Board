@@ -314,11 +314,13 @@ jobs:
       - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
-      - name: Build External Secrets chart dependencies
+      - name: Build chart dependencies
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add traefik https://traefik.github.io/charts
           helm dependency build ../../charts/external-secrets
-      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests
+          helm dependency build ../../charts/ingress-controller
+      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../gitops/tests
 
   publish:
     name: Publish images to GHCR
@@ -408,15 +410,16 @@ jobs:
           version: v0.32.0
           cluster_name: idea-board
           node_image: kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
-      - name: Start PostgreSQL and Argo CD
+      - name: Install Argo CD
         run: |
-          kubectl --context kind-idea-board create namespace idea-board
-          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board-backend/tests/postgres.yaml
-          kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
           kubectl --context kind-idea-board create namespace argocd
           kubectl --context kind-idea-board apply --server-side -k gitops/argocd
           kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
           kubectl --context kind-idea-board --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+      - name: Verify the local app-of-apps bootstrap
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 gitops/tests/check_local.py --context kind-idea-board --revision "$SOURCE_SHA" --image-tag "$SOURCE_SHA"
       - name: Verify the cluster services app-of-apps
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
