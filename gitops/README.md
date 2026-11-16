@@ -53,7 +53,7 @@ If the namespace already exists, continue with the apply command.
 
 ```bash
 helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
-  --set cloud=kind --set targetRevision="$CHART_REVISION" | kubectl --context kind-idea-board apply --server-side -f -
+  --set cloud=kind | kubectl --context kind-idea-board apply --server-side -f -
 kubectl --context kind-idea-board --namespace argocd get applications --watch
 ```
 
