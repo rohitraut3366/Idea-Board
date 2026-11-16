@@ -153,6 +153,8 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
 
 The prompt includes the [deployment skill](../.agents/skills/deploy/SKILL.md). AI proposes replicas, CPU and memory. Python validates the response and generates the deployment commands.
 
+For a trusted `kind` target, the skill permits a fixed list of read-only `kubectl` commands against `kind-idea-board` to inspect current settings, capacity, rollout status, resource descriptions, ConfigMaps, and bounded container logs. Kubernetes Secret reads are excluded. The runner must permit access to the local Kubernetes API. If access or metrics are unavailable, the AI states the gap and uses the supplied information. These are model instructions; Kubernetes RBAC controls the runner's actual permissions. The skill includes a debugging sequence and leaves all changes to the deployment tool.
+
 Review the recommendation and plan:
 
 ```bash
