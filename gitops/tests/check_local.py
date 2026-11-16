@@ -29,7 +29,7 @@ def main():
         raise ValueError("an explicit kind context is required")
     kubectl = ("kubectl", "--context", args.context)
     manifests = run("kubectl", "kustomize", str(ROOT / "gitops/kind"))
-    documents = {"apiVersion": "v1", "kind": "List", "items": []}
+    documents: dict = {"apiVersion": "v1", "kind": "List", "items": []}
     for manifest in manifests.split("---\n"):
         if manifest.strip():
             documents["items"].append(

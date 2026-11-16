@@ -424,14 +424,14 @@ Choose the cloud and its GitHub Environment to select the target. Adding another
 
 The local Kubernetes demonstration is verified in kind:
 
-| Check | Result |
-| --- | --- |
-| App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts |
-| Argo CD | App services, cluster services root, and External Secrets Operator became Synced and Healthy |
-| Preview lifecycle | Separate database/login, redeployment, and cleanup passed |
-| Rollback | Failed-image detection and recovery passed; schema and test data were preserved |
-| Load and scaling | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md) |
-| AI integration | Session-generated recommendation and diagnosis passed the tool's validation |
+| Check              | Result                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------- |
+| App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts          |
+| Argo CD            | Local root, ingress and environment parents with backend/frontend children became Synced and Healthy |
+| Preview lifecycle  | Separate database/login, redeployment, and cleanup passed                                            |
+| Rollback           | Failed-image detection and recovery passed; schema and test data were preserved                      |
+| Load and scaling   | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md)           |
+| AI integration     | Session-generated recommendation and diagnosis passed the tool's validation                          |
 
 The [kind guide](gitops/README.md) contains the commands to reproduce the demo. The [recorded evidence](gitops/kind/verification.md) distinguishes the AI session from automated checks using fixed recommendations.
 

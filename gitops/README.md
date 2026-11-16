@@ -51,13 +51,13 @@ The root waits for PostgreSQL before creating its child Applications. Backend sy
 
 ### Where the local settings live
 
-| File | Purpose |
-| --- | --- |
-| `kind/root.yaml` | Root Application and its permissions; watches `master` |
-| `local/values-kind.yaml` | Enables PostgreSQL and ingress; disables External Secrets |
-| `applications/values-kind.yaml` | Backend and frontend child Applications |
-| `kind/backend-values.yaml` | Backend image and Kubernetes Secret reference |
-| `kind/frontend-values.yaml` | Frontend image and `localhost` ingress routes |
+| File                            | Purpose                                                   |
+| ------------------------------- | --------------------------------------------------------- |
+| `kind/root.yaml`                | Root Application and its permissions; watches `master`    |
+| `local/values-kind.yaml`        | Enables PostgreSQL and ingress; disables External Secrets |
+| `applications/values-kind.yaml` | Backend and frontend child Applications                   |
+| `kind/backend-values.yaml`      | Backend image and Kubernetes Secret reference             |
+| `kind/frontend-values.yaml`     | Frontend image and `localhost` ingress routes             |
 
 Local PostgreSQL uses development credentials from `local/values-kind.yaml`. The root creates a Kubernetes Secret directly. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
 
