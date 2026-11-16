@@ -62,7 +62,12 @@ def main():
             document["spec"]["source"]["helm"]["valuesObject"].update(
                 {
                     "targetRevision": args.revision,
-                    "imageTag": args.image_tag,
+                    "applications": {
+                        service: {
+                            "source": {"helm": {"valuesObject": {"image": {"tag": args.image_tag}}}}
+                        }
+                        for service in ("backend", "frontend")
+                    },
                 }
             )
     run(

@@ -15,11 +15,7 @@ spec:
     targetRevision: {{ default $.Values.targetRevision $application.source.targetRevision | quote }}
     path: {{ $application.source.path | quote }}
     helm:
-      {{- $helm := deepCopy $application.source.helm }}
-      {{- if and $.Values.imageTag (or (eq $name "backend") (eq $name "frontend")) }}
-      {{- $helm = mergeOverwrite $helm (dict "valuesObject" (dict "image" (dict "tag" $.Values.imageTag))) }}
-      {{- end }}
-      {{- tpl (toYaml $helm) $ | nindent 6 }}
+      {{- tpl (toYaml $application.source.helm) $ | nindent 6 }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ default $.Values.namespace $application.namespace }}

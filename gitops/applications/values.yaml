@@ -3,7 +3,6 @@ targetRevision: master
 project: idea-board
 namespace: idea-board
 namePrefix: ""
-imageTag: ""
 cloud: kind
 clusterName: idea-board
 applications: {}

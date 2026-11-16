@@ -63,15 +63,20 @@ def test_values_can_disable_apps_and_enable_another_service():
     assert "name: backend\n" in output
 
 
-def test_image_tag_override_reaches_only_the_application_charts():
+def test_child_helm_values_keep_independent_image_tags():
     output = render(
         "gitops/applications",
         "-f",
         str(ROOT / "gitops/applications/values-kind.yaml"),
         "--set",
-        "imageTag=test-release",
+        "applications.backend.source.helm.valuesObject.image.tag=backend-release",
+        "--set",
+        "applications.frontend.source.helm.valuesObject.image.tag=frontend-release",
     )
-    assert output.count("tag: test-release") == 2
+    backend = next(doc for doc in output.split("---") if "name: backend\n" in doc)
+    frontend = next(doc for doc in output.split("---") if "name: frontend\n" in doc)
+    assert "tag: backend-release" in backend
+    assert "tag: frontend-release" in frontend
     ingress = next(doc for doc in output.split("---") if "name: ingress-controller\n" in doc)
     assert "image:" not in ingress
 

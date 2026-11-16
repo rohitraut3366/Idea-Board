@@ -61,7 +61,7 @@ Local PostgreSQL uses development credentials from the backend chart's `values-k
 
 The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
 
-Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `imageTag` in `applications/values-kind.yaml` and merge. Argo CD applies that tag to both services.
+Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `applications.<service>.source.helm.valuesObject.image.tag` in `applications/values-kind.yaml` for each service and merge. Argo CD applies the updated values.
 
 ## 4. Open the app and Argo CD
 
