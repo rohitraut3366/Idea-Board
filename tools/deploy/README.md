@@ -35,7 +35,7 @@ For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both
 
 ## Deploy
 
-For kind, export `IDEA_BOARD_DATABASE_URL` for a dedicated database reachable **from the cluster**. No `.env` file is read. Staging uses `idea-board-staging`, leaving the original `idea-board` namespace separate. The tool refuses to adopt a namespace without its ownership labels. It does not create a PostgreSQL server.
+For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `IDEA_BOARD_DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels.
 
 Use the same inputs with `release` and an explicit context:
 
@@ -47,9 +47,11 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --context kind-idea-board
 ```
 
+On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP releases submit the service Applications directly.
+
 The backend migration stays in its separate PreSync Job. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. Cloud credentials and Environment variables are described in the [root README](../../README.md).
 
-A preview uses `--environment preview --pr 123` and shares the staging cluster/database server. Its own database and login survive redeployment. Staging must be healthy because preview administration runs inside its backend. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Cleanup rejects staging and production and refuses unrelated databases/roles.
+A preview uses `--environment preview --pr 123` and shares the staging cluster/database server. Its own database and login survive redeployment. Staging must be healthy because preview administration runs inside its backend. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Kind cleanup deletes the parent before its children so the parent cannot recreate them. Cleanup rejects staging and production and refuses unrelated databases/roles.
 
 ## Diagnose a rollout
 
@@ -85,6 +87,8 @@ uv run --project tools/deploy python tools/deploy/deploy.py rollback \
 
 Rollback restores both Argo sources and Helm values, pauses automatic sync, and requests an explicit Argo apply sync that skips hooks, including old migrations. It waits for that specific operation to succeed and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Automatic sync stays paused until the next regular release, which enables it again and runs migrations normally.
 
+On kind, rollback also validates and pauses the parent, then restores its desired child sources. The parent and children stay paused until the next release.
+
 The tool checks both Applications before changing either. It refuses a mismatched failed SHA, an Application changed since the attempt, a missing predecessor, or an active Argo operation. Terminate a stuck sync in Argo CD and inspect its hooks before retrying. A partial rollback remains visible and can be retried after the underlying problem is resolved. GitHub Actions exposes the same operation as `operation=rollback` with `schema_compatible=true`; it uses the target's existing deployment Environment rules.
 
 ## Verification
@@ -118,4 +122,4 @@ The integration test uses explicit recommendation fixtures, independently of mod
 
 Follow the [public routing setup](../../infra/ingress/README.md) before cloud releases. AWS uses the AWS Load Balancer Controller; GCP uses GKE's built-in Ingress controller. The tool generates provider-specific annotations, GCP BackendConfig resources, and an Ingress routing to both ClusterIP Services. Previews use the same model in their own namespaces; no Terraform updates or preconfigured target-group IDs are needed per preview.
 
-The final public check reads `Ingress/frontend` in the release namespace and verifies both the page and API at its reported hostname/IP. Controllers must remain available during preview cleanup so deleting the Ingress also removes its cloud resources. Local kind keeps Ingress disabled and uses its existing port-forward.
+The final public check reads `Ingress/frontend` in the release namespace and verifies both the page and API at its reported hostname/IP. Controllers must remain available during preview cleanup so deleting the Ingress also removes its cloud resources. Local kind uses Traefik ingress with a hostname for each environment; see the [kind guide](../../gitops/README.md).

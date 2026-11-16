@@ -1,151 +1,159 @@
 # Run Idea Board in kind
 
-This runs PostgreSQL, the frontend, and the backend in a local Kubernetes cluster. Argo CD deploys the app from Git. Its cluster services root installs External Secrets Operator.
+Argo CD reads the deployment configuration from Git and keeps the cluster in sync. You install Argo CD and apply one root Application. That root creates PostgreSQL and the Applications below it:
 
-Docker, kind, kubectl, Helm, Python, uv, and Node.js are needed. Run the commands from the repository root.
+```text
+local
+├── PostgreSQL: credentials, storage, Deployment and Service
+├── ingress-controller → Traefik
+└── idea-board
+    ├── backend → FastAPI and its migration Job
+    └── frontend → React, Nginx and the Ingress routes
+```
+
+The browser loads the web app at `localhost:8081`. Requests to `/api` reach the backend through Traefik. PostgreSQL is reachable inside the cluster.
+
+Docker, kind, kubectl, Helm, Python, uv and Node.js are needed. Run the commands from the repository root.
 
 ## 1. Create the cluster
 
-If `kind-idea-board` already exists, keep it and continue to step 2.
+If `kind-idea-board` already exists, continue to step 2.
 
 ```bash
-kind create cluster --name idea-board \
-  --image kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f
+kind create cluster --name idea-board --config gitops/kind/config.yaml
 kubectl --context kind-idea-board get nodes
 ```
 
-## 2. Start PostgreSQL
+The kind configuration maps local port `8081` to Traefik's NodePort.
+
+## 2. Install Argo CD
 
 ```bash
-kubectl --context kind-idea-board --namespace idea-board apply -f gitops/kind/postgres.yaml
-kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=3m
-```
-
-The manifest creates the namespace, local database credentials, and a 1 GiB persistent volume claim. The data survives replacing the PostgreSQL pod. Deleting the volume or kind cluster removes it.
-
-## 3. Install Argo CD and shared services
-
-```bash
-kubectl --context kind-idea-board apply -f - <<'YAML'
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: argocd
-YAML
+kubectl --context kind-idea-board create namespace argocd
 kubectl --context kind-idea-board apply --server-side -k gitops/argocd
 kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-server --timeout=5m
 kubectl --context kind-idea-board --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
 kubectl --context kind-idea-board --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
-python3 gitops/tests/check_core_services.py --context kind-idea-board --revision master
 ```
 
-The last command installs the root Application and waits for it and External Secrets Operator to become Synced and Healthy. The operator is installed; connecting it to cloud credentials is separate from this local setup.
+If the namespace already exists, continue with the apply command.
 
-## 4. Deploy the app
+## 3. Apply the root
 
 ```bash
 kubectl --context kind-idea-board apply -k gitops/kind
-kubectl --context kind-idea-board --namespace argocd wait application/backend application/frontend \
-  --for=jsonpath='{.status.sync.status}'=Synced --timeout=5m
-kubectl --context kind-idea-board --namespace argocd wait application/backend application/frontend \
-  --for=jsonpath='{.status.health.status}'=Healthy --timeout=5m
-kubectl --context kind-idea-board --namespace idea-board get pods
+kubectl --context kind-idea-board --namespace argocd get applications --watch
 ```
 
-The two Applications watch `master` and use published GHCR images. Backend sync runs migrations in a separate `PreSync` Job. A failed migration blocks the release.
+Wait for `local`, `ingress-controller`, `idea-board`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
 
-To release a new image, update the tag in `kind/backend-values.yaml` or `kind/frontend-values.yaml` and merge the change. Argo CD applies it.
+The root waits for PostgreSQL before creating its child Applications. Backend sync runs migrations in a separate `PreSync` Job. A failed migration blocks backend deployment.
 
-## 5. Open the app
+### Where the local settings live
 
-Run each port-forward in its own terminal and leave it running:
+| File | Purpose |
+| --- | --- |
+| `kind/root.yaml` | Root Application and its permissions; watches `master` |
+| `local/values-kind.yaml` | Enables PostgreSQL and ingress; disables External Secrets |
+| `applications/values-kind.yaml` | Backend and frontend child Applications |
+| `kind/backend-values.yaml` | Backend image and Kubernetes Secret reference |
+| `kind/frontend-values.yaml` | Frontend image and `localhost` ingress routes |
+
+Local PostgreSQL uses development credentials from `local/values-kind.yaml`. The root creates a Kubernetes Secret directly. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
+
+The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
+
+To release another image, update the tags in the backend/frontend values files and merge. Argo CD applies the change.
+
+## 4. Open the app and Argo CD
+
+Open [localhost:8081](http://localhost:8081).
+
+For an existing cluster created without the port mapping, run this in a separate terminal:
 
 ```bash
-kubectl --context kind-idea-board --namespace idea-board port-forward service/frontend 3001:80
+kubectl --context kind-idea-board --namespace ingress-system port-forward service/ingress-controller 8081:80
 ```
+
+To open Argo CD, leave this running in another terminal:
 
 ```bash
 kubectl --context kind-idea-board --namespace argocd port-forward service/argocd-server 8080:443
 ```
 
-- App: [localhost:3001](http://localhost:3001)
-- Argo CD: [localhost:8080](https://localhost:8080), with its local self-signed certificate.
-
-Argo CD's initial username is `admin`. Read its password locally:
+Open [localhost:8080](https://localhost:8080). Argo CD uses a local self-signed certificate. Sign in as `admin` with the initial password:
 
 ```bash
 kubectl --context kind-idea-board --namespace argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-## 6. Verify the deployment
+## 5. Test the app
 
-With the app port-forward running:
+With the app reachable through ingress:
 
 ```bash
-IDEA_BOARD_BASE_URL=http://127.0.0.1:3001 npm --prefix apps/frontend run test:stack
-IDEA_BOARD_BASE_URL=http://127.0.0.1:3001 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
+IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
+IDEA_BOARD_BASE_URL=http://localhost:8081 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
   npm --prefix apps/frontend run test:load
 ```
 
-For staging, preview redeployment, cleanup, failure detection, and rollback checks:
-
-```bash
-uv sync --project tools/deploy --locked --all-groups
-uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
-  --context kind-idea-board \
-  --image-tag 5ae00d82541190e313a06e14f39ddc94124455a8 \
-  --revision 5ae00d82541190e313a06e14f39ddc94124455a8 \
-  --evidence-output /tmp/idea-board-failed-rollout.json
-```
-
-Run this check before creating the persistent staging demo below. It uses fixed AI-response fixtures. It creates its own staging and preview databases, deploys both services through Argo CD, redeploys the preview, and removes it. It then introduces a bad frontend image and verifies recovery to the last healthy release while preserving the database schema and data. It removes its test resources afterward. It refuses to run if the staging or test-preview namespace already exists.
-
-See [the deployment tool](../tools/deploy/README.md) for a persistent staging or preview release and [the verification results](kind/verification.md) for the recorded run.
-
-## 7. Keep staging and a preview running
-
-The isolated check above removes its test environments. To keep demo environments visible in Argo CD, create a staging database once:
-
-```bash
-kubectl --context kind-idea-board --namespace idea-board exec deployment/postgres -- \
-  psql -U idea_board -d idea_board -v ON_ERROR_STOP=1 -c 'CREATE DATABASE idea_board_staging_demo'
-```
-
-If that database already exists from an earlier demo, keep it and continue.
-
-Use the recorded AI recommendation to deploy staging:
+To check staging, preview redeployment, cleanup, failed rollout and rollback:
 
 ```bash
 export IMAGE_TAG=5ae00d82541190e313a06e14f39ddc94124455a8
-export CHART_REVISION="$IMAGE_TAG"
-export IDEA_BOARD_DATABASE_URL='postgresql+psycopg://idea_board:idea_board_local@postgres.idea-board.svc.cluster.local:5432/idea_board_staging_demo'
+export CHART_REVISION="$(git rev-parse HEAD)"
+uv sync --project tools/deploy --locked --all-groups
+uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
+  --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --evidence-output /tmp/idea-board-failed-rollout.json
+```
 
+The chart revision must be pushed to the public repository so Argo CD can fetch it. The image tag above identifies published application images.
+
+The check uses fixed AI-response fixtures and creates isolated test databases and namespaces. It refuses existing staging/test-preview environments and removes its own environments afterward. Run it before creating the persistent demo below. See the [recorded verification](kind/verification.md).
+
+## 6. Keep staging and a preview running
+
+Each environment has a parent Application with backend and frontend children:
+
+```text
+idea-board-staging                 idea-board-pr-123
+├── idea-board-staging-backend      ├── idea-board-pr-123-backend
+└── idea-board-staging-frontend     └── idea-board-pr-123-frontend
+```
+
+The deployment tool creates staging's database on the local PostgreSQL server. Preview `123` gets its own namespace, database and login on the same server. Staging must be healthy before creating a preview.
+
+Using the image and chart variables from step 5, deploy with the recorded recommendation:
+
+```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
   --cloud kind --environment staging \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation gitops/kind/evidence/recommendation.json --context kind-idea-board
-```
 
-Create sample preview `123`. It receives a separate namespace, database, and database login on the same PostgreSQL server:
-
-```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
   --cloud kind --environment preview --pr 123 \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation gitops/kind/evidence/recommendation.json --context kind-idea-board
 ```
 
-Run these port-forwards in separate terminals:
+The tool updates the parent, waits for the backend, then updates the frontend. It checks both services and their HTTP responses before reporting a verified release.
+
+With ingress reachable on port `8081`:
+
+- Staging: [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081)
+- Preview: [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081)
+
+Browsers resolve `.localhost` names locally. For a command-line client that does not, use an explicit mapping:
 
 ```bash
-kubectl --context kind-idea-board --namespace idea-board-staging port-forward service/frontend 3002:80
-kubectl --context kind-idea-board --namespace idea-board-pr-123 port-forward service/frontend 3003:80
+curl --resolve idea-board-staging.localhost:8081:127.0.0.1 \
+  http://idea-board-staging.localhost:8081/api/ideas
 ```
 
-Staging is at [localhost:3002](http://localhost:3002); the sample preview is at [localhost:3003](http://localhost:3003). Preview `123` is a local example, not a deployment triggered by a GitHub PR.
-
-Remove the sample preview through the deployment tool when finished:
+Preview `123` is a local example. Remove it when finished:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
@@ -153,18 +161,20 @@ uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" --context kind-idea-board
 ```
 
+Cleanup removes the parent first, then its services, namespace and preview database. The [deployment tool guide](../tools/deploy/README.md) covers AI planning and rollback.
+
 ## Inspect or stop
 
 ```bash
 kubectl --context kind-idea-board --namespace argocd get applications
-kubectl --context kind-idea-board --namespace idea-board get pods,jobs,pvc
+kubectl --context kind-idea-board --namespace idea-board get pods,jobs,pvc,ingress
 kubectl --context kind-idea-board --namespace idea-board logs deployment/backend
 kubectl --context kind-idea-board --namespace idea-board logs job/backend-migrate
 ```
 
-Successful migration Jobs are removed, so their logs are available only while they run or after a failure.
+Successful migration Jobs are removed, so their logs are available while they run or after a failure. Stopping a port-forward closes its local address. The cluster keeps running.
 
-Stopping a port-forward closes that local address. Rerun it if its pod is replaced during deployment. The cluster keeps running. To delete the cluster and its data:
+To delete the cluster and its data:
 
 ```bash
 kind delete cluster --name idea-board

@@ -44,3 +44,4 @@ def test_ingress_wrapper_uses_native_ingress_without_provider_crds():
     assert "kubernetescrd" not in output.lower()
     assert "nodePort: 30080" in output
     assert "type: NodePort" in output
+    assert "--providers.kubernetesingress.ingressendpoint.ip=127.0.0.1" in output

@@ -206,7 +206,7 @@ Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker.
 
 ## Local Kubernetes deployment
 
-The Kubernetes demo runs in **kind**, with Argo CD, the frontend, backend, PostgreSQL, and External Secrets Operator. Follow the [kind guide](gitops/README.md) to start it and open the app at [localhost:3001](http://localhost:3001).
+The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy PostgreSQL, Traefik ingress and the Idea Board parent with its backend/frontend children. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
 
 The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
 

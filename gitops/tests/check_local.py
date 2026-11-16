@@ -29,19 +29,24 @@ def main():
         raise ValueError("an explicit kind context is required")
     kubectl = ("kubectl", "--context", args.context)
     manifests = run("kubectl", "kustomize", str(ROOT / "gitops/kind"))
-    documents = json.loads(
-        run(
-            *kubectl,
-            "create",
-            "--dry-run=client",
-            "--validate=false",
-            "-f",
-            "-",
-            "-o",
-            "json",
-            data=manifests,
-        )
-    )
+    documents = {"apiVersion": "v1", "kind": "List", "items": []}
+    for manifest in manifests.split("---\n"):
+        if manifest.strip():
+            documents["items"].append(
+                json.loads(
+                    run(
+                        *kubectl,
+                        "create",
+                        "--dry-run=client",
+                        "--validate=false",
+                        "-f",
+                        "-",
+                        "-o",
+                        "json",
+                        data=manifest,
+                    )
+                )
+            )
     for document in documents["items"]:
         if document["kind"] == "Application":
             document["spec"]["source"]["targetRevision"] = args.revision
@@ -73,8 +78,15 @@ def main():
             }
             for app in selected
         }
-        if len(selected) == len(expected) and all(
-            state == {"sync": "Synced", "health": "Healthy"} for state in statuses.values()
+        if (
+            len(selected) == len(expected)
+            and all(state == {"sync": "Synced", "health": "Healthy"} for state in statuses.values())
+            and all(
+                app["spec"]["source"]["targetRevision"] == args.revision
+                and app["status"]["sync"].get("comparedTo", {}).get("source")
+                == app["spec"]["source"]
+                for app in selected
+            )
         ):
             break
         time.sleep(5)
