@@ -134,27 +134,27 @@ Use only access already available to the process. Do not run login, profile sele
 Start with these summaries to identify the relevant resources and their current settings:
 
 ```bash
-kubectl --context CONTEXT --request-timeout=10s get nodes -o custom-columns='NAME:.metadata.name,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory,PODS:.status.allocatable.pods'
-kubectl --context CONTEXT --request-timeout=10s top nodes
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE get deployments -o custom-columns='NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,IMAGES:.spec.template.spec.containers[*].image,CPU_REQUESTS:.spec.template.spec.containers[*].resources.requests.cpu,MEMORY_REQUESTS:.spec.template.spec.containers[*].resources.requests.memory,MEMORY_LIMITS:.spec.template.spec.containers[*].resources.limits.memory'
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE get pods -o custom-columns='NAME:.metadata.name,CONTAINERS:.spec.containers[*].name,PHASE:.status.phase,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount,WAITING:.status.containerStatuses[*].state.waiting.reason,LAST_EXIT:.status.containerStatuses[*].lastState.terminated.reason'
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE get jobs -o custom-columns='NAME:.metadata.name,ACTIVE:.status.active,SUCCEEDED:.status.succeeded,FAILED:.status.failed'
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE get events --sort-by=.metadata.creationTimestamp -o custom-columns='TYPE:.type,REASON:.reason,OBJECT:.involvedObject.name,COUNT:.count'
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE top pods --containers
-kubectl --context CONTEXT --request-timeout=10s --namespace argocd get applications -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision'
+kubectl --context CONTEXT get nodes -o custom-columns='NAME:.metadata.name,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory,PODS:.status.allocatable.pods'
+kubectl --context CONTEXT top nodes
+kubectl --context CONTEXT --namespace NAMESPACE get deployments -o custom-columns='NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,IMAGES:.spec.template.spec.containers[*].image,CPU_REQUESTS:.spec.template.spec.containers[*].resources.requests.cpu,MEMORY_REQUESTS:.spec.template.spec.containers[*].resources.requests.memory,MEMORY_LIMITS:.spec.template.spec.containers[*].resources.limits.memory'
+kubectl --context CONTEXT --namespace NAMESPACE get pods -o custom-columns='NAME:.metadata.name,CONTAINERS:.spec.containers[*].name,PHASE:.status.phase,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount,WAITING:.status.containerStatuses[*].state.waiting.reason,LAST_EXIT:.status.containerStatuses[*].lastState.terminated.reason'
+kubectl --context CONTEXT --namespace NAMESPACE get jobs -o custom-columns='NAME:.metadata.name,ACTIVE:.status.active,SUCCEEDED:.status.succeeded,FAILED:.status.failed'
+kubectl --context CONTEXT --namespace NAMESPACE get events --sort-by=.metadata.creationTimestamp -o custom-columns='TYPE:.type,REASON:.reason,OBJECT:.involvedObject.name,COUNT:.count'
+kubectl --context CONTEXT --namespace NAMESPACE top pods --containers
+kubectl --context CONTEXT --namespace argocd get applications -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision'
 ```
 
 For further debugging, these read-only commands are also permitted:
 
 ```bash
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE get RESOURCE -o wide
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE describe RESOURCE NAME
-kubectl --context CONTEXT --request-timeout=10s describe node NODE
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE logs POD --container CONTAINER --tail=100 --limit-bytes=16384
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE logs POD --container CONTAINER --previous --tail=100 --limit-bytes=16384
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE rollout status deployment/NAME --timeout=20s
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE rollout status statefulset/NAME --timeout=20s
-kubectl --context CONTEXT --request-timeout=10s --namespace NAMESPACE rollout status daemonset/NAME --timeout=20s
+kubectl --context CONTEXT --namespace NAMESPACE get RESOURCE -o wide
+kubectl --context CONTEXT --namespace NAMESPACE describe RESOURCE NAME
+kubectl --context CONTEXT describe node NODE
+kubectl --context CONTEXT --namespace NAMESPACE logs POD --container CONTAINER --tail=100 --limit-bytes=16384
+kubectl --context CONTEXT --namespace NAMESPACE logs POD --container CONTAINER --previous --tail=100 --limit-bytes=16384
+kubectl --context CONTEXT --namespace NAMESPACE rollout status deployment/NAME --timeout=20s
+kubectl --context CONTEXT --namespace NAMESPACE rollout status statefulset/NAME --timeout=20s
+kubectl --context CONTEXT --namespace NAMESPACE rollout status daemonset/NAME --timeout=20s
 ```
 
 For `RESOURCE`, use only `pods`, `deployments`, `statefulsets`, `daemonsets`, `replicasets`, `jobs`, `services`, `endpoints`, `endpointslices.discovery.k8s.io`, `ingresses.networking.k8s.io`, `persistentvolumeclaims`, `networkpolicies.networking.k8s.io`, `configmaps`, or `events`. ConfigMaps may be listed and described to inspect application configuration; Kubernetes Secrets must never be read. Use names returned by the permitted reads in that namespace. `NODE` must come from the node summary; `POD` and `CONTAINER` must come from the pod summary. Read previous logs only for a container with a recorded restart. Inspect the failing resources first, rather than describing every object.
