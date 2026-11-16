@@ -1,5 +1,10 @@
 mock_provider "aws" {
   override_during = plan
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      identity = [{ oidc = [{ issuer = "https://oidc.eks.us-east-1.amazonaws.com/id/test" }] }]
+    }
+  }
   mock_resource "aws_iam_role" {
     defaults = {
       arn = "arn:aws:iam::123456789012:role/test-role"
@@ -17,6 +22,11 @@ variables {
 
 run "configuration" {
   command = plan
+
+  assert {
+    condition     = aws_iam_openid_connect_provider.this.url == aws_eks_cluster.this.identity[0].oidc[0].issuer && aws_iam_openid_connect_provider.this.client_id_list == toset(["sts.amazonaws.com"])
+    error_message = "Register the cluster issuer once for services using IRSA."
+  }
 
   assert {
     condition     = aws_eks_cluster.this.vpc_config[0].endpoint_private_access && aws_eks_cluster.this.vpc_config[0].endpoint_public_access && aws_eks_cluster.this.vpc_config[0].public_access_cidrs == toset(["0.0.0.0/0"])

@@ -255,6 +255,7 @@ jobs:
             "modules/$CLOUD/network"
             "modules/$CLOUD/cluster"
             "modules/$CLOUD/psql"
+            "modules/$CLOUD/external-secrets"
             "modules/argocd"
             "modules/github/helm-values"
           )

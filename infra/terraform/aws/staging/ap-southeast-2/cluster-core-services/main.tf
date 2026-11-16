@@ -50,12 +50,16 @@ module "argocd" {
   cluster_name    = data.terraform_remote_state.cluster.outputs.cluster_name
 }
 
-module "external_secrets_values" {
-  source       = "../../../../modules/github/helm-values"
-  chart_path   = "charts/external-secrets"
-  cloud        = "aws"
+module "external_secrets" {
+  source       = "../../../../modules/aws/external-secrets"
+  name         = var.name
   cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
-  values       = { external-secrets = var.external_secrets_values }
+  oidc_issuer  = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+}
+
+moved {
+  from = module.external_secrets_values
+  to   = module.external_secrets.module.values_file
 }
 
 module "load_balancer_controller" {

@@ -60,21 +60,25 @@ Edit the umbrella chart's `values.yaml` or dependency version, then merge the ch
 
 To add a service, give it its own umbrella chart directory under `charts/`, add an entry under `applications` in this directory's `values.yaml`, and allow its namespace and resource types in the bootstrap project.
 
-For environment-specific overrides, set `external_secrets_values` in the `inputs` block of the cloud's `cluster-core-services/terragrunt.hcl`. For example, to attach an existing IRSA role on EKS:
+## External Secrets identity
 
-```hcl
-inputs = {
-  external_secrets_values = {
-    serviceAccount = {
-      annotations = {
-        "eks.amazonaws.com/role-arn" = "arn:aws:iam::ACCOUNT_ID:role/external-secrets"
-      }
-    }
-  }
-}
+The cloud's `cluster-core-services` project calls its own `modules/<cloud>/external-secrets` module. That module creates the operator's identity and publishes its Helm values automatically.
+
+- **AWS:** the cluster module registers the EKS OIDC issuer with IAM once. External Secrets gets an IRSA role for `external-secrets/external-secrets`, read access to all Secrets Manager secrets in the account, and the `eks.amazonaws.com/role-arn` service-account annotation.
+- **GCP:** creates a Google service account, binds `external-secrets/external-secrets` through Workload Identity, and grants Secret Manager read access across the project. It generates the `iam.gke.io/gcp-service-account` annotation.
+
+AWS uses the public [IAM OIDC role module](https://github.com/terraform-aws-modules/terraform-aws-iam/tree/v5.52.1/modules/iam-assumable-role-with-oidc), pinned to `5.52.1`. For an existing EKS cluster, apply the `cluster` project first to register its OIDC issuer.
+
+The module writes `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`, using the shared [GitHub values module](../../infra/terraform/modules/github/helm-values). The generated file contains identity references, not credentials.
+
+```text
+cluster-core-services
+└── External Secrets Terraform module
+    ├── Cloud identity and read permissions
+    └── Generated values file → Argo CD → annotated operator service account
 ```
 
-Apply the core-services project to publish these settings in `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. The shared [GitHub values module](../../infra/terraform/modules/github/helm-values) manages the file. The IAM role needs secret-read permissions and an OIDC trust policy for `system:serviceaccount:external-secrets:external-secrets`.
+Apply the core-services project to create or update this setup. General chart overrides belong in the chart's provider or cluster values files.
 
 The root passes the cloud and cluster name to every child. Each child loads its chart defaults, optional provider and cluster settings, and the generated file in that order. `ignoreMissingValueFiles: true` lets the service start before optional files exist. When a file is committed, Argo CD picks it up through the watched Git branch. A pinned commit keeps the files from that commit.
 
@@ -82,7 +86,7 @@ Automatic sync repairs drift. Removing a file does not automatically delete a cl
 
 ## Database credentials
 
-This bootstrap installs the operator. AWS IAM access, the `SecretStore` connection and Idea Board's `ExternalSecret` are still needed to pull database credentials from AWS Secrets Manager. Those application resources belong with Idea Board's deployment configuration.
+This bootstrap installs the operator and configures its cloud identity. Application-specific `SecretStore` and `ExternalSecret` resources are separate from this installation. The current deployment tool still reads the database cloud secret and creates the application's Kubernetes Secret directly.
 
 The [local kind root](../README.md) uses a separate values profile with External Secrets disabled and local database credentials.
 
