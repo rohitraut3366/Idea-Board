@@ -13,18 +13,21 @@ The browser loads the web app at `localhost:8081`. Requests to `/api` reach the 
 
 Docker, kind, kubectl, Helm, Python 3.12, uv and Node.js 24 are needed. The live AI examples use an authenticated Codex CLI; another runner can return JSON matching the same skill schemas. Run commands from the repository root.
 
-Follow the steps in order: deploy the base app, run the automated checks, then try live AI, previews and load tests. The automated deployment checks use fixed recommendations; the live AI steps make new model calls.
+Follow the steps in order: deploy the base app, test it over HTTP, then try live AI, previews and load tests.
 
 ## Prepare the tools and release
 
 ```bash
 npm --prefix apps/frontend ci
 uv sync --project tools/deploy --locked --all-groups
-export IMAGE_TAG=76058522cebbcb5ff2292e44da1356624bdfcc6d
 export CHART_REVISION="$(git rev-parse HEAD)"
+export IMAGE_TAG="$CHART_REVISION"
+
+docker build -t "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" apps/backend
+docker build -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
 ```
 
-The image tag identifies published frontend and backend images. The chart revision must be pushed to the public repository so Argo CD can fetch it. Use a commit with successful image publishing when changing `IMAGE_TAG`.
+Build from a clean checkout of a pushed commit. `CHART_REVISION` is that commit's SHA: Argo CD fetches the charts from Git. `IMAGE_TAG` gives both locally built images the same version. These variables are used by the deployment checks and AI examples below; keep using the same terminal.
 
 ## 1. Create the cluster
 
@@ -37,6 +40,16 @@ kubectl get nodes
 ```
 
 The kind configuration maps local port `8081` to Traefik's NodePort.
+
+Load the images built above into the cluster, including when reusing an existing cluster:
+
+```bash
+kind load docker-image --name idea-board \
+  "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" \
+  "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
+```
+
+The charts use `IfNotPresent`, so Kubernetes can use these images directly from the kind node.
 
 ## 2. Install Argo CD
 
@@ -100,35 +113,15 @@ kubectl --namespace argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-## 5. Test the app and deployment process
+## 5. Test the app
 
-Check the page and API through ingress:
+From the repository root, check the page and API through ingress:
 
 ```bash
 IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
 ```
 
-To repeat the Kubernetes delivery checks used by CI, run these in order on a fresh demo cluster, before creating staging or previews:
-
-```bash
-python3 gitops/tests/check_local.py \
-  --context kind-idea-board --revision "$CHART_REVISION" --image-tag "$IMAGE_TAG"
-
-python3 gitops/tests/check_core_services.py \
-  --context kind-idea-board --revision "$CHART_REVISION"
-
-uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
-  --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --evidence-output /tmp/idea-board-failed-rollout.json
-```
-
-| Check | What it does |
-| ----- | ------------ |
-| `check_local.py` | Applies the root with the selected images and revision, waits for its children, checks ownership and confirms the local profile starts without External Secrets |
-| `check_core_services.py` | Enables the External Secrets Operator through that root and verifies its deployment and CRDs |
-| `check_kind.py` | Deploys staging and a preview, redeploys the preview, checks cleanup, injects a failed frontend image, restores the previous release and verifies that schema and test data survive |
-
-The bootstrap check expects no External Secrets CRDs. The operator check installs them afterward; it does not test AWS/GCP secret access. The release check refuses existing staging/test-preview resources and removes only the environments it creates. It saves failure evidence for the live AI diagnosis in step 9. The base app stays running.
+GitHub Actions runs the automated bootstrap, cluster-service, preview and rollback checks on its own kind cluster.
 
 ## 6. Plan and deploy with AI
 
@@ -269,11 +262,11 @@ Rerun the same load commands and compare results at matching concurrency. Releas
 
 ## 9. Explain a failed rollout with AI
 
-Step 5 saved evidence from its deliberately failed frontend rollout. That check already rolled the application back and cleaned up its test environments. Use the saved evidence to ask AI what went wrong:
+Use the recorded evidence from an earlier failed frontend rollout to ask AI what went wrong. This example makes a live model call about that captured failure; your current deployment stays unchanged:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/analyze.py prompt \
-  --evidence /tmp/idea-board-failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
+  --evidence gitops/kind/evidence/failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
 
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/diagnosis.schema.json \
@@ -281,7 +274,7 @@ codex exec --sandbox read-only --ephemeral \
   - </tmp/idea-board-diagnosis-prompt.md
 
 uv run --project tools/deploy python tools/deploy/analyze.py report \
-  --evidence /tmp/idea-board-failed-rollout.json \
+  --evidence gitops/kind/evidence/failed-rollout.json \
   --diagnosis /tmp/idea-board-diagnosis.json
 
 cat diagnosis.md
