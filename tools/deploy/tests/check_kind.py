@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import traceback
 from copy import deepcopy
 from pathlib import Path
 
@@ -229,9 +230,14 @@ def main():
                 "Passed staging, preview persistence/cleanup, image failure detection, "
                 "Argo rollback, and HTTP checks."
             )
+    except Exception:
+        # Show the original failure immediately, even if cleanup also has to wait.
+        traceback.print_exc()
+        raise
     finally:
         # Only these environments were checked absent and created by this test.
         for target in (preview, staging):
+            print(f"Cleaning up test environment {target.namespace}", flush=True)
             root = existing_root(source, target)
             entries = root["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
             for service in ("backend", "frontend"):
