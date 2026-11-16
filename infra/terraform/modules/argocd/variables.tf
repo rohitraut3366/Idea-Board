@@ -1,11 +1,11 @@
 variable "repository_url" {
-  description = "Git repository containing the cluster service Applications."
+  description = "Git repository containing the shared Applications chart."
   type        = string
   default     = "https://github.com/rohitraut3366/Idea-Board.git"
 }
 
 variable "gitops_revision" {
-  description = "Git branch, tag, or commit containing the cluster service Applications."
+  description = "Git branch, tag, or commit containing the shared Applications chart."
   type        = string
   default     = "master"
 }

@@ -1,5 +1,5 @@
 apiVersion: v2
 name: idea-board-applications
-description: Frontend and backend child Applications for one environment.
+description: Shared Argo CD Applications for cluster services and application environments.
 type: application
 version: 0.1.0

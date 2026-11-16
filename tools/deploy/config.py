@@ -274,6 +274,8 @@ def parent_application(target, applications, automated=True):
                         "namePrefix": target.namespace + "-",
                         "applications": {
                             app["spec"]["source"]["helm"]["releaseName"]: {
+                                "enabled": True,
+                                "cascadeDelete": True,
                                 "source": deepcopy(app["spec"]["source"]),
                                 "syncPolicy": deepcopy(app["spec"]["syncPolicy"]),
                             }

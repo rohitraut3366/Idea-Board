@@ -12,7 +12,7 @@ python3 -m unittest discover -s charts/external-secrets/tests
 
 After changing the dependency version, run `helm dependency update charts/external-secrets --skip-refresh` and commit `Chart.yaml` with `Chart.lock`.
 
-The [cluster services root Application](../../gitops/cluster-core-services/README.md) selects values in this order, with later files overriding earlier ones:
+The [shared root Application](../../gitops/applications/README.md) selects values in this order, with later files overriding earlier ones:
 
 ```text
 values.yaml
