@@ -206,7 +206,7 @@ Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker.
 
 ## Local Kubernetes deployment
 
-The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy PostgreSQL, Traefik ingress and the Idea Board parent with its backend/frontend children. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
+The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy Traefik ingress, the backend with its PostgreSQL child chart, and the frontend. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
 
 The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
 
@@ -284,15 +284,18 @@ The cluster project provides `cluster_name`. The application project provides th
 
 The `cluster-core-services` project installs Argo CD and waits for it to be ready. On AWS it also installs the AWS Load Balancer Controller and its IAM permissions. GKE's HTTP load-balancing controller is enabled by the `cluster` project.
 
-Terraform also creates a root Argo CD Application called `cluster-core-services`. The root creates child Applications for shared services. This is the **app-of-apps** pattern:
+Terraform also creates a root Argo CD Application called `idea-board`. Its cloud values file selects which child Applications run. This is the **app-of-apps** pattern:
 
 ```text
-Terraform → Argo CD → cluster-core-services → External Secrets Operator
+Terraform → Argo CD → idea-board
+                         ├── External Secrets Operator
+                         ├── backend
+                         └── frontend
 ```
 
-Services are listed under `applications` in `gitops/cluster-core-services/values.yaml`. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. Terraform stores the connection URL in the cloud secret manager and publishes its reference, External Secrets copies the URL into the Kubernetes database Secret, and the release workflow updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
-Each child Application reads these files from its chart directory, in order. Later files override earlier ones:
+External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 
 ```text
 values.yaml
@@ -305,7 +308,7 @@ Provider and cluster files are optional. Argo CD ignores missing files and picks
 
 The External Secrets module creates the operator's cloud identity and secret-read permissions automatically: IRSA on AWS, Workload Identity on GCP. It writes the service-account annotation to `values-terraform.yaml` on `master`. Argo CD loads that file when rendering the operator chart. Keep `gitops_revision = "master"` to receive these updates.
 
-The [cluster services guide](gitops/cluster-core-services/README.md) explains the identity setup and generated values.
+The [GitOps Applications guide](gitops/applications/README.md) explains application selection and chart overrides.
 
 Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 
@@ -334,26 +337,23 @@ When the app is released, its Ingress tells the controller to create a public lo
 
 **GitHub Actions** runs the deployment workflow. Give it access to the cloud through **OIDC**, which lets a workflow obtain temporary cloud credentials:
 
-- **AWS:** a deployment role with EKS access, Kubernetes permissions, and permission to read the database credential secret.
-- **GCP:** Workload Identity Federation and a service account with cluster and Secret Manager access.
+- **AWS:** a deployment role with EKS access and Kubernetes deployment permissions.
+- **GCP:** Workload Identity Federation and a service account with cluster deployment access.
 
 A **GitHub Environment** groups the settings and approval rules for a deployment target. Create the environments you will use: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add reviewers to production environments.
 
 Set these Environment variables:
 
-| Variable                                          | Value                             |
-| ------------------------------------------------- | --------------------------------- |
-| `CLOUD_REGION`                                    | AWS region or GKE location        |
-| `CLUSTER_NAME`                                    | `cluster`: `cluster_name` output  |
-| `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME` | `applications/idea-board` outputs |
-| `DATABASE_CREDENTIAL_SECRET_ID`                   | Database secret reference         |
-| `DATABASE_USERNAME`                               | GCP database username             |
-| `AWS_ROLE_ARN`                                    | AWS deployment role               |
-| `GCP_PROJECT_ID`                                  | GCP project                       |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER`                  | GCP federation provider           |
-| `GCP_SERVICE_ACCOUNT`                             | GCP deployment service account    |
+| Variable                         | Value                            |
+| -------------------------------- | -------------------------------- |
+| `CLOUD_REGION`                   | AWS region or GKE location       |
+| `CLUSTER_NAME`                   | `cluster`: `cluster_name` output |
+| `AWS_ROLE_ARN`                   | AWS deployment role              |
+| `GCP_PROJECT_ID`                 | GCP project                      |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP federation provider          |
+| `GCP_SERVICE_ACCOUNT`            | GCP deployment service account   |
 
-Add `OPENAI_API_KEY` as an Actions secret. The deployment job reads the cloud database secret and creates the Kubernetes Secret consumed by the backend and migration job.
+Add `OPENAI_API_KEY` as an Actions secret. External Secrets reads database credentials using its cloud identity and creates the Kubernetes Secret consumed by the backend and migration Job.
 
 ### 4. Release the application
 

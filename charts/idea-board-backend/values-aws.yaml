@@ -1,0 +1,3 @@
+service:
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /health

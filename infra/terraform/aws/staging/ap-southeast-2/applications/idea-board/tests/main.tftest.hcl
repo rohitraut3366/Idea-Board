@@ -1,13 +1,20 @@
+mock_provider "github" {}
+
 mock_provider "aws" {
   override_during = plan
 
   mock_resource "aws_db_instance" {
     defaults = {
-      address            = "postgres.test.internal"
-      master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test" }]
+      address = "postgres.test.internal"
     }
   }
+
+  mock_resource "aws_secretsmanager_secret" {
+    defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test" }
+  }
 }
+
+mock_provider "random" {}
 
 override_data {
   target = data.terraform_remote_state.networking
@@ -41,4 +48,25 @@ run "configuration" {
     condition     = data.terraform_remote_state.cluster.config.bucket == var.state_bucket && data.terraform_remote_state.cluster.config.key == "infra/terraform/aws/staging/ap-southeast-2/cluster.tfstate"
     error_message = "Read the cluster state from the same environment."
   }
+}
+
+run "backend_secret_values" {
+  command = plan
+  assert {
+    condition     = module.backend_values.file_path == "charts/idea-board-backend/values/aws/idea-board-test/values-terraform.yaml"
+    error_message = "Publish the backend's generated values under its cloud and cluster."
+  }
+  assert {
+    condition     = module.backend_values.file_content != "" && yamldecode(module.backend_values.file_content).externalSecret.secretName == "idea-board-database" && yamldecode(module.backend_values.file_content).externalSecret.enabled
+    error_message = "Configure External Secrets to create the backend database Secret."
+  }
+  assert {
+    condition     = yamldecode(module.backend_values.file_content).externalSecret.dataFrom[0].extract.key == output.database_credential_secret_id && yamldecode(module.backend_values.file_content).externalSecret.provider.aws.region == var.region
+    error_message = "Pass the provider and remote secret reference to External Secrets."
+  }
+  assert {
+    condition     = !can(yamldecode(module.backend_values.file_content).externalSecret.password) && !can(yamldecode(module.backend_values.file_content).externalSecret.DATABASE_URL)
+    error_message = "Database passwords and connection URLs must not be published to GitHub."
+  }
+
 }

@@ -19,6 +19,11 @@ output "database_username" {
 }
 
 output "database_credential_secret_id" {
-  description = "Cloud secret reference containing database credentials."
+  description = "Cloud secret reference containing DATABASE_URL."
   value       = module.psql.credential_secret_id
+}
+
+output "backend_values_file" {
+  description = "Backend values published for Argo CD."
+  value       = module.backend_values.file_path
 }

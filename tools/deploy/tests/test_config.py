@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests, prompt, validate_recommendation
+from config import (
+    Target,
+    chart_source,
+    manifests,
+    parent_application,
+    prompt,
+    validate_recommendation,
+)
 
 SHA = "a" * 40
 
@@ -46,8 +53,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
         backend["spec"]["destination"]["namespace"] == frontend["spec"]["destination"]["namespace"]
     )
     assert (
-        backend["spec"]["source"]["helm"]["valuesObject"]["databaseSecretName"]
-        == "idea-board-database"
+        chart_source(backend)["helm"]["valuesObject"]["databaseSecretName"] == "idea-board-database"
     )
     assert backend["metadata"]["name"] != frontend["metadata"]["name"]
 
@@ -58,7 +64,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
 def test_chart_render_matches_cloud_exposure(cloud, service_type):
     target = Target(cloud, "staging", SHA, SHA)
     application = manifests(target, recommendation(cloud))[2]
-    values = application["spec"]["source"]["helm"]["valuesObject"]
+    values = chart_source(application)["helm"]["valuesObject"]
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
         [
@@ -66,6 +72,11 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
             "template",
             "frontend",
             str(root / "charts/idea-board-frontend"),
+            *[
+                argument
+                for file in chart_source(application)["helm"].get("valueFiles", [])
+                for argument in ("-f", str(root / "charts/idea-board-frontend" / file))
+            ],
             "--namespace",
             target.namespace,
             "-f",
@@ -112,12 +123,29 @@ def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment
                 "template",
                 service,
                 str(root / f"charts/idea-board-{service}"),
+                *[
+                    argument
+                    for file in chart_source(app)["helm"].get("valueFiles", [])
+                    if not file.startswith("$values/")
+                    for argument in ("-f", str(root / f"charts/idea-board-{service}" / file))
+                ],
+                *(
+                    [
+                        "-f",
+                        str(
+                            root
+                            / f"charts/idea-board-backend/tests/values-external-secret-{cloud}.yaml"
+                        ),
+                    ]
+                    if service == "backend" and target.uses_cloud_root
+                    else []
+                ),
                 "--namespace",
                 target.namespace,
                 "-f",
                 "-",
             ],
-            input=json.dumps(app["spec"]["source"]["helm"]["valuesObject"]),
+            input=json.dumps(chart_source(app)["helm"]["valuesObject"]),
             capture_output=True,
             text=True,
             check=True,
@@ -194,3 +222,33 @@ def test_database_credential_revision_changes_backend_pod_template():
     assert 'checksum/database: "' + "a" * 64 + '"' in result.stdout
     assert "secretKeyRef:" in result.stdout
     assert "argocd.argoproj.io/hook: PreSync" in result.stdout
+
+
+@pytest.mark.parametrize("service_count", [1, 2])
+def test_environment_parent_renders_owned_children_without_provider_defaults(service_count):
+    target = Target("kind", "preview", SHA, SHA, 42)
+    children = manifests(target, recommendation("kind", "preview"))[1 : 1 + service_count]
+    values = parent_application(target, children)["spec"]["source"]["helm"]["valuesObject"]
+    root = Path(__file__).resolve().parents[3]
+    output = subprocess.run(
+        [
+            "helm",
+            "template",
+            "environment",
+            str(root / "gitops/applications"),
+            "--namespace",
+            "argocd",
+            "--values",
+            "-",
+        ],
+        input=json.dumps(values),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert output.count("kind: Application") == service_count
+    assert output.count("resources-finalizer.argocd.argoproj.io") == service_count
+    assert "name: idea-board-pr-42-backend" in output
+    assert "namespace: idea-board-pr-42" in output
+    assert "external-secrets" not in output
+    assert "ingress-controller" not in output

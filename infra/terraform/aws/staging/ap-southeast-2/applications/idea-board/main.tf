@@ -9,6 +9,10 @@ provider "aws" {
   }
 }
 
+provider "github" {
+  owner = "rohitraut3366"
+}
+
 data "terraform_remote_state" "networking" {
   backend = "s3"
   config = {
@@ -39,4 +43,20 @@ module "psql" {
   deletion_protection    = var.deletion_protection
   skip_final_snapshot    = var.database_skip_final_snapshot
   backup_retention_days  = var.database_backup_retention_days
+}
+
+module "backend_values" {
+  source       = "../../../../../modules/github/helm-values"
+  chart_path   = "charts/idea-board-backend"
+  cloud        = "aws"
+  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
+  values = {
+    externalSecret = {
+      enabled          = true
+      fullnameOverride = "backend-database"
+      secretName       = "idea-board-database"
+      provider         = { aws = { service = "SecretsManager", region = var.region } }
+      dataFrom         = [{ extract = { key = module.psql.credential_secret_id } }]
+    }
+  }
 }

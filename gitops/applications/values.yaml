@@ -1,7 +1,8 @@
 repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
 targetRevision: master
-imageTag: ""
-project: idea-board-local
+project: idea-board
 namespace: idea-board
 namePrefix: ""
+cloud: kind
+clusterName: idea-board
 applications: {}

@@ -8,7 +8,6 @@ from psycopg import sql
 from database import (
     delete_preview,
     driver_url,
-    managed_database_url,
     prepare_preview,
     preview_names,
 )
@@ -80,32 +79,3 @@ def test_one_preview_cannot_reuse_another_previews_secret(preview):
     url = prepare_preview(ADMIN_URL, preview)
     with pytest.raises(ValueError, match="does not match"):
         prepare_preview(ADMIN_URL, preview + 1, url)
-
-
-def test_kind_uses_environment_url_without_cloud_secret_configuration(monkeypatch):
-    monkeypatch.delenv("DATABASE_CREDENTIAL_SECRET_ID", raising=False)
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", ADMIN_URL)
-    assert managed_database_url("kind") == ADMIN_URL
-
-
-@pytest.mark.parametrize("cloud", ["aws", "gcp"])
-def test_managed_credentials_are_encoded_without_changing_the_password(monkeypatch, cloud):
-    import json
-    from urllib.parse import unquote, urlsplit
-
-    password = " secret@with:/?# and spaces "
-    monkeypatch.setenv("DATABASE_CREDENTIAL_SECRET_ID", "example-secret")
-    monkeypatch.setenv("DATABASE_HOST", "private.example.test")
-    monkeypatch.setenv("DATABASE_NAME", "idea_board")
-    monkeypatch.setenv("DATABASE_USERNAME", "app_user")
-    monkeypatch.setenv("DATABASE_PORT", "5432")
-    response = (
-        json.dumps({"SecretString": json.dumps({"username": "app_user", "password": password})})
-        if cloud == "aws"
-        else password
-    )
-    monkeypatch.setattr("database.read_command", lambda *args: response)
-    parsed = urlsplit(managed_database_url(cloud))
-    assert unquote(parsed.password) == password
-    assert parsed.hostname == "private.example.test"
-    assert parsed.query == "sslmode=require"

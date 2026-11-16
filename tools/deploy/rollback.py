@@ -5,7 +5,8 @@ from copy import deepcopy
 from dataclasses import replace
 from uuid import uuid4
 
-from config import REPOSITORY, parent_application
+from config import REPOSITORY, chart_source, parent_application, source_fields
+from root import cloud_root
 
 STATE_NAME = "idea-board-release"
 
@@ -65,12 +66,13 @@ def rollback(cluster, target, schema_compatible):
         ("backend", "frontend"), restored, attempt["applications"], strict=True
     ):
         name = f"{target.namespace}-{service}"
-        source = application["spec"]["source"]
+        source = chart_source(application)
         if (
             application["kind"] != "Application"
             or application["metadata"]["name"] != name
             or application["metadata"]["namespace"] != "argocd"
-            or application["spec"]["project"] != target.namespace
+            or application["spec"]["project"]
+            != ("idea-board" if target.uses_cloud_root else target.namespace)
             or application["spec"]["destination"]
             != {
                 "server": "https://kubernetes.default.svc",
@@ -81,7 +83,10 @@ def rollback(cluster, target, schema_compatible):
         ):
             raise ValueError("checkpoint does not belong to the requested release")
         current = cluster.get("application", name, "argocd")
-        if not current or current["spec"]["source"] not in (source, attempted["spec"]["source"]):
+        if not current or source_fields(current) not in (
+            source_fields(application),
+            source_fields(attempted),
+        ):
             raise ValueError(
                 "Application changed since the failed attempt; inspect before rollback"
             )
@@ -100,10 +105,15 @@ def rollback(cluster, target, schema_compatible):
                 "syncStrategy": {"apply": {}},
             },
         }
+        if "sources" in application["spec"]:
+            application["operation"]["sync"].pop("revision")
+            application["operation"]["sync"]["revisions"] = [
+                entry["targetRevision"] for entry in application["spec"]["sources"]
+            ]
     if target.cloud == "kind":
         parent = cluster.get("application", target.namespace, "argocd")
         children = [previous, attempt["applications"], [attempt["applications"][0], previous[1]]]
-        revisions = {target.revision, previous[0]["spec"]["source"]["targetRevision"]}
+        revisions = {target.revision, chart_source(previous[0])["targetRevision"]}
         allowed_sources = [
             parent_application(replace(target, revision=revision), applications)["spec"]["source"]
             for revision in revisions
@@ -125,18 +135,44 @@ def rollback(cluster, target, schema_compatible):
                 "spec": parent["spec"],
             }
         )
+    elif target.uses_cloud_root:
+        current = cluster.get("application", "idea-board", "argocd")
+        if not current:
+            raise ValueError("cloud root is missing; inspect before rollback")
+        parent = cloud_root(target, [], current, automated=False)
+        entries = parent["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
+        for old, attempted in zip(previous, attempt["applications"], strict=True):
+            service = chart_source(old)["helm"]["releaseName"]
+            entry = entries.get(service, {})
+            desired = {
+                key: entry[key] for key in ("source", "sources") if entry.get(key) is not None
+            }
+            if desired not in (source_fields(old), source_fields(attempted)):
+                raise ValueError("cloud root changed since the failed attempt")
+        if current.get("operation") or current.get("status", {}).get("operationState", {}).get(
+            "phase"
+        ) in {"Running", "Terminating"}:
+            raise ValueError("cloud root sync is still running; inspect before rollback")
+        cluster.apply(parent)
     for application in restored:
         # The parent owns these fields through SSA; takeover follows the drift guards above.
-        cluster.apply(application, force=target.cloud == "kind")
+        cluster.apply(application, force=target.cloud == "kind" or target.uses_cloud_root)
         cluster.wait([application])
         # An operation is a one-time request, not part of a release checkpoint.
         del application["operation"]
-    if target.cloud == "kind":
-        restored_target = replace(target, revision=previous[0]["spec"]["source"]["targetRevision"])
-        parent = parent_application(restored_target, restored, automated=False)
+    if target.cloud == "kind" or target.uses_cloud_root:
+        restored_target = replace(target, revision=chart_source(previous[0])["targetRevision"])
+        parent = (
+            cloud_root(restored_target, restored, parent, automated=False)
+            if target.uses_cloud_root
+            else parent_application(restored_target, restored, automated=False)
+        )
         parent["operation"] = {
             "info": [{"name": "idea-board/rollback-id", "value": str(uuid4())}],
-            "sync": {"revision": restored_target.revision, "syncStrategy": {"apply": {}}},
+            "sync": {
+                "revision": parent["spec"]["source"]["targetRevision"],
+                "syncStrategy": {"apply": {}},
+            },
         }
         cluster.apply(parent)
         cluster.wait([parent])
@@ -147,7 +183,5 @@ def rollback(cluster, target, schema_compatible):
     return {
         "status": "rolled_back",
         "namespace": target.namespace,
-        "restored_images": [
-            app["spec"]["source"]["helm"]["valuesObject"]["image"] for app in restored
-        ],
+        "restored_images": [chart_source(app)["helm"]["valuesObject"]["image"] for app in restored],
     }

@@ -1,27 +1,30 @@
 {{- range $name, $application := .Values.applications }}
+{{- if $application.enabled }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: {{ printf "%s%s" $.Values.namePrefix $name }}
+  name: {{ default (printf "%s%s" (tpl $.Values.namePrefix $) $name) $application.name }}
   namespace: {{ $.Release.Namespace }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: {{ $.Values.project }}
+  {{- if $application.sources }}
+  sources:
+    {{- tpl (toYaml $application.sources) $ | nindent 4 }}
+  {{- else }}
   source:
     repoURL: {{ default $.Values.repositoryURL $application.source.repoURL | quote }}
     targetRevision: {{ default $.Values.targetRevision $application.source.targetRevision | quote }}
     path: {{ $application.source.path | quote }}
     helm:
-      {{- $helm := deepCopy $application.source.helm }}
-      {{- if $.Values.imageTag }}
-      {{- $helm = mergeOverwrite $helm (dict "valuesObject" (dict "image" (dict "tag" $.Values.imageTag))) }}
-      {{- end }}
-      {{- toYaml $helm | nindent 6 }}
+      {{- tpl (toYaml $application.source.helm) $ | nindent 6 }}
+  {{- end }}
   destination:
     server: https://kubernetes.default.svc
-    namespace: {{ $.Values.namespace }}
+    namespace: {{ tpl (default $.Values.namespace $application.namespace) $ }}
   syncPolicy:
-    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true"))) | nindent 4 }}
+    {{- tpl (toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true" "ServerSideApply=true")))) $ | nindent 4 }}
+{{- end }}
 {{- end }}

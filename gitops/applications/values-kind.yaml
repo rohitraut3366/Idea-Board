@@ -1,5 +1,36 @@
+cloud: kind
 applications:
+  external-secrets:
+    enabled: false
+    namespace: external-secrets
+    source:
+      path: charts/external-secrets
+      helm:
+        releaseName: external-secrets
+        skipTests: true
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - values.yaml
+          - values/kind/values.yaml
+          - "values/kind/{{ .Values.clusterName }}/values.yaml"
+          - "values/kind/{{ .Values.clusterName }}/values-terraform.yaml"
+    syncPolicy:
+      automated:
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true
+  ingress-controller:
+    enabled: true
+    namespace: ingress-system
+    source:
+      path: charts/ingress-controller
+      helm:
+        releaseName: ingress-controller
+        skipTests: true
+        skipCrds: true
   backend:
+    enabled: true
     source:
       path: charts/idea-board-backend
       helm:
@@ -8,6 +39,7 @@ applications:
         valueFiles:
           - values-kind.yaml
   frontend:
+    enabled: true
     source:
       path: charts/idea-board-frontend
       helm:

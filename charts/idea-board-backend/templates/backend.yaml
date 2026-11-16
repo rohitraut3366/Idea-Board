@@ -13,9 +13,9 @@ spec:
       app.kubernetes.io/component: backend
   template:
     metadata:
-      {{- with .Values.databaseRevision }}
+      {{- if or .Values.databaseRevision .Values.externalSecret.enabled }}
       annotations:
-        checksum/database: {{ . | quote }}
+        checksum/database: {{ default (toJson .Values.externalSecret | sha256sum) .Values.databaseRevision | quote }}
       {{- end }}
       labels:
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -34,11 +34,11 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            - name: IDEA_BOARD_DATABASE_URL
+            - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "idea-board-backend.databaseSecretName" . | quote }}
-                  key: IDEA_BOARD_DATABASE_URL
+                  key: DATABASE_URL
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

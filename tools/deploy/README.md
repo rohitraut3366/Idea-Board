@@ -35,7 +35,7 @@ For AWS/GCP staging or production, replace `--cloud kind` with the cloud in both
 
 ## Deploy
 
-For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `IDEA_BOARD_DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels.
+For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
 
 Use the same inputs with `release` and an explicit context:
 
@@ -47,9 +47,9 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --context kind-idea-board
 ```
 
-On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP releases submit the service Applications directly.
+On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP staging/production releases update the existing `idea-board` root in the same order. The root owns the service Applications. Cloud previews have their own Applications.
 
-The backend migration stays in its separate PreSync Job. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. Cloud credentials and Environment variables are described in the [root README](../../README.md).
+The backend migration runs in its separate Job. Cloud staging/production creates the ExternalSecret first, then runs the migration as a Sync hook in wave -1; preview releases keep the PreSync hook. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. External Secrets supplies cloud staging/production database credentials from the Terraform-generated backend values. Local and preview credentials are created by the deployment tool. Cloud access and Environment variables are described in the [root README](../../README.md).
 
 A preview uses `--environment preview --pr 123` and shares the staging cluster/database server. Its own database and login survive redeployment. Staging must be healthy because preview administration runs inside its backend. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Kind cleanup deletes the parent before its children so the parent cannot recreate them. Cleanup rejects staging and production and refuses unrelated databases/roles.
 
@@ -87,7 +87,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py rollback \
 
 Rollback restores both Argo sources and Helm values, pauses automatic sync, and requests an explicit Argo apply sync that skips hooks, including old migrations. It waits for that specific operation to succeed and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Automatic sync stays paused until the next regular release, which enables it again and runs migrations normally.
 
-On kind, rollback also validates and pauses the parent, then restores its desired child sources. The parent and children stay paused until the next release.
+For kind and cloud staging/production, rollback also validates and pauses the owning root or parent, then restores its desired child sources. The root or parent and the restored children stay paused until the next release.
 
 The tool checks both Applications before changing either. It refuses a mismatched failed SHA, an Application changed since the attempt, a missing predecessor, or an active Argo operation. Terminate a stuck sync in Argo CD and inspect its hooks before retrying. A partial rollback remains visible and can be retried after the underlying problem is resolved. GitHub Actions exposes the same operation as `operation=rollback` with `schema_compatible=true`; it uses the target's existing deployment Environment rules.
 

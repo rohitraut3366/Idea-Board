@@ -29,17 +29,17 @@ Each project contains its Terraform files and a `terragrunt.hcl`. The directory 
 
 ## Configuration
 
-| File | Settings |
-| --- | --- |
-| `state.hcl` | Shared S3 bucket and its AWS region |
-| `<cloud>/staging/environment.hcl` | Stack name; GCP project comes from `GOOGLE_CLOUD_PROJECT` or gcloud |
-| `<cloud>/staging/<region>/region.hcl` | Deployment region and zones |
-| Each project's `terragrunt.hcl` | Project settings and dependencies |
-| `root.hcl` | Common inputs and state-key calculation |
+| File                                  | Settings                                                            |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `state.hcl`                           | Shared S3 bucket and its AWS region                                 |
+| `<cloud>/staging/environment.hcl`     | Stack name; GCP project comes from `GOOGLE_CLOUD_PROJECT` or gcloud |
+| `<cloud>/staging/<region>/region.hcl` | Deployment region and zones                                         |
+| Each project's `terragrunt.hcl`       | Project settings and dependencies                                   |
+| `root.hcl`                            | Common inputs and state-key calculation                             |
 
 AWS staging uses Kubernetes 1.35 and two `c7i-flex.large` workers. Automated RDS backups default to disabled (`database_backup_retention_days = 0`). A positive retention value enables them. Final snapshots and deletion protection have their own settings.
 
-GCP staging uses the declared REGULAR-channel minimum version and two `e2-standard-2` workers. Its PostgreSQL module generates a 32-character password and stores it in Google Secret Manager. The generated password remains in Terraform state across applies. AWS RDS manages its owner password in AWS Secrets Manager.
+GCP staging uses the declared REGULAR-channel minimum version and two `e2-standard-2` workers. Both PostgreSQL modules generate a 32-character password and store the complete connection URL under `DATABASE_URL` in AWS Secrets Manager or Google Secret Manager. Passwords and connection URLs remain in Terraform state across applies.
 
 Change the declarations in Git when settings need to change. A production deployment needs its own environment directory, stack name, and reviewed capacity and protection settings.
 
@@ -118,24 +118,24 @@ If existing state is in another bucket or GCS, migrate it to the declared S3 buc
 
 ## Cluster services
 
-The core-services project installs Argo CD and the root `cluster-core-services` Application. Argo CD deploys shared services from `gitops/cluster-core-services`, starting with the External Secrets umbrella chart.
+The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with the cloud's values file. The root creates External Secrets, backend and frontend Applications. The application project publishes database references for the backend chart. External Secrets creates the Kubernetes Secret, and application releases update child configuration through this root.
 
 AWS core services also install AWS Load Balancer Controller with its IAM permissions. GKE's HTTP load-balancing controller is enabled by the cluster project. See [public routing](../ingress/README.md).
 
 The core-services External Secrets module creates the operator's IRSA role on AWS or Workload Identity on GCP, grants secret-read access, and publishes its service-account annotation to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. Child Applications load chart defaults, provider settings, cluster settings, then generated settings. Missing files are ignored.
 
-The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [cluster services](../../gitops/cluster-core-services/README.md#deploy).
+The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [GitOps Applications](../../gitops/applications/README.md#bootstrap-the-root).
 
-The External Secrets connection to application credentials remains separate work. The current release workflow reads the cloud credential secret and supplies the Kubernetes database Secret.
+The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, cloud provider and cloud secret reference. The backend child loads this file from `master`. Its `externalSecret` dependency on `charts/external-secret-config` creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to copy `DATABASE_URL` from the cloud secret into Kubernetes.
 
 ## Release the application
 
 1. Read `cluster_name` from the cluster project's outputs.
-2. Read the database outputs from `applications/idea-board` using `terragrunt run -- output` in that directory.
+2. Apply `applications/idea-board` to create PostgreSQL and publish the backend values file.
 3. Configure the GitHub deployment Environment using the [deployment guide](../../README.md#3-configure-github-actions).
 4. Run the Deploy workflow for a tested image commit. Argo CD deploys the backend and frontend, including the separate backend migration Job.
 
-Applying password generation to an existing GCP database changes its password. Release the application afterward to refresh its Kubernetes Secret. Before reverting that change, retrieve the active password from Secret Manager and supply it to the previous configuration.
+External Secrets refreshes cloud database credentials into Kubernetes. Backend processes read their Secret when they start; restart backend pods after rotating a database password.
 
 ## AI sizing proposals
 

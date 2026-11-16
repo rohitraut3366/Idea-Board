@@ -11,12 +11,14 @@ from pathlib import Path
 from cluster import Cluster
 from config import (
     Target,
+    chart_source,
     deployment_manifests,
     manifests,
     parent_application,
     prompt,
     validate_recommendation,
 )
+from root import cloud_root
 
 
 def preview_database(cluster, target, delete=False):
@@ -24,11 +26,11 @@ def preview_database(cluster, target, delete=False):
     # Run here rather than opening the private database to a hosted Actions runner.
     database_source = Path(__file__).with_name("database.py").read_text()
     if delete:
-        operation = f'delete_preview(os.environ["IDEA_BOARD_DATABASE_URL"], {target.pr})'
+        operation = f'delete_preview(os.environ["DATABASE_URL"], {target.pr})'
     else:
         existing = cluster.database_url()
         operation = (
-            f'print(json.dumps(prepare_preview(os.environ["IDEA_BOARD_DATABASE_URL"], '
+            f'print(json.dumps(prepare_preview(os.environ["DATABASE_URL"], '
             f"{target.pr}, {existing!r})))"
         )
     return cluster.run(
@@ -40,14 +42,14 @@ def preview_database(cluster, target, delete=False):
         "--",
         "python",
         "-",
-        data=database_source + "\n" + operation + "\n",
+        data=database_source + "\nimport json\nimport os\n" + operation + "\n",
     )
 
 
 def local_database(cluster, target):
     source = Path(__file__).with_name("database.py").read_text()
     operation = (
-        'print(json.dumps(prepare_local_database(os.environ["IDEA_BOARD_DATABASE_URL"], '
+        'print(json.dumps(prepare_local_database(os.environ["DATABASE_URL"], '
         f"{target.environment!r})))"
     )
     return json.loads(
@@ -60,7 +62,7 @@ def local_database(cluster, target):
             "--",
             "python",
             "-",
-            data=source + "\n" + operation + "\n",
+            data=source + "\nimport json\nimport os\n" + operation + "\n",
         )
     )
 
@@ -79,11 +81,16 @@ def cleanup_closed_preview(cluster, target):
 
 
 def release(cluster, target, recommendation):
-    from database import managed_database_url
     from diagnosis import collect
     from rollback import checkpoint, record_healthy, state
 
     documents = manifests(target, recommendation)
+    root = None
+    if target.uses_cloud_root:
+        current = cluster.get("application", "idea-board", "argocd")
+        if not current:
+            raise ValueError("install the cloud root through cluster-core-services first")
+        root = cloud_root(target, [], current)
     outcome = "failed"
     phase = "database"
     rollback_available = False
@@ -101,33 +108,27 @@ def release(cluster, target, recommendation):
             phase = "database"
         cluster.ensure_namespace(target.environment)
         rollback_available = bool(state(cluster)["healthy"])
-        if target.environment == "preview":
-            url = json.loads(preview_database(cluster, target))
-        elif target.cloud == "kind" and not os.environ.get("IDEA_BOARD_DATABASE_URL"):
-            url = local_database(cluster, target)
-        else:
-            url = managed_database_url(target.cloud)
-        cluster.set_database_url(url)
-        documents[1]["spec"]["source"]["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
-            url.encode()
-        ).hexdigest()
+        if not target.uses_cloud_root:
+            if target.environment == "preview":
+                url = json.loads(preview_database(cluster, target))
+            else:
+                url = os.environ.get("DATABASE_URL") or local_database(cluster, target)
+            cluster.set_database_url(url)
+            chart_source(documents[1])["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
+                url.encode()
+            ).hexdigest()
+        release_documents = documents
+        if target.cloud == "kind":
+            release_documents = [documents[0], parent_application(target, documents[1:])]
+        elif target.uses_cloud_root:
+            release_documents = [cloud_root(target, documents[1:], root)]
         Path("applications.json").write_text(
-            json.dumps(
-                {
-                    "apiVersion": "v1",
-                    "kind": "List",
-                    "items": (
-                        [documents[0], parent_application(target, documents[1:])]
-                        if target.cloud == "kind"
-                        else documents
-                    ),
-                },
-                indent=2,
-            )
+            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_documents}, indent=2)
             + "\n"
         )
         checkpoint(cluster, target, documents[1:])
-        cluster.apply(documents[0])
+        if not target.uses_cloud_root:
+            cluster.apply(documents[0])
         if target.cloud == "kind":
             # Keep the serving frontend while the new backend runs its migration and checks.
             existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
@@ -142,9 +143,16 @@ def release(cluster, target, recommendation):
             cluster.apply(parent)
             cluster.wait([parent])
             cluster.wait([documents[2]])
+        elif target.uses_cloud_root:
+            for application in documents[1:]:
+                phase = chart_source(application)["helm"]["releaseName"]
+                root = cloud_root(target, [application], root)
+                cluster.apply(root)
+                cluster.wait([root])
+                cluster.wait([application])
         else:
             for application in documents[1:]:
-                phase = application["spec"]["source"]["helm"]["releaseName"]
+                phase = chart_source(application)["helm"]["releaseName"]
                 cluster.apply(application)
                 cluster.wait([application])
         phase = "http"

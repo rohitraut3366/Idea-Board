@@ -44,6 +44,10 @@ class Target:
                 raise ValueError("image tag and chart revision must be full commit SHAs")
 
     @property
+    def uses_cloud_root(self):
+        return self.cloud != "kind" and self.environment != "preview"
+
+    @property
     def namespace(self):
         suffix = f"pr-{self.pr}" if self.environment == "preview" else self.environment
         return f"idea-board-{suffix}"
@@ -131,6 +135,16 @@ def prompt(target, request):
     )
 
 
+def chart_source(application):
+    spec = application["spec"]
+    return spec["sources"][0] if spec.get("sources") else spec["source"]
+
+
+def source_fields(application):
+    spec = application["spec"]
+    return {"sources": spec["sources"]} if spec.get("sources") else {"source": spec["source"]}
+
+
 def manifests(target, recommendation):
     validate_recommendation(recommendation, target.environment, target.cloud)
     namespace = target.namespace
@@ -173,42 +187,10 @@ def manifests(target, recommendation):
                 "limits": {"memory": f"{sizing['memory_limit_mib']}Mi"},
             },
         }
-        if service == "backend":
+        if service == "backend" and not target.uses_cloud_root:
             values["databaseSecretName"] = "idea-board-database"
-        else:
+        if service == "frontend":
             values["service"] = {"type": "ClusterIP"}
-        if target.cloud == "aws":
-            values["service"] = {
-                "annotations": {
-                    "alb.ingress.kubernetes.io/healthcheck-path": "/health"
-                    if service == "backend"
-                    else "/"
-                }
-            }
-            if service == "frontend":
-                values["service"]["type"] = "ClusterIP"
-                values["ingress"] = {
-                    "enabled": True,
-                    "className": "alb",
-                    "annotations": {
-                        "alb.ingress.kubernetes.io/scheme": "internet-facing",
-                        "alb.ingress.kubernetes.io/target-type": "ip",
-                    },
-                }
-        elif target.cloud == "gcp":
-            values["gcpBackendConfig"] = True
-            values["service"] = {
-                "annotations": {
-                    "cloud.google.com/neg": json.dumps({"ingress": True}),
-                    "cloud.google.com/backend-config": json.dumps({"default": service}),
-                }
-            }
-            if service == "frontend":
-                values["service"]["type"] = "ClusterIP"
-                values["ingress"] = {
-                    "enabled": True,
-                    "annotations": {"kubernetes.io/ingress.class": "gce"},
-                }
         applications.append(
             {
                 "apiVersion": "argoproj.io/v1alpha1",
@@ -219,12 +201,16 @@ def manifests(target, recommendation):
                     "finalizers": ["resources-finalizer.argocd.argoproj.io"],
                 },
                 "spec": {
-                    "project": namespace,
+                    "project": "idea-board" if target.uses_cloud_root else namespace,
                     "source": {
                         "repoURL": REPOSITORY,
                         "targetRevision": target.revision,
                         "path": f"charts/idea-board-{service}",
-                        "helm": {"releaseName": service, "skipTests": True, "valuesObject": values},
+                        "helm": {
+                            "releaseName": service,
+                            "skipTests": True,
+                            "valuesObject": values,
+                        },
                     },
                     "destination": {
                         "server": "https://kubernetes.default.svc",
@@ -234,6 +220,30 @@ def manifests(target, recommendation):
                 },
             }
         )
+    if target.cloud != "kind":
+        for application in applications:
+            application["spec"]["source"]["helm"]["valueFiles"] = [f"values-{target.cloud}.yaml"]
+            if target.uses_cloud_root:
+                application["spec"]["syncPolicy"]["syncOptions"] = [
+                    "CreateNamespace=true",
+                    "ServerSideApply=true",
+                ]
+                if application["spec"]["source"]["helm"]["releaseName"] == "backend":
+                    source = application["spec"].pop("source")
+                    source["helm"]["ignoreMissingValueFiles"] = True
+                    source["helm"]["valueFiles"].append(
+                        f"$values/charts/idea-board-backend/values/{target.cloud}/{target.namespace}/values-terraform.yaml"
+                    )
+                    application["spec"]["sources"] = [
+                        source,
+                        {"repoURL": REPOSITORY, "targetRevision": "master", "ref": "values"},
+                    ]
+                application["spec"]["syncPolicy"]["managedNamespaceMetadata"] = {
+                    "labels": {
+                        "app.kubernetes.io/part-of": "idea-board",
+                        "idea-board/environment": target.environment,
+                    }
+                }
     if target.cloud == "kind":
         project["spec"]["destinations"].append(
             {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
@@ -274,6 +284,7 @@ def parent_application(target, applications, automated=True):
                         "namePrefix": target.namespace + "-",
                         "applications": {
                             app["spec"]["source"]["helm"]["releaseName"]: {
+                                "enabled": True,
                                 "source": deepcopy(app["spec"]["source"]),
                                 "syncPolicy": deepcopy(app["spec"]["syncPolicy"]),
                             }
@@ -298,4 +309,8 @@ def deployment_manifests(target, recommendation):
     project, *applications = manifests(target, recommendation)
     if target.cloud == "kind":
         return [project, parent_application(target, applications)]
+    if target.uses_cloud_root:
+        from root import cloud_root
+
+        return [cloud_root(target, applications)]
     return [project, *applications]

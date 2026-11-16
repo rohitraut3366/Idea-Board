@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 
 def create_database_engine() -> Engine:
-    return create_engine(os.environ["IDEA_BOARD_DATABASE_URL"])
+    return create_engine(os.environ["DATABASE_URL"])
 
 
 def get_session(request: Request) -> Iterator[Session]:

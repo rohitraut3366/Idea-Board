@@ -1,0 +1,5 @@
+fullnameOverride: ""
+secretName: ""
+refreshInterval: 1h
+provider: {}
+dataFrom: []

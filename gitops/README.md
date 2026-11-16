@@ -3,11 +3,10 @@
 Argo CD reads the deployment configuration from Git and keeps the cluster in sync. You install Argo CD and apply one root Application. That root creates the Applications below it:
 
 ```text
-local
+idea-board
 ├── ingress-controller → Traefik
-└── idea-board
-    ├── backend → PostgreSQL child chart, migration Job and FastAPI
-    └── frontend → React, Nginx and the Ingress routes
+├── backend → PostgreSQL child chart, migration Job and FastAPI
+└── frontend → React, Nginx and the Ingress routes
 ```
 
 The browser loads the web app at `localhost:8081`. Requests to `/api` reach the backend through Traefik. PostgreSQL is reachable inside the cluster.
@@ -40,29 +39,29 @@ If the namespace already exists, continue with the apply command.
 ## 3. Apply the root
 
 ```bash
-kubectl --context kind-idea-board apply -k gitops/kind
+helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
+  --set cloud=kind | kubectl --context kind-idea-board apply --server-side -f -
 kubectl --context kind-idea-board --namespace argocd get applications --watch
 ```
 
-Wait for `local`, `ingress-controller`, `idea-board`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
+Wait for `idea-board`, `ingress-controller`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
 
 The backend chart starts its PostgreSQL child chart, runs the migration Job, then deploys the backend. A failed migration blocks backend deployment.
 
 ### Where the local settings live
 
-| File                                             | Purpose                                                |
-| ------------------------------------------------ | ------------------------------------------------------ |
-| `kind/root.yaml`                                 | Root Application and its permissions; watches `master` |
-| `local/values-kind.yaml`                         | Enables ingress; disables External Secrets             |
-| `applications/values-kind.yaml`                  | Backend and frontend child Applications                |
-| `../charts/idea-board-backend/values-kind.yaml`  | Enables PostgreSQL with local credentials              |
-| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                             |
+| File                                             | Purpose                                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| `../infra/terraform/modules/argocd/bootstrap/`   | Root Application and its permissions                             |
+| `applications/values-kind.yaml`                  | Enables ingress, backend and frontend; disables External Secrets |
+| `../charts/idea-board-backend/values-kind.yaml`  | Enables PostgreSQL with local credentials                        |
+| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                                       |
 
 Local PostgreSQL uses development credentials from the backend chart's `values-kind.yaml`. The backend chart creates the Kubernetes database Secret. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
 
 The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
 
-Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `imageTag` in `local/values-kind.yaml` and merge. Argo CD applies that tag to both services.
+Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `applications.<service>.source.helm.valuesObject.image.tag` in `applications/values-kind.yaml` for each service and merge. Argo CD applies the updated values.
 
 ## 4. Open the app and Argo CD
 
@@ -100,7 +99,7 @@ IDEA_BOARD_BASE_URL=http://localhost:8081 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
 To check staging, preview redeployment, cleanup, failed rollout and rollback:
 
 ```bash
-export IMAGE_TAG=5ae00d82541190e313a06e14f39ddc94124455a8
+export IMAGE_TAG=76058522cebbcb5ff2292e44da1356624bdfcc6d
 export CHART_REVISION="$(git rev-parse HEAD)"
 uv sync --project tools/deploy --locked --all-groups
 uv run --project tools/deploy python tools/deploy/tests/check_kind.py \

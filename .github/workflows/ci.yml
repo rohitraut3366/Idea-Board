@@ -137,14 +137,17 @@ jobs:
       - name: Lint charts
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
+          helm dependency build charts/idea-board-backend
           helm dependency build charts/external-secrets
           helm lint charts/idea-board-backend --strict -f charts/idea-board-backend/values-kind.yaml
           helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
           helm lint infra/terraform/modules/argocd/bootstrap --strict
-          helm lint gitops/cluster-core-services --strict
+          helm lint gitops/applications --strict -f gitops/applications/values-kind.yaml
+          helm lint gitops/applications --strict -f gitops/applications/values-aws.yaml
+          helm lint gitops/applications --strict -f gitops/applications/values-gcp.yaml
           helm lint charts/external-secrets --strict
       - name: Render GitOps Applications
-        run: kubectl kustomize gitops/kind
+        run: helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd --set cloud=kind
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           version: v0.32.0
@@ -312,16 +315,17 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
-      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
-      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
+      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
+      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
+      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests --check-untyped-defs --ignore-missing-imports
       - name: Build chart dependencies
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo add traefik https://traefik.github.io/charts
+          helm dependency build ../../charts/idea-board-backend
           helm dependency build ../../charts/external-secrets
           helm dependency build ../../charts/ingress-controller
-      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/idea-board-backend/tests ../../gitops/tests
+      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests ../../charts/idea-board-backend/tests ../../gitops/tests
 
   publish:
     name: Publish images to GHCR
@@ -421,7 +425,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 gitops/tests/check_local.py --context kind-idea-board --revision "$SOURCE_SHA" --image-tag "$SOURCE_SHA"
-      - name: Verify the cluster services app-of-apps
+      - name: Verify cluster services through the shared root
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 gitops/tests/check_core_services.py --context kind-idea-board --revision "$SOURCE_SHA"

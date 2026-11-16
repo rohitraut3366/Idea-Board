@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 
+from config import chart_source
+
 
 class Cluster:
     def __init__(self, context, namespace):
@@ -71,7 +73,7 @@ class Cluster:
         secret = self.get("secret", "idea-board-database", self.namespace)
         if not secret:
             return None
-        return base64.b64decode(secret["data"]["IDEA_BOARD_DATABASE_URL"]).decode()
+        return base64.b64decode(secret["data"]["DATABASE_URL"]).decode()
 
     def set_database_url(self, url):
         self.apply(
@@ -80,7 +82,7 @@ class Cluster:
                 "kind": "Secret",
                 "metadata": {"name": "idea-board-database", "namespace": self.namespace},
                 "type": "Opaque",
-                "stringData": {"IDEA_BOARD_DATABASE_URL": url},
+                "stringData": {"DATABASE_URL": url},
             }
         )
 
@@ -102,7 +104,7 @@ class Cluster:
                         or operation_state.get("phase") != "Succeeded"
                     ):
                         continue
-                source = expected["spec"]["source"]
+                source = chart_source(expected)
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (
                     all(
@@ -116,9 +118,18 @@ class Cluster:
                     and compared.get("helm", {}).get("valuesObject")
                     == source["helm"]["valuesObject"]
                 )
-                if (
-                    not same_source
-                    or status.get("sync", {}).get("revision") != source["targetRevision"]
+                revision = status.get("sync", {}).get("revision")
+                if "sources" in expected["spec"]:
+                    same_source = (
+                        status.get("sync", {}).get("comparedTo", {}).get("sources")
+                        == expected["spec"]["sources"]
+                    )
+                    revisions = status.get("sync", {}).get("revisions", [])
+                    revision = revisions[0] if revisions else None
+                is_parent = source["path"] == "gitops/applications"
+                if not same_source or (
+                    (not is_parent or re.fullmatch(r"[0-9a-f]{40}", source["targetRevision"]))
+                    and revision != source["targetRevision"]
                 ):
                     continue
                 if (
@@ -126,7 +137,7 @@ class Cluster:
                     or status.get("health", {}).get("status") != "Healthy"
                 ):
                     continue
-                if source["path"] == "gitops/applications":
+                if is_parent:
                     # Child readiness is checked separately, after the parent has reconciled.
                     if status.get("operationState", {}).get("phase") != "Succeeded":
                         continue

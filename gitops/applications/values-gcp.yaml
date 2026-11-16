@@ -1,0 +1,72 @@
+cloud: gcp
+namespace: "{{ .Values.clusterName }}"
+namePrefix: "{{ .Values.clusterName }}-"
+applications:
+  external-secrets:
+    name: external-secrets
+    enabled: true
+    namespace: external-secrets
+    source:
+      path: charts/external-secrets
+      helm:
+        releaseName: external-secrets
+        skipTests: true
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - values.yaml
+          - values/gcp/values.yaml
+          - "values/gcp/{{ .Values.clusterName }}/values.yaml"
+          - "values/gcp/{{ .Values.clusterName }}/values-terraform.yaml"
+    syncPolicy:
+      automated:
+        selfHeal: true
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true
+  backend:
+    enabled: true
+    sources:
+      - repoURL: "{{ .Values.repositoryURL }}"
+        targetRevision: "{{ .Values.targetRevision }}"
+        path: charts/idea-board-backend
+        helm:
+          releaseName: backend
+          skipTests: true
+          ignoreMissingValueFiles: true
+          valueFiles:
+            - values-gcp.yaml
+            - "$values/charts/idea-board-backend/values/gcp/{{ .Values.clusterName }}/values-terraform.yaml"
+      - repoURL: "{{ .Values.repositoryURL }}"
+        targetRevision: master
+        ref: values
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+      managedNamespaceMetadata:
+        labels:
+          app.kubernetes.io/part-of: idea-board
+          idea-board/environment: '{{ trimPrefix "idea-board-" .Values.clusterName }}'
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true
+  frontend:
+    enabled: true
+    source:
+      path: charts/idea-board-frontend
+      helm:
+        releaseName: frontend
+        skipTests: true
+        valueFiles:
+          - values-gcp.yaml
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+      managedNamespaceMetadata:
+        labels:
+          app.kubernetes.io/part-of: idea-board
+          idea-board/environment: '{{ trimPrefix "idea-board-" .Values.clusterName }}'
+      syncOptions:
+        - CreateNamespace=true
+        - ServerSideApply=true

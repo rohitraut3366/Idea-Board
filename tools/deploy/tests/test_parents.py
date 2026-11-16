@@ -60,8 +60,7 @@ def test_release_preserves_serving_frontend_until_backend_is_verified(monkeypatc
         deepcopy(previous) if name.endswith("-frontend") else None
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("IDEA_BOARD_DATABASE_URL", "postgresql://local")
-    monkeypatch.setattr("database.managed_database_url", lambda _: "postgresql://local")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://local")
     monkeypatch.setattr("diagnosis.collect", lambda *args: {})
     release(cluster, target, recommendation())
     parents = [
@@ -114,3 +113,34 @@ def test_local_database_uses_namespace_owner_and_rejects_unrelated_database(monk
     client.execute.return_value.fetchone.return_value = ("someone_else",)
     with pytest.raises(ValueError, match="another owner"):
         prepare_local_database(url, "staging")
+
+
+@pytest.mark.parametrize("preview", [False, True])
+def test_remote_database_script_is_self_contained(monkeypatch, preview):
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import MagicMock
+
+    from deploy import local_database, preview_database
+
+    connection = MagicMock()
+    connection.__enter__.return_value.execute.return_value.fetchone.return_value = None
+    monkeypatch.setattr("psycopg.connect", lambda *args, **kwargs: connection)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://owner:local@localhost:5432/test")
+    cluster = Mock()
+    cluster.database_url.return_value = None
+
+    def run(*arguments, data):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exec(data, {})
+        return output.getvalue()
+
+    cluster.run.side_effect = run
+    target = Target("kind", "preview" if preview else "staging", SHA, SHA, 42 if preview else None)
+    url = (
+        json.loads(preview_database(cluster, target))
+        if preview
+        else local_database(cluster, target)
+    )
+    assert url.endswith("/idea_board_pr_42" if preview else "/idea_board_staging")

@@ -71,3 +71,50 @@ def test_new_image_gets_a_new_bundled_migration_job():
     first_name = next(line for line in job(first).splitlines() if line.startswith("  name:"))
     second_name = next(line for line in job(second).splitlines() if line.startswith("  name:"))
     assert first_name != second_name
+
+
+def test_cloud_secret_resources_run_before_migration():
+    for cloud in ("aws", "gcp"):
+        output = render("-f", str(CHART / f"tests/values-external-secret-{cloud}.yaml"))
+        store = next(doc for doc in output.split("---") if "\nkind: SecretStore\n" in doc)
+        external = next(doc for doc in output.split("---") if "kind: ExternalSecret\n" in doc)
+        assert 'argocd.argoproj.io/sync-wave: "-3"' in store
+        assert 'argocd.argoproj.io/sync-wave: "-2"' in external
+        assert "name: idea-board-database" in external
+        assert "creationPolicy: Owner" in external
+        assert "dataFrom:" in external and "- extract:" in external
+        assert "key: test-database-credentials" in external
+        assert "template:" not in external
+        assert "postgresql" not in external
+        assert "auth:" not in store
+        assert "kind: Secret\n" not in output
+        assert "argocd.argoproj.io/hook: Sync\n" in job(output)
+        assert 'argocd.argoproj.io/sync-wave: "-1"' in job(output)
+        assert "helm.sh/hook:" not in job(output)
+        assert ("SecretsManager" if cloud == "aws" else "projectID: test-project") in store
+
+
+def test_cloud_secret_configuration_does_not_enable_bundled_postgres():
+    output = render("-f", str(CHART / "tests/values-external-secret-aws.yaml"))
+    assert "kind: PersistentVolumeClaim" not in output
+    assert "kind: Deployment" in output
+    assert 'name: "idea-board-database"' in output
+
+
+def test_cloud_and_bundled_database_cannot_own_the_same_secret():
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "backend",
+            str(CHART),
+            "-f",
+            str(CHART / "values-kind.yaml"),
+            "-f",
+            str(CHART / "tests/values-external-secret-aws.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "cannot both be enabled" in result.stderr

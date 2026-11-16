@@ -1,15 +1,17 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cluster-core-services
+  name: idea-board
   namespace: {{ .Release.Namespace }}
 spec:
-  project: cluster-core-services
+  project: idea-board
   source:
     repoURL: {{ .Values.repositoryURL | quote }}
     targetRevision: {{ .Values.targetRevision | quote }}
-    path: gitops/cluster-core-services
+    path: gitops/applications
     helm:
+      valueFiles:
+        - values-{{ .Values.cloud }}.yaml
       valuesObject:
         repositoryURL: {{ .Values.repositoryURL | quote }}
         targetRevision: {{ .Values.targetRevision | quote }}
@@ -20,4 +22,7 @@ spec:
     namespace: {{ .Release.Namespace }}
   syncPolicy:
     automated:
+      prune: true
       selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

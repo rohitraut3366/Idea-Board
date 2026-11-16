@@ -138,11 +138,6 @@ jobs:
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
-      DATABASE_CREDENTIAL_SECRET_ID: ${{ vars.DATABASE_CREDENTIAL_SECRET_ID }}
-      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
-      DATABASE_PORT: ${{ vars.DATABASE_PORT || '5432' }}
-      DATABASE_NAME: ${{ vars.DATABASE_NAME }}
-      DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

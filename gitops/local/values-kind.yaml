@@ -1,5 +1,0 @@
-applications:
-  external-secrets:
-    enabled: false
-  ingress-controller:
-    enabled: true
