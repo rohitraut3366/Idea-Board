@@ -10,7 +10,6 @@ from config import (
     Target,
     chart_source,
     manifests,
-    parent_application,
     prompt,
     validate_recommendation,
 )
@@ -140,7 +139,7 @@ def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment
                             / f"charts/idea-board-backend/tests/values-external-secret-{cloud}.yaml"
                         ),
                     ]
-                    if service == "backend" and target.uses_cloud_root
+                    if service == "backend" and target.uses_managed_database
                     else []
                 ),
                 "--namespace",
@@ -210,33 +209,3 @@ def test_cli_rejects_invalid_model_output_before_writing_manifests(tmp_path):
     assert result.returncode != 0
     assert not result.stdout
     assert "production requires" in result.stderr
-
-
-@pytest.mark.parametrize("service_count", [1, 2])
-def test_environment_parent_renders_owned_children_without_provider_defaults(service_count):
-    target = Target("kind", "preview", SHA, SHA, 42)
-    children = manifests(target, recommendation("kind", "preview"))[1 : 1 + service_count]
-    values = parent_application(target, children)["spec"]["source"]["helm"]["valuesObject"]
-    root = Path(__file__).resolve().parents[3]
-    output = subprocess.run(
-        [
-            "helm",
-            "template",
-            "environment",
-            str(root / "gitops/applications"),
-            "--namespace",
-            "argocd",
-            "--values",
-            "-",
-        ],
-        input=json.dumps(values),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    assert output.count("kind: Application") == service_count
-    assert output.count("resources-finalizer.argocd.argoproj.io") == service_count
-    assert "name: idea-board-pr-42-backend" in output
-    assert "namespace: idea-board-pr-42" in output
-    assert "external-secrets" not in output
-    assert "ingress-controller" not in output

@@ -256,7 +256,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
 cat release-plan/plan.md
 ```
 
-**4. Release staging.** This changes the cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. The deployment tool requires `--context` to identify the cluster it will change.
+**4. Release staging.** This changes the cluster: it creates staging's credentials and adds its backend and frontend Applications to the shared root. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. The deployment tool requires `--context` to identify the cluster it will change.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -265,7 +265,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
 ```
 
-When the release succeeds, open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). Argo CD should show `idea-board-staging` with backend and frontend children, all Synced and Healthy.
+When the release succeeds, open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). Argo CD should show `idea-board-staging-backend` and `idea-board-staging-frontend` under the `idea-board` root, all Synced and Healthy.
 
 ## 7. Create a preview
 
@@ -322,7 +322,7 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
 cat release-plan/plan.md
 ```
 
-**6. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
+**6. Release the preview.** Create its credentials, add its backend and frontend Applications to the shared root, start PostgreSQL and the backend, deploy the frontend, and check the HTTP responses:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -336,20 +336,21 @@ Open [idea-board-pr-35.localhost:8081](http://idea-board-pr-35.localhost:8081). 
 The environments now look like this:
 
 ```text
-idea-board                  Base app created by the root in step 3
-idea-board-staging          Staging release planned with AI
-├── ...-backend
-└── ...-frontend
-idea-board-pr-35            Purple UI from PR #35
-├── ...-backend
-└── ...-frontend
+idea-board                         Shared root
+├── ingress-controller
+├── backend                        Base environment
+├── frontend
+├── idea-board-staging-backend      Staging environment
+├── idea-board-staging-frontend
+├── idea-board-pr-35-backend        Purple UI from PR #35
+└── idea-board-pr-35-frontend
 ```
 
 Leave the preview running for the demo. To deploy later changes from this PR, repeat this section to fetch, build and release the new version. The preview remains available while the cluster is running.
 
 ### Optional: remove the preview
 
-Run this only when you want to delete the preview. It removes its parent and child Applications, namespace, credentials and PostgreSQL volume:
+Run this only when you want to delete the preview. It removes this preview’s entries from the shared root, its child Applications, namespace, credentials and PostgreSQL volume:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \

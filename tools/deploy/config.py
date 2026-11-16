@@ -2,7 +2,6 @@
 
 import json
 import re
-from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,7 +43,7 @@ class Target:
                 raise ValueError("image tag and chart revision must be full commit SHAs")
 
     @property
-    def uses_cloud_root(self):
+    def uses_managed_database(self):
         return self.cloud != "kind" and self.environment != "preview"
 
     @property
@@ -202,7 +201,7 @@ def manifests(target, recommendation):
                     "finalizers": ["resources-finalizer.argocd.argoproj.io"],
                 },
                 "spec": {
-                    "project": "idea-board" if target.uses_cloud_root else namespace,
+                    "project": "idea-board" if target.uses_managed_database else namespace,
                     "source": {
                         "repoURL": REPOSITORY,
                         "targetRevision": target.revision,
@@ -221,14 +220,14 @@ def manifests(target, recommendation):
                 },
             }
         )
-    if not target.uses_cloud_root:
+    if not target.uses_managed_database:
         applications[0]["spec"]["source"]["helm"]["valueFiles"] = ["values-postgres.yaml"]
     if target.cloud != "kind":
         for application in applications:
             application["spec"]["source"]["helm"].setdefault("valueFiles", []).insert(
                 0, f"values-{target.cloud}.yaml"
             )
-            if target.uses_cloud_root:
+            if target.uses_managed_database:
                 application["spec"]["syncPolicy"]["syncOptions"] = [
                     "CreateNamespace=true",
                     "ServerSideApply=true",
@@ -250,12 +249,6 @@ def manifests(target, recommendation):
                     }
                 }
     if target.cloud == "kind":
-        project["spec"]["destinations"].append(
-            {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
-        )
-        project["spec"]["namespaceResourceWhitelist"].append(
-            {"group": "argoproj.io", "kind": "Application"}
-        )
         for application in applications:
             if application["spec"]["source"]["helm"]["releaseName"] == "frontend":
                 application["spec"]["source"]["helm"]["valuesObject"]["ingress"] = {
@@ -266,56 +259,9 @@ def manifests(target, recommendation):
     return [project, *applications]
 
 
-def parent_application(target, applications, automated=True):
-    """Keep each environment's child sources in one declarative parent."""
-    return {
-        "apiVersion": "argoproj.io/v1alpha1",
-        "kind": "Application",
-        "metadata": {
-            "name": target.namespace,
-            "namespace": "argocd",
-            "finalizers": ["resources-finalizer.argocd.argoproj.io"],
-        },
-        "spec": {
-            "project": target.namespace,
-            "source": {
-                "repoURL": REPOSITORY,
-                "targetRevision": target.revision,
-                "path": "gitops/applications",
-                "helm": {
-                    "valuesObject": {
-                        "project": target.namespace,
-                        "namespace": target.namespace,
-                        "namePrefix": target.namespace + "-",
-                        "applications": {
-                            app["spec"]["source"]["helm"]["releaseName"]: {
-                                "enabled": True,
-                                "source": deepcopy(app["spec"]["source"]),
-                                "syncPolicy": deepcopy(app["spec"]["syncPolicy"]),
-                            }
-                            for app in applications
-                        },
-                    }
-                },
-            },
-            "destination": {
-                "server": "https://kubernetes.default.svc",
-                "namespace": "argocd",
-            },
-            "syncPolicy": {
-                "automated": {"enabled": automated, "prune": True, "selfHeal": True},
-                "syncOptions": ["ServerSideApply=true"],
-            },
-        },
-    }
-
-
 def deployment_manifests(target, recommendation):
-    project, *applications = manifests(target, recommendation)
-    if target.cloud == "kind":
-        return [project, parent_application(target, applications)]
-    if target.uses_cloud_root:
-        from root import cloud_root
+    from root import shared_root
 
-        return [cloud_root(target, applications)]
-    return [project, *applications]
+    project, *applications = manifests(target, recommendation)
+    root = shared_root(target, applications)
+    return [root] if target.uses_managed_database else [project, root]

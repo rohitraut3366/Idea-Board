@@ -6,6 +6,7 @@ from recommendations import recommendation
 
 from config import Target
 from deploy import release
+from root import shared_root
 
 SHA = "a" * 40
 
@@ -18,7 +19,8 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
     evidence = Mock(return_value={"evidence": []})
     monkeypatch.setattr("diagnosis.collect", evidence)
     cluster = Mock(namespace="idea-board-staging")
-    cluster.get.return_value = None
+    root = shared_root(Target("kind", "staging", SHA, SHA), [])
+    cluster.get.side_effect = lambda kind, name, *args: root if name == "idea-board" else None
     if failed_check == "backend":
         cluster.wait.side_effect = TimeoutError("backend failed")
     elif failed_check == "http":

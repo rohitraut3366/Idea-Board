@@ -332,7 +332,7 @@ The local Kubernetes demonstration is verified in kind:
 | Check              | Result                                                                                               |
 | ------------------ | ---------------------------------------------------------------------------------------------------- |
 | App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts          |
-| Argo CD            | Local root, ingress and environment parents with backend/frontend children became Synced and Healthy |
+| Argo CD            | Root and service Application synchronization checks passed |
 | Preview lifecycle  | Separate database/login, redeployment, and cleanup passed                                            |
 | Rollback           | Failed-image detection and recovery passed; schema and test data were preserved                      |
 | Load and scaling   | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md)           |

@@ -10,7 +10,7 @@ from recommendations import recommendation
 from config import Target, chart_source, deployment_manifests, manifests
 from deploy import release
 from rollback import checkpoint, record_healthy, rollback, state
-from root import cloud_root
+from root import shared_root
 
 OLD = "a" * 40
 NEW = "b" * 40
@@ -62,7 +62,7 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
 ):
     target = Target(cloud, "staging", NEW, NEW)
     previous = manifests(Target(cloud, "staging", OLD, OLD), recommendation(cloud))[1:]
-    current = cloud_root(target, previous)
+    current = shared_root(target, previous)
     current["spec"]["source"]["helm"]["valuesObject"]["applications"]["external-secrets"] = {
         "source": {"helm": {"valuesObject": {"custom": "preserve"}}}
     }
@@ -122,7 +122,7 @@ def test_wrong_cloud_or_environment_is_rejected_before_mutation(
     field, value, monkeypatch, tmp_path
 ):
     target = Target("aws", "staging", NEW, NEW)
-    current = cloud_root(target, [])
+    current = shared_root(target, [])
     current["spec"]["source"]["helm"]["valuesObject"][field] = value
     cluster = Mock(namespace=target.namespace)
     cluster.get.return_value = current
@@ -135,7 +135,7 @@ def test_wrong_cloud_or_environment_is_rejected_before_mutation(
 
 @pytest.mark.parametrize("cloud", ["aws", "gcp"])
 @pytest.mark.parametrize("failure", [None, "drift", "running"])
-def test_cloud_rollback_pauses_root_and_restores_owned_sources(cloud, failure):
+def test_cloud_rollback_keeps_root_active_and_restores_owned_sources(cloud, failure):
     target = Target(cloud, "staging", NEW, NEW)
     old = manifests(Target(cloud, "staging", OLD, OLD), recommendation(cloud))[1:]
     new = manifests(target, recommendation(cloud))[1:]
@@ -149,7 +149,7 @@ def test_cloud_rollback_pauses_root_and_restores_owned_sources(cloud, failure):
     cluster.get.side_effect = lambda kind, name, *args: deepcopy(documents.get((kind, name)))
     for child in new:
         apply(child)
-    parent = cloud_root(target, new)
+    parent = shared_root(target, new)
     if failure == "drift":
         parent["spec"]["source"]["helm"]["valuesObject"]["applications"]["frontend"]["source"][
             "targetRevision"
@@ -161,7 +161,7 @@ def test_cloud_rollback_pauses_root_and_restores_owned_sources(cloud, failure):
     checkpoint(cluster, target, new)
     cluster.apply.reset_mock()
     if failure:
-        with pytest.raises(ValueError, match="cloud root"):
+        with pytest.raises(ValueError, match="shared root"):
             rollback(cluster, target, True)
         cluster.apply.assert_not_called()
         return
@@ -169,9 +169,9 @@ def test_cloud_rollback_pauses_root_and_restores_owned_sources(cloud, failure):
     assert result["status"] == "rolled_back"
     mutations = [entry.args[0] for entry in cluster.apply.call_args_list]
     assert mutations[0]["metadata"]["name"] == "idea-board"
-    assert mutations[0]["spec"]["syncPolicy"]["automated"]["enabled"] is False
+    assert mutations[0]["spec"]["syncPolicy"]["automated"]["enabled"] is True
     restored = cluster.get("application", "idea-board")
-    assert restored["spec"]["syncPolicy"]["automated"]["enabled"] is False
+    assert restored["spec"]["syncPolicy"]["automated"]["enabled"] is True
     for service in ("backend", "frontend"):
         source = chart_source(
             {"spec": restored["spec"]["source"]["helm"]["valuesObject"]["applications"][service]}

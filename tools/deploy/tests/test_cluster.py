@@ -126,6 +126,39 @@ def test_matching_healthy_release_passes(monkeypatch):
     cluster.wait([app], timeout=1)
 
 
+@pytest.mark.parametrize("cloud", ["kind", "aws", "gcp"])
+def test_root_matches_argo_status_without_null_values(monkeypatch, cloud):
+    from root import shared_root
+
+    target = Target(cloud, "staging", SHA, SHA)
+    root = shared_root(target, manifests(target, recommendation(cloud))[1:])
+    root["spec"]["source"]["targetRevision"] = SHA
+    compared_source = deepcopy(root["spec"]["source"])
+    # Argo omits null source/sources fields in its recorded comparison.
+    entries = compared_source["helm"]["valuesObject"]["applications"]
+    for name, entry in entries.items():
+        entries[name] = {key: value for key, value in entry.items() if value is not None}
+    cluster = Cluster("kind-test", target.namespace)
+    monkeypatch.setattr(
+        cluster,
+        "get",
+        Mock(
+            return_value={
+                "status": {
+                    "sync": {
+                        "status": "Synced",
+                        "revision": SHA,
+                        "comparedTo": {"source": compared_source},
+                    },
+                    "health": {"status": "Healthy"},
+                    "operationState": {"phase": "Succeeded"},
+                },
+            }
+        ),
+    )
+    cluster.wait([root], timeout=1)
+
+
 @pytest.mark.parametrize("phase", [None, "Running", "Failed", "Succeeded"])
 @pytest.mark.parametrize("matching_operation", [False, True])
 def test_rollback_waits_for_its_own_successful_operation(monkeypatch, phase, matching_operation):
@@ -191,13 +224,16 @@ def test_cleanup_cannot_delete_production(monkeypatch):
 
 def test_preview_cleanup_removes_ingress_owner_before_backend(monkeypatch):
     from deploy import cleanup
+    from root import shared_root
 
-    cluster = Cluster("test", "idea-board-pr-42")
-    monkeypatch.setattr(cluster, "get", Mock(return_value=None))
-    run = Mock()
-    monkeypatch.setattr(cluster, "run", run)
-    cleanup(cluster, Target("gcp", "preview", SHA, SHA, 42))
-    deleted = [entry.args[4] for entry in run.call_args_list if entry.args[3] == "application"]
+    cluster = Mock(namespace="idea-board-pr-42")
+    target = Target("gcp", "preview", SHA, SHA, 42)
+    root = shared_root(target, [])
+    cluster.get.side_effect = lambda kind, name, *args: root if name == "idea-board" else None
+    cleanup(cluster, target)
+    deleted = [
+        entry.args[4] for entry in cluster.run.call_args_list if entry.args[3] == "application"
+    ]
     assert deleted == ["idea-board-pr-42-frontend", "idea-board-pr-42-backend"]
 
 
@@ -214,10 +250,10 @@ def test_pr_closing_during_rollout_triggers_cleanup(monkeypatch):
 
 
 def test_cloud_root_wait_accepts_resolved_branch_revision(monkeypatch):
-    from root import cloud_root
+    from root import shared_root
 
     target = Target("aws", "staging", SHA, SHA)
-    root = cloud_root(target, manifests(target, recommendation("aws"))[1:])
+    root = shared_root(target, manifests(target, recommendation("aws"))[1:])
     status = {
         "sync": {
             "status": "Synced",

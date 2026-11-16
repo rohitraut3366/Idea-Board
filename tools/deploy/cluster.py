@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -76,23 +77,23 @@ class Cluster:
         return base64.b64decode(secret["data"]["DATABASE_URL"]).decode()
 
     def wait(self, applications, timeout=600):
+        names = ", ".join(app["metadata"]["name"] for app in applications)
+        print(f"Waiting up to {timeout}s for Applications: {names}", file=sys.stderr, flush=True)
         deadline = time.monotonic() + timeout
         pending = applications.copy()
+        last_progress: dict[str, str] = {}
+        poll_count = 0
         while pending and time.monotonic() < deadline:
+            poll_count += 1
             for expected in pending.copy():
                 name = expected["metadata"]["name"]
                 current = self.get("application", name, "argocd")
                 if not current:
+                    if last_progress.get(name) != "not created" or poll_count % 10 == 0:
+                        print(f"{name}: not created", file=sys.stderr, flush=True)
+                        last_progress[name] = "not created"
                     continue
                 status = current.get("status", {})
-                if "operation" in expected:
-                    operation_state = status.get("operationState", {})
-                    if (
-                        operation_state.get("operation", {}).get("info")
-                        != expected["operation"]["info"]
-                        or operation_state.get("phase") != "Succeeded"
-                    ):
-                        continue
                 source = chart_source(expected)
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (
@@ -115,6 +116,24 @@ class Cluster:
                     )
                     revisions = status.get("sync", {}).get("revisions", [])
                     revision = revisions[0] if revisions else None
+                progress = (
+                    f"sync={status.get('sync', {}).get('status', 'Unknown')}, "
+                    f"health={status.get('health', {}).get('status', 'Unknown')}, "
+                    f"operation={status.get('operationState', {}).get('phase', 'None')}, "
+                    f"source_matches={same_source}, "
+                    f"revision={revision}, expected_revision={source['targetRevision']}"
+                )
+                if last_progress.get(name) != progress or poll_count % 10 == 0:
+                    print(f"{name}: {progress}", file=sys.stderr, flush=True)
+                    last_progress[name] = progress
+                if "operation" in expected:
+                    operation_state = status.get("operationState", {})
+                    if (
+                        operation_state.get("operation", {}).get("info")
+                        != expected["operation"]["info"]
+                        or operation_state.get("phase") != "Succeeded"
+                    ):
+                        continue
                 is_parent = source["path"] == "gitops/applications"
                 if not same_source or (
                     (not is_parent or re.fullmatch(r"[0-9a-f]{40}", source["targetRevision"]))
@@ -131,6 +150,7 @@ class Cluster:
                     if status.get("operationState", {}).get("phase") != "Succeeded":
                         continue
                     pending.remove(expected)
+                    print(f"{name}: ready", file=sys.stderr, flush=True)
                     continue
                 release = source["helm"]["releaseName"]
                 deployment = self.get("deployment", release, self.namespace)
@@ -149,11 +169,18 @@ class Cluster:
                     and observed.get("availableReplicas", 0) == values["replicas"]
                 ):
                     pending.remove(expected)
+                    print(f"{name}: ready", file=sys.stderr, flush=True)
             if pending:
                 time.sleep(3)
         if pending:
-            names = ", ".join(app["metadata"]["name"] for app in pending)
-            raise TimeoutError(f"Applications did not reach the requested healthy release: {names}")
+            details = "; ".join(
+                f"{app['metadata']['name']}: "
+                f"{last_progress.get(app['metadata']['name'], 'not observed')}"
+                for app in pending
+            )
+            raise TimeoutError(
+                f"Applications did not reach the requested healthy release: {details}"
+            )
 
     def verify(self):
         # Readiness includes /health; also check it directly inside the backend pod.

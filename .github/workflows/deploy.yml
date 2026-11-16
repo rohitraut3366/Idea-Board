@@ -128,7 +128,7 @@ jobs:
     outputs:
       evidence_available: ${{ steps.evidence.outputs.available }}
     concurrency:
-      group: deploy-${{ inputs.cloud }}-${{ inputs.environment }}-${{ inputs.pr }}
+      group: deploy-root-${{ inputs.cloud }}
       cancel-in-progress: false
     environment: ${{ inputs.cloud }}-${{ inputs.environment == 'preview' && 'staging' || inputs.environment }}
     permissions:

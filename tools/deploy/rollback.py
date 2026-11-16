@@ -2,11 +2,10 @@
 
 import json
 from copy import deepcopy
-from dataclasses import replace
 from uuid import uuid4
 
-from config import REPOSITORY, chart_source, parent_application, source_fields
-from root import cloud_root
+from config import REPOSITORY, chart_source, source_fields
+from root import application_key, existing_root, shared_root
 
 STATE_NAME = "idea-board-release"
 
@@ -72,7 +71,7 @@ def rollback(cluster, target, schema_compatible):
             or application["metadata"]["name"] != name
             or application["metadata"]["namespace"] != "argocd"
             or application["spec"]["project"]
-            != ("idea-board" if target.uses_cloud_root else target.namespace)
+            != ("idea-board" if target.uses_managed_database else target.namespace)
             or application["spec"]["destination"]
             != {
                 "server": "https://kubernetes.default.svc",
@@ -110,72 +109,30 @@ def rollback(cluster, target, schema_compatible):
             application["operation"]["sync"]["revisions"] = [
                 entry["targetRevision"] for entry in application["spec"]["sources"]
             ]
-    if target.cloud == "kind":
-        parent = cluster.get("application", target.namespace, "argocd")
-        children = [previous, attempt["applications"], [attempt["applications"][0], previous[1]]]
-        revisions = {target.revision, chart_source(previous[0])["targetRevision"]}
-        allowed_sources = [
-            parent_application(replace(target, revision=revision), applications)["spec"]["source"]
-            for revision in revisions
-            for applications in children
-        ]
-        if not parent or parent["spec"]["source"] not in allowed_sources:
-            raise ValueError("parent Application changed since the failed attempt")
-        if parent.get("operation") or parent.get("status", {}).get("operationState", {}).get(
-            "phase"
-        ) in {"Running", "Terminating"}:
-            raise ValueError("parent Argo sync is still running; inspect before rollback")
-        # Pause its reconciliation before restoring children it normally owns.
-        parent["spec"]["syncPolicy"]["automated"]["enabled"] = False
-        cluster.apply(
-            {
-                "apiVersion": parent["apiVersion"],
-                "kind": "Application",
-                "metadata": {"name": target.namespace, "namespace": "argocd"},
-                "spec": parent["spec"],
-            }
-        )
-    elif target.uses_cloud_root:
-        current = cluster.get("application", "idea-board", "argocd")
-        if not current:
-            raise ValueError("cloud root is missing; inspect before rollback")
-        parent = cloud_root(target, [], current, automated=False)
-        entries = parent["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
-        for old, attempted in zip(previous, attempt["applications"], strict=True):
-            service = chart_source(old)["helm"]["releaseName"]
-            entry = entries.get(service, {})
-            desired = {
-                key: entry[key] for key in ("source", "sources") if entry.get(key) is not None
-            }
-            if desired not in (source_fields(old), source_fields(attempted)):
-                raise ValueError("cloud root changed since the failed attempt")
-        if current.get("operation") or current.get("status", {}).get("operationState", {}).get(
-            "phase"
-        ) in {"Running", "Terminating"}:
-            raise ValueError("cloud root sync is still running; inspect before rollback")
-        cluster.apply(parent)
+    root = existing_root(cluster, target)
+    entries = root["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
+    for old, attempted in zip(previous, attempt["applications"], strict=True):
+        service = chart_source(old)["helm"]["releaseName"]
+        entry = entries.get(application_key(target, service), {})
+        desired = {key: entry[key] for key in ("source", "sources") if entry.get(key) is not None}
+        if desired not in (source_fields(old), source_fields(attempted)):
+            raise ValueError("shared root changed since the failed attempt")
+    if root.get("operation") or root.get("status", {}).get("operationState", {}).get("phase") in {
+        "Running",
+        "Terminating",
+    }:
+        raise ValueError("shared root sync is still running; inspect before rollback")
+    # Reconcile the restored sources with child auto-sync disabled before requesting
+    # apply-only syncs. Other environments keep reconciling through the shared root.
+    root = shared_root(target, restored, root)
+    cluster.apply(root)
+    cluster.wait([root])
     for application in restored:
         # The parent owns these fields through SSA; takeover follows the drift guards above.
-        cluster.apply(application, force=target.cloud == "kind" or target.uses_cloud_root)
+        cluster.apply(application, force=True)
         cluster.wait([application])
         # An operation is a one-time request, not part of a release checkpoint.
         del application["operation"]
-    if target.cloud == "kind" or target.uses_cloud_root:
-        restored_target = replace(target, revision=chart_source(previous[0])["targetRevision"])
-        parent = (
-            cloud_root(restored_target, restored, parent, automated=False)
-            if target.uses_cloud_root
-            else parent_application(restored_target, restored, automated=False)
-        )
-        parent["operation"] = {
-            "info": [{"name": "idea-board/rollback-id", "value": str(uuid4())}],
-            "sync": {
-                "revision": parent["spec"]["source"]["targetRevision"],
-                "syncStrategy": {"apply": {}},
-            },
-        }
-        cluster.apply(parent)
-        cluster.wait([parent])
     cluster.verify()
     if target.cloud != "kind":
         cluster.public_url()

@@ -13,12 +13,11 @@ from config import (
     chart_source,
     deployment_manifests,
     manifests,
-    parent_application,
     prompt,
     validate_recommendation,
 )
 from database import ensure_database_secret
-from root import cloud_root
+from root import application_key, environment_root, existing_root, shared_root
 
 
 def cleanup_closed_preview(cluster, target):
@@ -39,12 +38,7 @@ def release(cluster, target, recommendation):
     from rollback import checkpoint, record_healthy, state
 
     documents = manifests(target, recommendation)
-    root = None
-    if target.uses_cloud_root:
-        current = cluster.get("application", "idea-board", "argocd")
-        if not current:
-            raise ValueError("install the cloud root through cluster-core-services first")
-        root = cloud_root(target, [], current)
+    root = existing_root(cluster, target)
     outcome = "failed"
     phase = "database"
     rollback_available = False
@@ -62,46 +56,25 @@ def release(cluster, target, recommendation):
             phase = "database"
         cluster.ensure_namespace(target.environment)
         rollback_available = bool(state(cluster)["healthy"])
-        if not target.uses_cloud_root:
+        if not target.uses_managed_database:
             ensure_database_secret(cluster)
-        release_documents = documents
-        if target.cloud == "kind":
-            release_documents = [documents[0], parent_application(target, documents[1:])]
-        elif target.uses_cloud_root:
-            release_documents = [cloud_root(target, documents[1:], root)]
+        release_documents = [shared_root(target, documents[1:], root)]
+        if not target.uses_managed_database:
+            release_documents.insert(0, documents[0])
         Path("applications.json").write_text(
             json.dumps({"apiVersion": "v1", "kind": "List", "items": release_documents}, indent=2)
             + "\n"
         )
         checkpoint(cluster, target, documents[1:])
-        if not target.uses_cloud_root:
+        if not target.uses_managed_database:
             cluster.apply(documents[0])
-        if target.cloud == "kind":
-            # Keep the serving frontend while the new backend runs its migration and checks.
-            existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
-            children = [documents[1]] + ([existing_frontend] if existing_frontend else [])
-            phase = "backend"
-            parent = parent_application(target, children)
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[1]])
-            phase = "frontend"
-            parent = parent_application(target, documents[1:])
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[2]])
-        elif target.uses_cloud_root:
-            for application in documents[1:]:
-                phase = chart_source(application)["helm"]["releaseName"]
-                root = cloud_root(target, [application], root)
-                cluster.apply(root)
-                cluster.wait([root])
-                cluster.wait([application])
-        else:
-            for application in documents[1:]:
-                phase = chart_source(application)["helm"]["releaseName"]
-                cluster.apply(application)
-                cluster.wait([application])
+        for application in documents[1:]:
+            phase = chart_source(application)["helm"]["releaseName"]
+            # Refresh before each update to retain changes made by other environments.
+            root = shared_root(target, [application], environment_root(cluster, target))
+            cluster.apply(root)
+            cluster.wait([root])
+            cluster.wait([application])
         phase = "http"
         cluster.verify()
         phase = "public_http" if target.cloud != "kind" else "http"
@@ -141,19 +114,13 @@ def cleanup(cluster, target):
     namespace = cluster.get("namespace", target.namespace)
     if namespace:
         cluster.ensure_namespace("preview")
-    if target.cloud == "kind":
-        cluster.run(
-            "--namespace",
-            "argocd",
-            "delete",
-            "application",
-            target.namespace,
-            "--ignore-not-found",
-            "--wait=true",
-            "--timeout=10m",
-        )
-    # Delete the Ingress owner first so cloud backends can detach before Service cleanup.
+    # Remove the Ingress owner first so cloud backends can detach before Service cleanup.
     for service in ("frontend", "backend"):
+        root = environment_root(cluster, target)
+        children = root["spec"]["source"]["helm"]["valuesObject"].setdefault("applications", {})
+        children.pop(application_key(target, service), None)
+        cluster.apply(root)
+        cluster.wait([root])
         cluster.run(
             "--namespace",
             "argocd",

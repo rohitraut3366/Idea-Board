@@ -54,7 +54,7 @@ Paths are relative to the repository root. This map explains ownership; it does 
 | `tools/deploy/config.py` | Trusted target validation, model-output validation, Application rendering, and Terraform sizing input mapping. |
 | `tools/deploy/planning.py` | Writes `release-plan/plan.md`, `applications.json`, and cloud sizing proposals. |
 | `tools/deploy/deploy.py` | Release, preview cleanup, and rollback entry point; coordinates database setup, Argo sync, and verification. |
-| `tools/deploy/root.py` | Updates the existing cloud root while retaining its ownership of service Applications. |
+| `tools/deploy/root.py` | Updates environment entries in the shared root while preserving other Applications. |
 | `tools/deploy/database.py` | Creates and reuses credentials for each environment's bundled PostgreSQL instance. |
 | `tools/deploy/cluster.py` | Kubernetes and Argo operations, rollout checks, and HTTP verification. |
 | `tools/deploy/diagnosis.py` and `analyze.py` | Collect bounded rollout evidence, build the diagnosis prompt, validate advice, and write the report. |
@@ -73,7 +73,7 @@ Paths are relative to the repository root. This map explains ownership; it does 
 5. Rollout and HTTP checks decide whether the release passed. Only a verified release becomes the rollback checkpoint.
 6. Collected evidence can be sent to the model for diagnosis. Advice does not execute recovery.
 
-On kind, staging and previews use environment parent Applications with backend/frontend children. Cloud staging/production updates the existing `idea-board` root. Cloud previews use separate service Applications. Do not propose another deployment structure.
+On kind, AWS and GCP, one `idea-board` root owns the backend/frontend Applications for every environment on that cluster. Each environment has its own namespace and Argo project where applicable. Releases update only that environment's entries in the shared root, backend first and frontend after backend readiness. Cleanup removes only the requested preview's entries and namespace.
 
 Cloud staging/production uses RDS on AWS or Cloud SQL on GCP. Terraform generates credentials and stores a complete `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator's IRSA role on AWS or Workload Identity on GCP to copy it into a Kubernetes Secret. The API and migration Job consume that Secret.
 
@@ -86,16 +86,17 @@ When the trusted target is `kind`, use this local topology. AWS and GCP instruct
 ```text
 kind-idea-board (Kubernetes context)
 ├── argocd namespace
-│   ├── idea-board root → ingress-controller, backend, frontend
-│   ├── staging parent → staging backend, staging frontend
-│   └── preview parent → preview backend, preview frontend
+│   └── idea-board root
+│       ├── ingress-controller, backend, frontend
+│       ├── idea-board-staging-backend, idea-board-staging-frontend
+│       └── idea-board-pr-<PR>-backend, idea-board-pr-<PR>-frontend
 ├── ingress-system namespace → Traefik
 ├── idea-board namespace → base frontend, backend, PostgreSQL, database Secret
 ├── idea-board-staging namespace → staging frontend, backend, PostgreSQL, volume, database Secret
 └── idea-board-pr-<PR> namespace → preview frontend, backend, PostgreSQL, volume, database Secret
 ```
 
-The base root is installed manually using `infra/terraform/modules/argocd/bootstrap` with `cloud=kind`. It selects `gitops/applications/values-kind.yaml`. The deployment tool creates the staging and preview parents; each backend child owns its PostgreSQL instance and volume. Preview deployment needs no healthy staging backend or staging database access. These are the documented names and topology, not proof that resources currently exist or are healthy.
+The base root is installed manually using `infra/terraform/modules/argocd/bootstrap` with `cloud=kind`. It selects `gitops/applications/values-kind.yaml`. The deployment tool adds staging and preview service Applications to this same root; each backend child owns its PostgreSQL instance and volume. Preview deployment needs no healthy staging backend or staging database access. These are the documented names and topology, not proof that resources currently exist or are healthy.
 
 ### Local configuration and access
 
@@ -262,7 +263,7 @@ Trusted target: `kind`, `staging`. Request: “A small staging environment for a
 
 Use `action: none` only for a healthy assessment. Use `investigate` for unresolved or inconclusive failures. Recommend `rollback` only for a failed release with a previous verified release and evidence that reverting the application can address the failure.
 
-Rollback requires the operator to confirm that the previous app supports the current database schema and explicitly invoke it. The tool restores application configuration and skips migration hooks; it does not downgrade the database or restore data. Do not claim that a recommendation performed a rollback.
+Rollback requires the operator to confirm that the previous app supports the current database schema and explicitly invoke it. The tool restores the environment's entries in the shared root, keeps its child automatic sync disabled, and skips migration hooks; it does not downgrade the database or restore data. Do not claim that a recommendation performed a rollback.
 
 ### Diagnosis example
 
