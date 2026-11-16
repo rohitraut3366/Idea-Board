@@ -28,9 +28,9 @@ Cloud previews use the cluster's default storage provisioner for their PostgreSQ
 
 Every release attempt writes `deployment-diagnostics.json`. It records check outcome, pod readiness/restarts, migration Job counts, event reasons, recognized error signatures from bounded current/previous logs, and resource usage when available. Raw log lines, event messages, container environment, and Secrets stay out of the artifact. Missing APIs/logs are recorded as gaps. This is a snapshot for explaining a rollout, not continuous monitoring.
 
-Follow [Explain a failed rollout with AI](../../gitops/README.md#9-explain-a-failed-rollout-with-ai) for the prompt, model invocation and report commands. Use `deployment-diagnostics.json` to inspect your own release attempt.
+Follow [Explain a failed rollout with AI](../../gitops/README.md#9-explain-a-failed-rollout-with-ai) to get an explanation with one skill invocation. Use `deployment-diagnostics.json` to inspect your own release attempt.
 
-`diagnosis.md` contains validated advice with references to collected evidence. A model response cannot declare a failed deterministic check healthy, invent evidence IDs, or request rollback without a verified predecessor. Advice never executes commands. GitHub Actions runs diagnosis in a separate job after rollout, even if the deployment failed, so the model has no cloud credentials. Failures before the release tool starts have no rollout artifact.
+In CI, `diagnosis.md` contains validated advice with references to collected evidence. Validation rejects a model response that declares a failed deterministic check healthy, invents evidence IDs, or requests rollback without a verified predecessor. Advice never executes commands. GitHub Actions runs diagnosis in a separate job after rollout, even if the deployment failed, so the model has no cloud credentials. Failures before the release tool starts have no rollout artifact.
 
 ## Roll back application code
 

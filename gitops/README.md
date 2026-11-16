@@ -425,35 +425,14 @@ This second AI feature explains a failure using collected deployment evidence. T
 
 For a failure from your own release, use its `deployment-diagnostics.json` instead of the recorded evidence path below.
 
-**1. Create the diagnosis prompt.** Combine the failure evidence and diagnosis instructions into the model's input:
-
-```bash
-uv run --project tools/deploy python tools/deploy/analyze.py prompt \
-  --evidence gitops/kind/evidence/failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
-```
-
-**2. Call the model.** Ask it to explain the evidence and return a response matching the diagnosis schema. Save that response to `/tmp/idea-board-diagnosis.json`:
+Run this from the repository root. `$deploy` selects the deployment skill in `.agents/skills/deploy/`. Codex reads the recorded evidence and prints an explanation of the failure, the evidence supporting it, and suggested next steps. The single quotes keep `$deploy` as a skill mention rather than a shell variable.
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
-  --output-schema .agents/skills/deploy/diagnosis.schema.json \
-  --output-last-message /tmp/idea-board-diagnosis.json \
-  - </tmp/idea-board-diagnosis-prompt.md
+  '$deploy Diagnose the rollout using gitops/kind/evidence/failed-rollout.json. Explain the failure and recommend the next steps. Do not change the cluster.'
 ```
 
-**3. Validate the explanation.** Check its format, evidence references and rollback recommendation, then write `diagnosis.md`:
-
-```bash
-uv run --project tools/deploy python tools/deploy/analyze.py report \
-  --evidence gitops/kind/evidence/failed-rollout.json \
-  --diagnosis /tmp/idea-board-diagnosis.json
-```
-
-**4. Read the report.** Review the explanation and suggested next steps:
-
-```bash
-cat diagnosis.md
-```
+This command analyzes the recorded attempt. GitHub Actions uses schema-validated JSON and saves its diagnosis as workflow artifacts.
 
 Diagnosis provides advice. To restore an application release, follow the separate [rollback procedure](../tools/deploy/README.md#roll-back-application-code), including its database compatibility check.
 
