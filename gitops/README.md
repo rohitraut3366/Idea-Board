@@ -125,7 +125,9 @@ GitHub Actions runs the automated bootstrap, cluster-service, preview and rollba
 
 ## 6. Plan and deploy with AI
 
-Staging gets its own PostgreSQL instance and volume in `idea-board-staging`. The release tool generates and retains its credentials. Ask for a small local staging environment:
+Staging gets its own PostgreSQL instance, volume and generated credentials. Run from the repository root, using the `IMAGE_TAG` and `CHART_REVISION` set during setup. `uv run --project tools/deploy` runs Python with the deployment tool's dependencies.
+
+**1. Build the prompt.** `prompt` combines your request, the kind/staging target, image and chart versions, and the [deployment skill](../.agents/skills/deploy/SKILL.md). The shell's `>` saves that text to `/tmp/idea-board-prompt.md` for the model to read.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
@@ -133,30 +135,41 @@ uv run --project tools/deploy python tools/deploy/deploy.py prompt \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --request 'Local staging for a few reviewers. Use one backend replica and one frontend replica.' \
   >/tmp/idea-board-prompt.md
+```
 
+**2. Ask the model for settings.** Codex reads the prompt from the file through `<`. It proposes replicas, CPU and memory, with a reason. `--output-schema` specifies the JSON response format; `--output-last-message` saves the response to `/tmp/idea-board-recommendation.json`. The session uses a read-only sandbox and `--ephemeral` skips saving its session history. This is the live model call.
+
+```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
   --output-last-message /tmp/idea-board-recommendation.json \
   - </tmp/idea-board-prompt.md
+```
 
+**3. Prepare the release files.** `prepare` reads the recommendation, validates its settings and execution order, and writes `release-plan/plan.md` and `release-plan/applications.json`. These files describe the proposed release; this command does not change the cluster.
+
+```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --cloud kind --environment staging \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation /tmp/idea-board-recommendation.json
 ```
 
-The prompt includes the [deployment skill](../.agents/skills/deploy/SKILL.md). AI proposes replicas, CPU and memory. Python validates the response and generates the deployment commands.
-
 The skill permits a fixed list of read-only `kubectl` commands to inspect settings, capacity, rollout status, resource descriptions, ConfigMaps, and bounded container logs. This local walkthrough uses `kind-idea-board`; AWS/GCP inspection requires an existing context explicitly supplied by the trusted caller. The runner must already have credentials and API access. The AI must not log in, change kubeconfig, configure permissions, or read Kubernetes Secrets. If access or metrics are unavailable, it states the gap and uses the supplied information. These are model instructions; Kubernetes RBAC controls actual permissions. Deployment changes stay with the deployment tool.
 
-Review the recommendation and plan:
+**4. Review the recommendation.** Show the model's proposed settings and reasoning:
 
 ```bash
 cat /tmp/idea-board-recommendation.json
+```
+
+**5. Review the release plan.** Show the resource settings and execution order that the tool prepared:
+
+```bash
 cat release-plan/plan.md
 ```
 
-Then deploy the reviewed settings:
+**6. Deploy the reviewed settings.** `release` changes the kind cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. `--context` explicitly identifies the cluster this tool will change:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -164,8 +177,6 @@ uv run --project tools/deploy python tools/deploy/deploy.py release \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
 ```
-
-The tool creates staging's database credentials and parent Application. Its backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend. It checks HTTP responses before recording the release as healthy.
 
 Open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). For command-line clients that do not resolve `.localhost` names, leave this port-forward running in another terminal:
 
@@ -180,25 +191,47 @@ Staging is then also available at [localhost:3002](http://localhost:3002).
 
 Preview `123` gets a parent Application, frontend, backend, namespace, PostgreSQL instance, persistent volume and credentials. Its backend chart deploys a PostgreSQL instance and volume in the preview namespace. It uses neither staging nor production database credentials.
 
+**1. Build the preview prompt.** `--environment preview --pr 123` selects the preview identity. The command combines that target and your request with the deployment skill and saves the prompt to `/tmp/idea-board-preview-prompt.md`.
+
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prompt \
   --cloud kind --environment preview --pr 123 \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --request 'A small disposable preview for reviewing this change.' \
   >/tmp/idea-board-preview-prompt.md
+```
 
+**2. Generate the recommendation.** Make a live model call using the preview prompt and the same JSON schema as staging. Save its settings to `/tmp/idea-board-preview-recommendation.json`.
+
+```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
   --output-last-message /tmp/idea-board-preview-recommendation.json \
   - </tmp/idea-board-preview-prompt.md
+```
 
+**3. Prepare the preview plan.** Validate the recommendation and write the preview's proposed Applications and release plan. This replaces the plan files from the staging example.
+
+```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --cloud kind --environment preview --pr 123 \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --recommendation /tmp/idea-board-preview-recommendation.json
 ```
 
-Review the preview recommendation and `release-plan/plan.md`, then deploy:
+**4. Review the preview settings.** Display the model's response:
+
+```bash
+cat /tmp/idea-board-preview-recommendation.json
+```
+
+**5. Review the preview plan.** Check its target and resource settings:
+
+```bash
+cat release-plan/plan.md
+```
+
+**6. Deploy the preview.** Create its database and login, parent Application, backend and frontend in kind, then check that the release responds:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -217,7 +250,7 @@ idea-board-staging                 idea-board-pr-123
 └── idea-board-staging-frontend     └── idea-board-pr-123-frontend
 ```
 
-Remove the preview when finished:
+Remove the preview when finished. `cleanup` deletes its parent and child Applications, namespace, credentials and PostgreSQL volume:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
@@ -225,14 +258,17 @@ uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" --context kind-idea-board
 ```
 
-This removes the preview's parent, services, namespace, database credentials and PostgreSQL volume.
-
 ## 8. Test performance and scaling
 
-Use the staging port-forward from step 6. Check the running replica count and run a baseline load test:
+Use the staging port-forward from step 6. Show the current replica counts before measuring:
 
 ```bash
 kubectl --namespace idea-board-staging get deployments
+```
+
+Run 1,000 create/list/delete cycles against staging, with up to 25 cycles active at once:
+
+```bash
 IDEA_BOARD_BASE_URL=http://localhost:3002 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
   npm --prefix apps/frontend run test:load
 ```
@@ -251,7 +287,11 @@ settings['backend']['replicas'] = 2
 settings['reason'] = 'Compare local performance with two backend replicas.'
 Path('/tmp/idea-board-two-replicas.json').write_text(json.dumps(settings, indent=2))
 PYTHON
+```
 
+Apply the two-replica settings to staging and wait for the release checks:
+
+```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
   --cloud kind --environment staging \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
@@ -262,21 +302,35 @@ Rerun the same load commands and compare results at matching concurrency. Releas
 
 ## 9. Explain a failed rollout with AI
 
-Use the recorded evidence from an earlier failed frontend rollout to ask AI what went wrong. This example makes a live model call about that captured failure; your current deployment stays unchanged:
+Use the recorded evidence from an earlier failed frontend rollout to ask AI what went wrong. This example makes a live model call about that captured failure; your current deployment stays unchanged.
+
+**1. Build the diagnosis prompt.** Read the recorded failure evidence and combine it with the diagnosis instructions. Save the resulting prompt for the model:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/analyze.py prompt \
   --evidence gitops/kind/evidence/failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
+```
 
+**2. Ask the model to explain the failure.** Read the prompt, request JSON matching the diagnosis schema, and save the model's response to `/tmp/idea-board-diagnosis.json`:
+
+```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/diagnosis.schema.json \
   --output-last-message /tmp/idea-board-diagnosis.json \
   - </tmp/idea-board-diagnosis-prompt.md
+```
 
+**3. Validate the diagnosis.** Check the model's response against the evidence, including its evidence references and rollback recommendation. Write the validated result to `diagnosis.md`:
+
+```bash
 uv run --project tools/deploy python tools/deploy/analyze.py report \
   --evidence gitops/kind/evidence/failed-rollout.json \
   --diagnosis /tmp/idea-board-diagnosis.json
+```
 
+**4. Read the report.** Inspect the explanation and recommended next steps:
+
+```bash
 cat diagnosis.md
 ```
 
