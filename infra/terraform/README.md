@@ -132,7 +132,7 @@ The `applications/idea-board` project publishes `charts/idea-board-backend/value
 
 1. Read `cluster_name` from the cluster project's outputs.
 2. Apply `applications/idea-board` to create PostgreSQL and publish the backend values file.
-3. Configure the GitHub deployment Environment using the [deployment guide](../../README.md#3-configure-github-actions).
+3. Configure the GitHub deployment Environment using the [deployment guide](../cloud-deployment.md#3-configure-github-actions).
 4. Run the Deploy workflow for a tested image commit. Argo CD deploys the backend and frontend, including the separate backend migration Job.
 
 External Secrets refreshes cloud database credentials into Kubernetes. Backend processes read their Secret when they start; restart backend pods after rotating a database password.

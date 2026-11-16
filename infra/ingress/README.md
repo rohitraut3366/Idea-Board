@@ -22,7 +22,7 @@ One controller installation serves a cluster, including its staging and preview 
 
 ## Release the application
 
-1. Configure GitHub Actions using the [deployment instructions](../../README.md#3-configure-github-actions).
+1. Configure GitHub Actions using the [deployment instructions](../cloud-deployment.md#3-configure-github-actions).
 2. Run the Deploy workflow for the cloud and environment.
 3. The workflow checks the AWS controller when applicable, then submits the backend and frontend Applications to Argo CD.
 4. The frontend chart creates an Ingress pointing to both Services. The controller creates the public load balancer.
