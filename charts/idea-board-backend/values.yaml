@@ -1,4 +1,4 @@
-# The database Secret must exist before installing this chart.
+# Required when the PostgreSQL child chart is disabled.
 image:
   repository: ghcr.io/rohitraut3366/idea-board-backend
   tag: 5ae00d82541190e313a06e14f39ddc94124455a8
@@ -15,3 +15,5 @@ resources:
     memory: 128Mi
   limits:
     memory: 256Mi
+postgres:
+  enabled: false

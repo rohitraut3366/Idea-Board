@@ -1,13 +1,12 @@
 # Run Idea Board in kind
 
-Argo CD reads the deployment configuration from Git and keeps the cluster in sync. You install Argo CD and apply one root Application. That root creates PostgreSQL and the Applications below it:
+Argo CD reads the deployment configuration from Git and keeps the cluster in sync. You install Argo CD and apply one root Application. That root creates the Applications below it:
 
 ```text
 local
-├── PostgreSQL: credentials, storage, Deployment and Service
 ├── ingress-controller → Traefik
 └── idea-board
-    ├── backend → FastAPI and its migration Job
+    ├── backend → PostgreSQL child chart, migration Job and FastAPI
     └── frontend → React, Nginx and the Ingress routes
 ```
 
@@ -47,23 +46,43 @@ kubectl --context kind-idea-board --namespace argocd get applications --watch
 
 Wait for `local`, `ingress-controller`, `idea-board`, `backend` and `frontend` to each show `Synced` and `Healthy`. Check every Application: a healthy parent alone does not confirm that its children are ready.
 
-The root waits for PostgreSQL before creating its child Applications. Backend sync runs migrations in a separate `PreSync` Job. A failed migration blocks backend deployment.
+The backend chart starts its PostgreSQL child chart, runs the migration Job, then deploys the backend. A failed migration blocks backend deployment.
 
 ### Where the local settings live
 
-| File                                             | Purpose                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| `kind/root.yaml`                                 | Root Application and its permissions; watches `master`    |
-| `local/values-kind.yaml`                         | Enables PostgreSQL and ingress; disables External Secrets |
-| `applications/values-kind.yaml`                  | Backend and frontend child Applications                   |
-| `../charts/idea-board-backend/values-kind.yaml`  | Backend Kubernetes Secret reference                       |
-| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                                |
+| File                                             | Purpose                                                |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| `kind/root.yaml`                                 | Root Application and its permissions; watches `master` |
+| `local/values-kind.yaml`                         | Enables ingress; disables External Secrets             |
+| `applications/values-kind.yaml`                  | Backend and frontend child Applications                |
+| `../charts/idea-board-backend/values-kind.yaml`  | Enables PostgreSQL with local credentials              |
+| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                             |
 
-Local PostgreSQL uses development credentials from `local/values-kind.yaml`. The root creates a Kubernetes Secret directly. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
+Local PostgreSQL uses development credentials from the backend chart's `values-kind.yaml`. The backend chart creates the Kubernetes database Secret. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
 
 The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
 
 Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `imageTag` in `local/values-kind.yaml` and merge. Argo CD applies that tag to both services.
+
+### Updating an existing local stack
+
+The database previously belonged to the local root. Before syncing this change, protect its namespace and volume:
+
+```bash
+kubectl --context kind-idea-board annotate namespace idea-board \
+  argocd.argoproj.io/sync-options=Prune=false --overwrite
+kubectl --context kind-idea-board --namespace idea-board annotate pvc postgres-data \
+  argocd.argoproj.io/sync-options=Prune=false --overwrite
+```
+
+After the backend Application is Synced and Healthy, remove the namespace's old root tracking annotation:
+
+```bash
+kubectl --context kind-idea-board annotate namespace idea-board \
+  argocd.argoproj.io/tracking-id-
+```
+
+The backend Application now manages PostgreSQL and its volume. These steps keep the existing namespace and database data while ownership changes.
 
 ## 4. Open the app and Argo CD
 

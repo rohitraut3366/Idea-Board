@@ -4,3 +4,7 @@ description: Idea Board backend and migration job
 type: application
 version: 0.1.0
 appVersion: 0.1.0
+dependencies:
+  - name: postgres
+    version: 0.1.0
+    condition: postgres.enabled

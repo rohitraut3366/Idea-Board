@@ -1,8 +1,6 @@
 repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
 targetRevision: master
 imageTag: ""
-postgres:
-  enabled: false
 applications:
   ingress-controller:
     enabled: false
