@@ -76,7 +76,47 @@ On kind, staging and previews use environment parent Applications with backend/f
 
 Cloud staging/production uses RDS on AWS or Cloud SQL on GCP. Terraform generates credentials and stores a complete `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator's IRSA role on AWS or Workload Identity on GCP to copy it into a Kubernetes Secret. The API and migration Job consume that Secret.
 
-Local kind uses PostgreSQL from the backend chart. Local staging and PR previews have their own databases and credentials on the shared server; previews share the staging cluster and database server. Redeployment preserves preview data; cleanup removes the preview's resources. A preview is not a new cloud network, cluster, or database server.
+Local kind uses PostgreSQL from the backend chart. Local staging gets its own database using the base database owner; each PR preview gets its own database and login on the staging server. Redeployment preserves preview data; cleanup removes the preview's resources. A preview is not a new cloud network, cluster, or database server.
+
+## Kind demo context
+
+When the trusted target is `kind`, use this local topology. AWS and GCP instructions describe separate cloud targets and do not apply to this release.
+
+```text
+kind-idea-board (Kubernetes context)
+├── argocd namespace
+│   ├── idea-board root → ingress-controller, backend, frontend
+│   ├── staging parent → staging backend, staging frontend
+│   └── preview parent → preview backend, preview frontend
+├── ingress-system namespace → Traefik
+├── idea-board namespace → base frontend, backend, PostgreSQL, database Secret
+├── idea-board-staging namespace → staging frontend, backend, database Secret
+└── idea-board-pr-<PR> namespace → preview frontend, backend, database Secret
+```
+
+The base root is installed manually using `infra/terraform/modules/argocd/bootstrap` with `cloud=kind`. It selects `gitops/applications/values-kind.yaml`. The deployment tool creates the staging and preview parents; their databases live on the base PostgreSQL server. A healthy staging backend is required to administer preview databases. These are the documented names and topology, not proof that resources currently exist or are healthy.
+
+### Local configuration and access
+
+| Setting | Kind behavior |
+| --- | --- |
+| Cluster | `gitops/kind/config.yaml` declares one control-plane node running in Docker. Application replicas share this node and the host's resources. |
+| App overrides | `charts/idea-board-backend/values-kind.yaml` enables the PostgreSQL child chart; `charts/idea-board-frontend/values-kind.yaml` enables Traefik ingress. |
+| Database | The base chart supplies development credentials and a 1 GiB persistent volume. Replacing the PostgreSQL pod retains its volume; deleting the cluster removes its data. |
+| Secrets | The local app profile uses Kubernetes Secrets without cloud secret managers or ExternalSecret resources. The separate core-service test can install the operator and CRDs; that does not exercise cloud secret retrieval. |
+| Routing | Traefik routes `/api/` to the backend and other paths to the frontend. Host port `8081` maps to Traefik's NodePort `30080`. |
+| Addresses | Base: `http://localhost:8081`; staging: `http://idea-board-staging.localhost:8081`; preview: `http://idea-board-pr-<PR>.localhost:8081`. These are local demo addresses. |
+| Images and charts | Both app images are published in GHCR. Argo CD fetches chart sources from the Git repository; the selected chart revision must be pushed. The caller selects image and chart SHAs. |
+| Infrastructure sizing | Always return `infrastructure: null`. Recommend application replicas/requests/limits within the kind host's available resources; do not propose cloud workers, managed databases, or cloud IAM setup. |
+
+### Interpreting local tests
+
+- Start conservatively when host capacity is unknown. Additional replicas on one kind node can demonstrate deployment and scaling behavior but provide no node-failure redundancy.
+- Separate pod resource requests/limits from observed usage. Metrics Server is optional; if metrics are unavailable, state the gap rather than inventing utilization.
+- `gitops/tests/check_local.py` checks the base app-of-apps deployment. `check_core_services.py` separately checks External Secrets Operator installation. `tools/deploy/tests/check_kind.py` checks staging, preview persistence/cleanup, a failed rollout, and rollback using fixed recommendations.
+- The failed-rollout check deliberately uses an unpublished frontend tag of forty `f` characters. Treat the resulting image-pull failure as expected only when the supplied evidence identifies that test scenario; do not dismiss an unexpected failure.
+- The automated check saves failure evidence before recovery and cleanup. A later diagnosis explains that captured attempt, not the current live cluster. Distinguish the failed snapshot from a recovered release when recovery evidence is supplied.
+- Live planning or diagnosis requires a new model invocation. Passing fixture-based tests does not establish that the model was called. Kind results do not verify AWS/GCP deployment, public internet access, or cloud capacity.
 
 ## Planning procedure
 
