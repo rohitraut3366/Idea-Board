@@ -28,7 +28,16 @@ def main():
     if not args.context.startswith("kind-"):
         raise ValueError("an explicit kind context is required")
     kubectl = ("kubectl", "--context", args.context)
-    manifests = run("kubectl", "kustomize", str(ROOT / "gitops/kind"))
+    manifests = run(
+        "helm",
+        "template",
+        "idea-board",
+        str(ROOT / "infra/terraform/modules/argocd/bootstrap"),
+        "--namespace",
+        "argocd",
+        "--set",
+        "cloud=kind",
+    )
     documents: dict = {"apiVersion": "v1", "kind": "List", "items": []}
     for manifest in manifests.split("---\n"):
         if manifest.strip():
@@ -50,10 +59,12 @@ def main():
     for document in documents["items"]:
         if document["kind"] == "Application":
             document["spec"]["source"]["targetRevision"] = args.revision
-            document["spec"]["source"]["helm"]["valuesObject"] = {
-                "targetRevision": args.revision,
-                "imageTag": args.image_tag,
-            }
+            document["spec"]["source"]["helm"]["valuesObject"].update(
+                {
+                    "targetRevision": args.revision,
+                    "imageTag": args.image_tag,
+                }
+            )
     run(
         *kubectl,
         "apply",
@@ -63,7 +74,7 @@ def main():
         "-",
         data=json.dumps(documents),
     )
-    expected = {"local", "idea-board", "ingress-controller", "backend", "frontend"}
+    expected = {"idea-board", "ingress-controller", "backend", "frontend"}
     deadline = time.monotonic() + 600
     statuses = {}
     while time.monotonic() < deadline:
@@ -95,14 +106,11 @@ def main():
     for app in selected:
         assert app["spec"]["source"]["targetRevision"] == args.revision
         assert app["status"]["sync"].get("comparedTo", {}).get("source") == app["spec"]["source"]
-        if app["metadata"]["name"] != "local":
-            expected_parent = (
-                "idea-board" if app["metadata"]["name"] in {"backend", "frontend"} else "local"
-            )
+        if app["metadata"]["name"] != "idea-board":
             tracking = (
                 app["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id", "")
             )
-            assert tracking.startswith(expected_parent + ":"), (
+            assert tracking.startswith("idea-board:"), (
                 "A child has the wrong parent tracking annotation"
             )
     secret_apis = run(*kubectl, "api-resources", "--api-group=external-secrets.io", "-o", "name")
@@ -119,7 +127,7 @@ def main():
         "name",
     ).strip()
     print(
-        "Passed: local root, environment parent, ingress, frontend and backend are "
+        "Passed: shared root, ingress, frontend and backend are "
         "Synced and Healthy; External Secrets is disabled."
     )
 

@@ -141,10 +141,12 @@ jobs:
           helm lint charts/idea-board-backend --strict -f charts/idea-board-backend/values-kind.yaml
           helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
           helm lint infra/terraform/modules/argocd/bootstrap --strict
-          helm lint gitops/cluster-core-services --strict
+          helm lint gitops/applications --strict -f gitops/applications/values-kind.yaml
+          helm lint gitops/applications --strict -f gitops/applications/values-aws.yaml
+          helm lint gitops/applications --strict -f gitops/applications/values-gcp.yaml
           helm lint charts/external-secrets --strict
       - name: Render GitOps Applications
-        run: kubectl kustomize gitops/kind
+        run: helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd --set cloud=kind
       - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           version: v0.32.0

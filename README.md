@@ -206,7 +206,7 @@ Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker.
 
 ## Local Kubernetes deployment
 
-The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy PostgreSQL, Traefik ingress and the Idea Board parent with its backend/frontend children. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
+The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy Traefik ingress, the backend with its PostgreSQL child chart, and the frontend. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
 
 The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
 
@@ -284,15 +284,15 @@ The cluster project provides `cluster_name`. The application project provides th
 
 The `cluster-core-services` project installs Argo CD and waits for it to be ready. On AWS it also installs the AWS Load Balancer Controller and its IAM permissions. GKE's HTTP load-balancing controller is enabled by the `cluster` project.
 
-Terraform also creates a root Argo CD Application called `cluster-core-services`. The root creates child Applications for shared services. This is the **app-of-apps** pattern:
+Terraform also creates a root Argo CD Application called `idea-board`. Its cloud values file selects which child Applications run. This is the **app-of-apps** pattern:
 
 ```text
-Terraform → Argo CD → cluster-core-services → External Secrets Operator
+Terraform → Argo CD → idea-board → External Secrets Operator
 ```
 
-Services are listed under `applications` in `gitops/cluster-core-services/values.yaml`. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Services are listed under `applications` in `gitops/applications/values.yaml`. The `values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` files enable the services for each cloud. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
-Each child Application reads these files from its chart directory, in order. Later files override earlier ones:
+External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 
 ```text
 values.yaml
@@ -305,7 +305,7 @@ Provider and cluster files are optional. Argo CD ignores missing files and picks
 
 For External Secrets settings such as an IAM role annotation, set `external_secrets_values` under `inputs` in the cloud's `cluster-core-services/terragrunt.hcl`. Applying that project writes `values-terraform.yaml` directly to `master`. Keep `gitops_revision = "master"` to receive these updates. Store credentials in the cloud secret manager; the values file holds configuration only.
 
-The [cluster services guide](gitops/cluster-core-services/README.md) includes the chart layout and an IAM annotation example.
+The [GitOps Applications guide](gitops/applications/README.md) explains application selection and chart overrides.
 
 Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
 

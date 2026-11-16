@@ -118,13 +118,13 @@ If existing state is in another bucket or GCS, migrate it to the declared S3 buc
 
 ## Cluster services
 
-The core-services project installs Argo CD and the root `cluster-core-services` Application. Argo CD deploys shared services from `gitops/cluster-core-services`, starting with the External Secrets umbrella chart.
+The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with the cloud's values file, starting with the External Secrets umbrella chart.
 
 AWS core services also install AWS Load Balancer Controller with its IAM permissions. GKE's HTTP load-balancing controller is enabled by the cluster project. See [public routing](../ingress/README.md).
 
-Set `external_secrets_values` in the core-services Terragrunt inputs for settings such as service-account IAM annotations. Terraform publishes them to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. Child Applications load chart defaults, provider settings, cluster settings, then generated settings. Missing files are ignored.
+Set `external_secrets_values` in the core-services Terragrunt inputs for settings such as service-account IAM annotations. Terraform publishes them to `charts/external-secrets/values/<cloud>/<cluster-name>/values-terraform.yaml` on `master`. External Secrets loads chart defaults, provider settings, cluster settings, then generated settings. Missing files are ignored.
 
-The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [cluster services](../../gitops/cluster-core-services/README.md#deploy).
+The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [GitOps Applications](../../gitops/applications/README.md#bootstrap-the-root).
 
 The External Secrets connection to application credentials remains separate work. The current release workflow reads the cloud credential secret and supplies the Kubernetes database Secret.
 

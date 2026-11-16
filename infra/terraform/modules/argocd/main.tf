@@ -18,6 +18,7 @@ resource "helm_release" "core_services" {
   name      = "cluster-core-services"
   namespace = helm_release.this.namespace
   chart     = "${path.module}/bootstrap"
+  version   = "0.3.0"
   atomic    = true
   wait      = true
   values = [yamlencode({

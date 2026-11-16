@@ -55,12 +55,15 @@ class ExternalSecretsChartTests(unittest.TestCase):
 
     def test_child_uses_the_roots_revision_and_passes_chart_overrides(self):
         output = render(
-            "gitops/cluster-core-services",
+            "gitops/applications",
             "argocd",
             {
                 "targetRevision": REVISION,
                 "applications": {
-                    "external-secrets": {"values": {"external-secrets": OPERATOR_VALUES}}
+                    "external-secrets": {
+                        "enabled": True,
+                        "source": {"helm": {"valuesObject": {"external-secrets": OPERATOR_VALUES}}},
+                    }
                 },
             },
         )
@@ -77,7 +80,8 @@ class ExternalSecretsChartTests(unittest.TestCase):
             "templates/root.yaml",
         )
         self.assertEqual(output.count(f'targetRevision: "{REVISION}"'), 2)
-        self.assertIn("path: gitops/cluster-core-services", output)
+        self.assertIn("path: gitops/applications", output)
+        self.assertIn("- values-aws.yaml", output)
         self.assertIn('cloud: "aws"', output)
         self.assertIn('clusterName: "idea-board-staging"', output)
 
@@ -85,9 +89,13 @@ class ExternalSecretsChartTests(unittest.TestCase):
         for cloud in ("aws", "gcp"):
             with self.subTest(cloud=cloud):
                 output = render(
-                    "gitops/cluster-core-services",
+                    "gitops/applications",
                     "argocd",
-                    {"cloud": cloud, "clusterName": "idea-board-staging"},
+                    {
+                        "cloud": cloud,
+                        "clusterName": "idea-board-staging",
+                        "applications": {"external-secrets": {"enabled": True}},
+                    },
                 )
                 self.assertIn("ignoreMissingValueFiles: true", output)
                 files = [

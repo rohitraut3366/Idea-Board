@@ -4,10 +4,6 @@ import argparse
 import json
 import subprocess
 import time
-from pathlib import Path
-
-REPOSITORY = Path(__file__).resolve().parents[2]
-ARGOCD_MODULE = REPOSITORY / "infra/terraform/modules/argocd"
 
 
 def run(*arguments):
@@ -22,21 +18,35 @@ def main():
     if not args.context.startswith("kind-"):
         raise ValueError("this check requires an explicit kind context")
     kubectl = ("kubectl", "--context", args.context)
+    root = json.loads(
+        run(*kubectl, "-n", "argocd", "get", "application", "idea-board", "-o", "json")
+    )
+    if root["spec"]["source"]["path"] != "gitops/applications":
+        raise ValueError("the shared root must be installed before this check")
+    if root["spec"]["source"]["targetRevision"] != args.revision:
+        raise ValueError("the shared root must use the revision being tested")
     run(
-        "helm",
-        "--kube-context",
-        args.context,
-        "upgrade",
-        "--install",
-        "cluster-core-services",
-        str(ARGOCD_MODULE / "bootstrap"),
-        "--namespace",
+        *kubectl,
+        "-n",
         "argocd",
-        "--set-string",
-        f"targetRevision={args.revision}",
-        "--wait",
-        "--timeout",
-        "2m",
+        "patch",
+        "application",
+        "idea-board",
+        "--type=merge",
+        "-p",
+        json.dumps(
+            {
+                "spec": {
+                    "source": {
+                        "helm": {
+                            "valuesObject": {
+                                "applications": {"external-secrets": {"enabled": True}}
+                            }
+                        }
+                    }
+                }
+            }
+        ),
     )
     deadline = time.monotonic() + 600
     statuses = {}
@@ -47,7 +57,7 @@ def main():
         expected = [
             app
             for app in applications
-            if app["metadata"]["name"] in {"cluster-core-services", "external-secrets"}
+            if app["metadata"]["name"] in {"idea-board", "external-secrets"}
         ]
         statuses = {app["metadata"]["name"]: app.get("status", {}) for app in expected}
         ready = len(expected) == 2

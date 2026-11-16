@@ -1,9 +1,0 @@
-repositoryURL: https://github.com/rohitraut3366/Idea-Board.git
-targetRevision: master
-cloud: kind
-clusterName: idea-board
-applications:
-  external-secrets:
-    path: charts/external-secrets
-    namespace: external-secrets
-    values: {}

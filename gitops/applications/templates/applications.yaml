@@ -1,12 +1,15 @@
 {{- range $name, $application := .Values.applications }}
+{{- if $application.enabled }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: {{ printf "%s%s" $.Values.namePrefix $name }}
   namespace: {{ $.Release.Namespace }}
+  {{- if $application.cascadeDelete }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  {{- end }}
 spec:
   project: {{ $.Values.project }}
   source:
@@ -15,13 +18,23 @@ spec:
     path: {{ $application.source.path | quote }}
     helm:
       {{- $helm := deepCopy $application.source.helm }}
-      {{- if $.Values.imageTag }}
+      {{- if $application.clusterValues }}
+      {{- $_ := set $helm "ignoreMissingValueFiles" true }}
+      {{- $_ := set $helm "valueFiles" (list
+        "values.yaml"
+        (printf "values/%s/values.yaml" $.Values.cloud)
+        (printf "values/%s/%s/values.yaml" $.Values.cloud $.Values.clusterName)
+        (printf "values/%s/%s/values-terraform.yaml" $.Values.cloud $.Values.clusterName)
+      ) }}
+      {{- end }}
+      {{- if and $.Values.imageTag (or (eq $name "backend") (eq $name "frontend")) }}
       {{- $helm = mergeOverwrite $helm (dict "valuesObject" (dict "image" (dict "tag" $.Values.imageTag))) }}
       {{- end }}
       {{- toYaml $helm | nindent 6 }}
   destination:
     server: https://kubernetes.default.svc
-    namespace: {{ $.Values.namespace }}
+    namespace: {{ default $.Values.namespace $application.namespace }}
   syncPolicy:
-    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true"))) | nindent 4 }}
+    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true" "ServerSideApply=true"))) | nindent 4 }}
+{{- end }}
 {{- end }}

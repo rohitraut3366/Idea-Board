@@ -1,17 +1,17 @@
 applications:
+  external-secrets:
+    enabled: false
+  ingress-controller:
+    enabled: true
   backend:
+    enabled: true
     source:
-      path: charts/idea-board-backend
       helm:
-        releaseName: backend
-        skipTests: true
         valueFiles:
           - values-kind.yaml
   frontend:
+    enabled: true
     source:
-      path: charts/idea-board-frontend
       helm:
-        releaseName: frontend
-        skipTests: true
         valueFiles:
           - values-kind.yaml
