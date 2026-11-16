@@ -269,42 +269,69 @@ When the release succeeds, open [idea-board-staging.localhost:8081](http://idea-
 
 ## 7. Create a preview
 
-Preview `123` gets a namespace, frontend, backend, PostgreSQL instance, persistent volume and generated credentials. Its database runs in the preview namespace. Preview creation and cleanup need no staging or production database access.
+Use [PR #35](https://github.com/rohitraut3366/Idea-Board/pull/35), which gives the app a purple UI, to compare a proposed change with staging. Keep this PR open as the demo preview.
 
-**1. Ask AI for preview settings.** Request settings for kind preview `123`. Codex displays the recommendation and saves it for the release tool:
+Preview `35` gets its own namespace, frontend, backend, PostgreSQL instance, persistent volume and generated credentials.
+
+**1. Select the preview branch.** Run from the repository root in the same terminal. Fetch the branch and save its commit as the preview version. Separate preview variables preserve the staging version used later in this guide.
+
+```bash
+git fetch origin
+git switch rohit-preview-purple-ui
+git pull --ff-only
+
+export PREVIEW_REVISION="$(git rev-parse HEAD)"
+export PREVIEW_IMAGE_TAG="$PREVIEW_REVISION"
+```
+
+**2. Build and load the preview images.** Build both services from this branch. `--load` saves each image in Docker; `kind load` copies them into the local cluster.
+
+```bash
+docker build --load \
+  -t "ghcr.io/rohitraut3366/idea-board-backend:$PREVIEW_IMAGE_TAG" apps/backend
+
+docker build --load \
+  -t "ghcr.io/rohitraut3366/idea-board-frontend:$PREVIEW_IMAGE_TAG" apps/frontend
+
+kind load docker-image --name idea-board \
+  "ghcr.io/rohitraut3366/idea-board-backend:$PREVIEW_IMAGE_TAG" \
+  "ghcr.io/rohitraut3366/idea-board-frontend:$PREVIEW_IMAGE_TAG"
+```
+
+**3. Ask AI for preview settings.** `$deploy` loads the deployment skill. Codex displays its recommendation and saves the JSON settings for the release tool.
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
-  --output-last-message /tmp/idea-board-preview-recommendation.json \
-  '$deploy Recommend settings for cloud kind, environment preview, PR 123. A small disposable preview for reviewing this change. Do not change the cluster.'
+  --output-last-message /tmp/idea-board-pr-35-recommendation.json \
+  '$deploy Recommend settings for cloud kind, environment preview, PR 35. A small preview for reviewing the purple UI. Use one replica per service. Do not change the cluster.'
 ```
 
-**2. Prepare its release plan.** Validate those settings and generate the preview Applications. This replaces the staging plan files in `release-plan/`.
+**4. Prepare its release plan.** Validate the recommendation and generate the preview Applications. This replaces the staging plan files in `release-plan/`.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
-  --cloud kind --environment preview --pr 123 \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation /tmp/idea-board-preview-recommendation.json
+  --cloud kind --environment preview --pr 35 \
+  --image-tag "$PREVIEW_IMAGE_TAG" --revision "$PREVIEW_REVISION" \
+  --recommendation /tmp/idea-board-pr-35-recommendation.json
 ```
 
-**3. Review the plan.** Confirm that the target is `idea-board-pr-123` and inspect its resource settings:
+**5. Review the plan.** Confirm that the target is `idea-board-pr-35` and inspect its resource settings:
 
 ```bash
 cat release-plan/plan.md
 ```
 
-**4. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
+**6. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
-  --cloud kind --environment preview --pr 123 \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation /tmp/idea-board-preview-recommendation.json --context kind-idea-board
+  --cloud kind --environment preview --pr 35 \
+  --image-tag "$PREVIEW_IMAGE_TAG" --revision "$PREVIEW_REVISION" \
+  --recommendation /tmp/idea-board-pr-35-recommendation.json --context kind-idea-board
 ```
 
-Open [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081). Create an idea, then open staging and check that its ideas are separate. Rerun the preview release command and refresh the preview to check that its data survives redeployment.
+Open [idea-board-pr-35.localhost:8081](http://idea-board-pr-35.localhost:8081). Compare its purple UI with [staging](http://idea-board-staging.localhost:8081). Create an idea in the preview and check that staging's ideas are separate. Rerunning the release command preserves preview data.
 
 The environments now look like this:
 
@@ -313,17 +340,21 @@ idea-board                  Base app created by the root in step 3
 idea-board-staging          Staging release planned with AI
 ├── ...-backend
 └── ...-frontend
-idea-board-pr-123           Preview release planned with AI
+idea-board-pr-35            Purple UI from PR #35
 ├── ...-backend
 └── ...-frontend
 ```
 
-When you finish reviewing, remove the preview. This deletes its parent and child Applications, namespace, credentials and PostgreSQL volume:
+Leave the preview running for the demo. To deploy later changes from this PR, repeat this section to fetch, build and release the new version. The preview remains available while the cluster is running.
+
+### Optional: remove the preview
+
+Run this only when you want to delete the preview. It removes its parent and child Applications, namespace, credentials and PostgreSQL volume:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
-  --cloud kind --environment preview --pr 123 \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" --context kind-idea-board
+  --cloud kind --environment preview --pr 35 \
+  --image-tag "$PREVIEW_IMAGE_TAG" --revision "$PREVIEW_REVISION" --context kind-idea-board
 ```
 
 ## 8. Test performance and scaling
