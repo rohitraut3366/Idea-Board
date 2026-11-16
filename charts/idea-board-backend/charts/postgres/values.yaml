@@ -3,6 +3,7 @@ image: docker.io/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808
 database: idea_board
 username: idea_board
 password: ""
+existingSecret: ""
 storage: 1Gi
 resources:
   requests:

@@ -85,7 +85,6 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
             release(cluster, target, recommendation(cloud))
     else:
         release(cluster, target, recommendation(cloud))
-    cluster.set_database_url.assert_not_called()
     cluster.database_url.assert_not_called()
     parents = [
         entry.args[0]
@@ -131,7 +130,6 @@ def test_wrong_cloud_or_environment_is_rejected_before_mutation(
     with pytest.raises(ValueError, match="does not match"):
         release(cluster, target, recommendation("aws"))
     cluster.apply.assert_not_called()
-    cluster.set_database_url.assert_not_called()
     cluster.database_url.assert_not_called()
 
 

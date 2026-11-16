@@ -12,15 +12,17 @@ For AWS/GCP staging or production, select `--cloud aws` or `--cloud gcp` when ge
 
 ## Deploy
 
-For kind, first follow the [local bootstrap](../../gitops/README.md). The tool creates a staging database on that PostgreSQL server, using credentials from the base backend. Set `DATABASE_URL` only to use another dedicated database reachable from the cluster. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
+For kind, first follow the [local bootstrap](../../gitops/README.md). Each local environment runs its own PostgreSQL Deployment and volume through the backend chart. The tool creates a random password and connection URL in that environment's Kubernetes Secret and reuses them on redeployment. It refuses an existing Secret pointing to a shared server; migrate that environment's data or recreate it explicitly before deploying. Staging uses `idea-board-staging`. The tool refuses to adopt a namespace without its ownership labels. Cloud child Applications create their namespace with those same labels. A cloud staging/production release checks that the existing root matches the requested cloud and environment before changing anything.
 
 Use `release` with the same image, revision and recommendation as `prepare`, plus an explicit Kubernetes context. The [kind walkthrough](../../gitops/README.md#6-plan-and-deploy-with-ai) contains the release command and [preview example](../../gitops/README.md#7-create-a-preview).
 
 On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP staging/production releases update the existing `idea-board` root in the same order. The root owns the service Applications. Cloud previews have their own Applications.
 
-The backend migration runs in its separate Job. Cloud staging/production creates the ExternalSecret first, then runs the migration as a Sync hook in wave -1; preview releases keep the PreSync hook. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. External Secrets supplies cloud staging/production database credentials from the Terraform-generated backend values. Local and preview credentials are created by the deployment tool. Cloud access and Environment variables are described in the [root README](../../README.md).
+The backend migration runs in its separate Job. Cloud staging/production creates the ExternalSecret first, then runs the migration as a Sync hook in wave -1. Bundled PostgreSQL also starts before migrations run as a Sync hook. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. External Secrets supplies cloud staging/production database credentials from the Terraform-generated backend values. Local and preview credentials are created by the deployment tool. Cloud access and Environment variables are described in the [root README](../../README.md).
 
-A preview uses `--environment preview --pr 123` and shares the staging cluster/database server. Its own database and login survive redeployment. Staging must be healthy because preview administration runs inside its backend. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Kind cleanup deletes the parent before its children so the parent cannot recreate them. Cleanup rejects staging and production and refuses unrelated databases/roles.
+A preview uses `--environment preview --pr 123`. It gets its own PostgreSQL Deployment, volume and credentials in its namespace. Redeployment preserves the data and credentials. It needs no staging or production database access. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Kind cleanup deletes the parent before its children so the parent cannot recreate them. Deleting the preview namespace removes its Secret and PostgreSQL volume. Cleanup rejects staging and production and checks namespace ownership.
+
+Cloud previews use the cluster's default storage provisioner for their PostgreSQL volumes. EKS needs an installed EBS CSI driver and a default StorageClass; GKE uses its Persistent Disk provisioner. The AWS Terraform stack does not currently install the EBS CSI add-on.
 
 ## Diagnose a rollout
 
@@ -51,7 +53,7 @@ The tool checks both Applications before changing either. It refuses a mismatche
 
 ## Verification
 
-With the local Compose PostgreSQL service running:
+Run the deployment tool checks:
 
 ```bash
 uv run --project tools/deploy --locked ruff check tools/deploy
@@ -60,7 +62,7 @@ uv run --project tools/deploy --locked mypy tools/deploy --check-untyped-defs --
 uv run --project tools/deploy --locked pytest tools/deploy/tests
 ```
 
-PostgreSQL tests create uniquely named preview databases/roles and remove them. Set `IDEA_BOARD_TEST_DATABASE_URL` for another dedicated test server whose identity can create/drop databases and roles. Tests cover independent sizing, environment limits, Helm rendering, Terraform input mapping, evidence filtering, unsupported model advice, rollback state/drift checks, preview persistence/ownership/cleanup, and PR provenance.
+Tests cover independent sizing, environment limits, Helm rendering, Terraform input mapping, isolated database credentials, evidence filtering, unsupported model advice, rollback state/drift checks, preview ownership/cleanup, and PR provenance.
 
 The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against the cluster and application projects for both clouds using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
 

@@ -15,7 +15,6 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
     monkeypatch, tmp_path, failed_check
 ):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("DATABASE_URL", "postgresql://local")
     evidence = Mock(return_value={"evidence": []})
     monkeypatch.setattr("diagnosis.collect", evidence)
     cluster = Mock(namespace="idea-board-staging")
@@ -45,4 +44,10 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
         assert len(snapshots) == 2
         assert snapshots[-1]["healthy"] and snapshots[-1]["attempt"] is None
         assert evidence.call_args.args[1] == "healthy"
-    assert "postgresql://local" not in json.dumps(snapshots)
+    credentials = next(
+        call.args[0]["stringData"]
+        for call in cluster.apply.call_args_list
+        if call.args[0]["kind"] == "Secret"
+    )
+    assert credentials["POSTGRES_PASSWORD"] not in json.dumps(snapshots)
+    cluster.run.assert_not_called()

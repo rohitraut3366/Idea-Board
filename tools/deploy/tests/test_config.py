@@ -52,9 +52,12 @@ def test_preview_has_its_own_project_namespace_and_both_services():
     assert (
         backend["spec"]["destination"]["namespace"] == frontend["spec"]["destination"]["namespace"]
     )
-    assert (
-        chart_source(backend)["helm"]["valuesObject"]["databaseSecretName"] == "idea-board-database"
-    )
+    assert chart_source(backend)["helm"]["valueFiles"] == [
+        "values-gcp.yaml",
+        "values-postgres.yaml",
+    ]
+    for kind in ("Secret", "PersistentVolumeClaim"):
+        assert {"group": "", "kind": kind} in project["spec"]["namespaceResourceWhitelist"]
     assert backend["metadata"]["name"] != frontend["metadata"]["name"]
 
 
@@ -207,24 +210,6 @@ def test_cli_rejects_invalid_model_output_before_writing_manifests(tmp_path):
     assert result.returncode != 0
     assert not result.stdout
     assert "production requires" in result.stderr
-
-
-def test_database_credential_revision_changes_backend_pod_template():
-    root = Path(__file__).resolve().parents[3]
-    values = {
-        "databaseSecretName": "idea-board-database",
-        "databaseRevision": "a" * 64,
-    }
-    result = subprocess.run(
-        ["helm", "template", "backend", str(root / "charts/idea-board-backend"), "-f", "-"],
-        input=json.dumps(values),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert 'checksum/database: "' + "a" * 64 + '"' in result.stdout
-    assert "secretKeyRef:" in result.stdout
-    assert "argocd.argoproj.io/hook: PreSync" in result.stdout
 
 
 @pytest.mark.parametrize("service_count", [1, 2])

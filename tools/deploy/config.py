@@ -159,7 +159,10 @@ def manifests(target, recommendation):
             "namespaceResourceWhitelist": [
                 {"group": "apps", "kind": "Deployment"},
                 {"group": "apps", "kind": "ReplicaSet"},
-                *[{"group": "", "kind": kind} for kind in ("Pod", "Service")],
+                *[
+                    {"group": "", "kind": kind}
+                    for kind in ("Pod", "Service", "Secret", "PersistentVolumeClaim")
+                ],
                 {"group": "batch", "kind": "Job"},
                 {"group": "networking.k8s.io", "kind": "Ingress"},
                 *(
@@ -187,8 +190,6 @@ def manifests(target, recommendation):
                 "limits": {"memory": f"{sizing['memory_limit_mib']}Mi"},
             },
         }
-        if service == "backend" and not target.uses_cloud_root:
-            values["databaseSecretName"] = "idea-board-database"
         if service == "frontend":
             values["service"] = {"type": "ClusterIP"}
         applications.append(
@@ -220,9 +221,13 @@ def manifests(target, recommendation):
                 },
             }
         )
+    if not target.uses_cloud_root:
+        applications[0]["spec"]["source"]["helm"]["valueFiles"] = ["values-postgres.yaml"]
     if target.cloud != "kind":
         for application in applications:
-            application["spec"]["source"]["helm"]["valueFiles"] = [f"values-{target.cloud}.yaml"]
+            application["spec"]["source"]["helm"].setdefault("valueFiles", []).insert(
+                0, f"values-{target.cloud}.yaml"
+            )
             if target.uses_cloud_root:
                 application["spec"]["syncPolicy"]["syncOptions"] = [
                     "CreateNamespace=true",

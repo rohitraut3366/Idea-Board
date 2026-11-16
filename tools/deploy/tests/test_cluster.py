@@ -196,7 +196,6 @@ def test_preview_cleanup_removes_ingress_owner_before_backend(monkeypatch):
     monkeypatch.setattr(cluster, "get", Mock(return_value=None))
     run = Mock()
     monkeypatch.setattr(cluster, "run", run)
-    monkeypatch.setattr("deploy.preview_database", Mock())
     cleanup(cluster, Target("gcp", "preview", SHA, SHA, 42))
     deleted = [entry.args[4] for entry in run.call_args_list if entry.args[3] == "application"]
     assert deleted == ["idea-board-pr-42-frontend", "idea-board-pr-42-backend"]

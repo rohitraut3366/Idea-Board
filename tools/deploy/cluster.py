@@ -75,17 +75,6 @@ class Cluster:
             return None
         return base64.b64decode(secret["data"]["DATABASE_URL"]).decode()
 
-    def set_database_url(self, url):
-        self.apply(
-            {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {"name": "idea-board-database", "namespace": self.namespace},
-                "type": "Opaque",
-                "stringData": {"DATABASE_URL": url},
-            }
-        )
-
     def wait(self, applications, timeout=600):
         deadline = time.monotonic() + timeout
         pending = applications.copy()
