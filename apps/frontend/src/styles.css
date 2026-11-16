@@ -1,7 +1,7 @@
 :root {
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-  color: #25372c;
-  background: #f6f4ef;
+  color: #302143;
+  background: #f5f0ff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -26,7 +26,7 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #8e641b;
+  outline: 3px solid #7c3aed;
   outline-offset: 5px;
 }
 main {
@@ -54,7 +54,7 @@ main {
 .brand-mark {
   display: grid;
   place-items: center;
-  background: #dbe8be;
+  background: #ddd0fa;
   border-radius: 50%;
   width: 36px;
   height: 36px;
@@ -101,8 +101,8 @@ h1 {
   padding-bottom: 64px;
 }
 .composer {
-  background: #e9eddf;
-  border: 1px solid #dce2cf;
+  background: #ede3ff;
+  border: 1px solid #d7c5f4;
   border-radius: 12px;
   padding: 28px;
 }
@@ -144,7 +144,7 @@ textarea::placeholder {
   color: #7a8274;
 }
 textarea:focus {
-  outline: 2px solid #526f3b;
+  outline: 2px solid #7c3aed;
   outline-offset: 2px;
 }
 .field-details {
@@ -159,7 +159,7 @@ textarea:focus {
   color: #9a352a;
 }
 .submit-button {
-  background: #2e4534;
+  background: #6d28d9;
   color: #fff;
   border: 0;
   width: 100%;
@@ -172,7 +172,7 @@ textarea:focus {
   font-weight: 600;
 }
 .submit-button:not(:disabled):hover {
-  background: #1e3424;
+  background: #5b21b6;
 }
 .submit-button span {
   font-size: 21px;
