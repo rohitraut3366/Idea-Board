@@ -137,6 +137,7 @@ jobs:
       - name: Lint charts
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
+          helm dependency build charts/idea-board-backend
           helm dependency build charts/external-secrets
           helm lint charts/idea-board-backend --strict -f charts/idea-board-backend/values-kind.yaml
           helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
@@ -314,16 +315,17 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
-      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
-      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
+      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
+      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
+      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests --check-untyped-defs --ignore-missing-imports
       - name: Build chart dependencies
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo add traefik https://traefik.github.io/charts
+          helm dependency build ../../charts/idea-board-backend
           helm dependency build ../../charts/external-secrets
           helm dependency build ../../charts/ingress-controller
-      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/idea-board-backend/tests ../../gitops/tests
+      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests ../../charts/idea-board-backend/tests ../../gitops/tests
 
   publish:
     name: Publish images to GHCR

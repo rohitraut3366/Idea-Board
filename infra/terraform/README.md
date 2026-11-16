@@ -126,7 +126,7 @@ The core-services External Secrets module creates the operator's IRSA role on AW
 
 The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [GitOps Applications](../../gitops/applications/README.md#bootstrap-the-root).
 
-The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, cloud provider and cloud secret reference. The backend child loads this file from `master`. Its chart creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to copy `DATABASE_URL` from the cloud secret into Kubernetes.
+The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, cloud provider and cloud secret reference. The backend child loads this file from `master`. Its `externalSecret` dependency on `charts/external-secret-config` creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to copy `DATABASE_URL` from the cloud secret into Kubernetes.
 
 ## Release the application
 

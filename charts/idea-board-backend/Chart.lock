@@ -2,5 +2,8 @@ dependencies:
 - name: postgres
   repository: ""
   version: 0.1.0
-digest: sha256:4065329e6002bbc5597b45228070a3262f4bc95efbc278d20fdf9ee5f15784b7
-generated: "2026-11-16T10:34:08.519778+05:30"
+- name: external-secret-config
+  repository: file://../external-secret-config
+  version: 0.1.0
+digest: sha256:4e313ddd5da1c4a2942acb443e650e1b46858da081d15671a3f84408ef572dcd
+generated: "2026-11-16T12:34:14.192821+05:30"

@@ -51,11 +51,12 @@ module "backend_values" {
   cloud        = "aws"
   cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
   values = {
-    databaseSecretName = "idea-board-database"
     externalSecret = {
-      enabled   = true
-      provider  = { aws = { service = "SecretsManager", region = var.region } }
-      remoteKey = module.psql.credential_secret_id
+      enabled          = true
+      fullnameOverride = "backend-database"
+      secretName       = "idea-board-database"
+      provider         = { aws = { service = "SecretsManager", region = var.region } }
+      dataFrom         = [{ extract = { key = module.psql.credential_secret_id } }]
     }
   }
 }

@@ -37,3 +37,4 @@ infra/terraform/modules/**/.terraform.lock.hcl
 /diagnosis-prompt.md
 
 infra/terraform/**/backend.json
+/charts/idea-board-backend/charts/*.tgz

@@ -51,11 +51,12 @@ module "backend_values" {
   cloud        = "gcp"
   cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
   values = {
-    databaseSecretName = "idea-board-database"
     externalSecret = {
-      enabled   = true
-      provider  = { gcpsm = { projectID = var.project_id } }
-      remoteKey = basename(module.psql.credential_secret_id)
+      enabled          = true
+      fullnameOverride = "backend-database"
+      secretName       = "idea-board-database"
+      provider         = { gcpsm = { projectID = var.project_id } }
+      dataFrom         = [{ extract = { key = basename(module.psql.credential_secret_id) } }]
     }
   }
 }

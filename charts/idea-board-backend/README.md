@@ -7,6 +7,7 @@ By default, the chart uses an existing PostgreSQL database and a Kubernetes Secr
 ## Install
 
 ```bash
+helm dependency build charts/idea-board-backend
 helm upgrade --install backend charts/idea-board-backend \
   --namespace idea-board \
   --set databaseSecretName=idea-board-database \
@@ -23,7 +24,7 @@ The application’s Terraform project publishes this file through the GitHub pro
 charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml
 ```
 
-It supplies `databaseSecretName`, the cloud provider and the remote secret reference. Terraform builds the complete connection URL and stores it under `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP and `dataFrom.extract` to copy the secret’s JSON fields into Kubernetes.
+It supplies the `externalSecret` subchart values: the Kubernetes Secret name, cloud provider and `dataFrom` secret references. Terraform builds the complete connection URL and stores it under `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP and `dataFrom.extract` to copy the secret’s JSON fields into Kubernetes.
 
 ```text
 Terraform → generated values → Argo CD → SecretStore → ExternalSecret
@@ -36,6 +37,8 @@ Terraform → generated values → Argo CD → SecretStore → ExternalSecret
 The SecretStore uses wave -3, the ExternalSecret uses wave -2, and the migration Job uses a Sync hook at wave -1. The generated Secret contains `DATABASE_URL`. Terraform encodes the credentials and enables TLS in the URL. The connection URL stays in Terraform state, the cloud secret manager and Kubernetes; GitHub stores only the secret reference.
 
 After changing the connection URL in Terraform, apply the application project and restart backend pods once External Secrets refreshes the Kubernetes Secret.
+
+The reusable [external-secret-config chart](../external-secret-config/README.md) renders these resources. It is disabled by default; Terraform enables it for cloud deployments. The operator itself remains a cluster core service.
 
 ## Local PostgreSQL
 
@@ -73,7 +76,7 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 | Value                    | Default                                    | Purpose                                                   |
 | ------------------------ | ------------------------------------------ | --------------------------------------------------------- |
-| `databaseSecretName`     | Required for an external database          | Existing Secret with `DATABASE_URL`            |
+| `databaseSecretName`     | Required for an existing Secret            | Existing Secret with `DATABASE_URL`; cloud deployments use `externalSecret.secretName` |
 | `image.repository`       | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                      |
 | `image.tag`              | Published commit tag                       | Image tag; use a commit tag for published images          |
 | `image.pullPolicy`       | `IfNotPresent`                             | Image pull policy                                         |
@@ -89,6 +92,7 @@ With an external database, the database and Secret must exist before the migrati
 ## Checks
 
 ```bash
+helm dependency build charts/idea-board-backend
 helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board-database
 ```
 

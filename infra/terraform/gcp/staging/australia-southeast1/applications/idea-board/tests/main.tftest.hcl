@@ -55,11 +55,11 @@ run "backend_secret_values" {
     error_message = "Publish the backend's generated values under its cloud and cluster."
   }
   assert {
-    condition     = module.backend_values.file_content != "" && yamldecode(module.backend_values.file_content).databaseSecretName == "idea-board-database" && yamldecode(module.backend_values.file_content).externalSecret.enabled
+    condition     = module.backend_values.file_content != "" && yamldecode(module.backend_values.file_content).externalSecret.secretName == "idea-board-database" && yamldecode(module.backend_values.file_content).externalSecret.enabled
     error_message = "Configure External Secrets to create the backend database Secret."
   }
   assert {
-    condition     = yamldecode(module.backend_values.file_content).externalSecret.remoteKey == basename(output.database_credential_secret_id) && yamldecode(module.backend_values.file_content).externalSecret.provider.gcpsm.projectID == var.project_id
+    condition     = yamldecode(module.backend_values.file_content).externalSecret.dataFrom[0].extract.key == basename(output.database_credential_secret_id) && yamldecode(module.backend_values.file_content).externalSecret.provider.gcpsm.projectID == var.project_id
     error_message = "Pass the provider and remote secret reference to External Secrets."
   }
   assert {

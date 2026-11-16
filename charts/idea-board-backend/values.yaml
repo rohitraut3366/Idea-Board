@@ -1,9 +1,9 @@
-# Required when the PostgreSQL child chart is disabled.
 image:
   repository: ghcr.io/rohitraut3366/idea-board-backend
   tag: 76058522cebbcb5ff2292e44da1356624bdfcc6d
   pullPolicy: IfNotPresent
 replicas: 1
+# Required when using an existing Kubernetes database Secret.
 databaseSecretName: ""
 databaseRevision: ""
 gcpBackendConfig: false
@@ -19,6 +19,3 @@ postgres:
   enabled: false
 externalSecret:
   enabled: false
-  refreshInterval: 1h
-  provider: {}
-  remoteKey: ""
