@@ -153,6 +153,8 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
 
 The prompt includes the [deployment skill](../.agents/skills/deploy/SKILL.md). AI proposes replicas, CPU and memory. Python validates the response and generates the deployment commands.
 
+The skill permits a fixed list of read-only `kubectl` commands to inspect settings, capacity, rollout status, resource descriptions, ConfigMaps, and bounded container logs. This local walkthrough uses `kind-idea-board`; AWS/GCP inspection requires an existing context explicitly supplied by the trusted caller. The runner must already have credentials and API access. The AI must not log in, change kubeconfig, configure permissions, or read Kubernetes Secrets. If access or metrics are unavailable, it states the gap and uses the supplied information. These are model instructions; Kubernetes RBAC controls actual permissions. Deployment changes stay with the deployment tool.
+
 Review the recommendation and plan:
 
 ```bash
