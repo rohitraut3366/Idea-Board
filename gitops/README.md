@@ -11,7 +11,20 @@ idea-board
 
 The browser loads the web app at `localhost:8081`. Requests to `/api` reach the backend through Traefik. PostgreSQL is reachable inside the cluster.
 
-Docker, kind, kubectl, Helm, Python, uv and Node.js are needed. Run the commands from the repository root.
+Docker, kind, kubectl, Helm, Python 3.12, uv and Node.js 24 are needed. The live AI examples use an authenticated Codex CLI; another runner can return JSON matching the same skill schemas. Run commands from the repository root.
+
+Follow the steps in order: deploy the base app, run the automated checks, then try live AI, previews and load tests. The automated deployment checks use fixed recommendations; the live AI steps make new model calls.
+
+## Prepare the tools and release
+
+```bash
+npm --prefix apps/frontend ci
+uv sync --project tools/deploy --locked --all-groups
+export IMAGE_TAG=76058522cebbcb5ff2292e44da1356624bdfcc6d
+export CHART_REVISION="$(git rev-parse HEAD)"
+```
+
+The image tag identifies published frontend and backend images. The chart revision must be pushed to the public repository so Argo CD can fetch it. Use a commit with successful image publishing when changing `IMAGE_TAG`.
 
 ## 1. Create the cluster
 
@@ -40,7 +53,7 @@ If the namespace already exists, continue with the apply command.
 
 ```bash
 helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd \
-  --set cloud=kind | kubectl --context kind-idea-board apply --server-side -f -
+  --set cloud=kind --set targetRevision="$CHART_REVISION" | kubectl --context kind-idea-board apply --server-side -f -
 kubectl --context kind-idea-board --namespace argocd get applications --watch
 ```
 
@@ -86,34 +99,121 @@ kubectl --context kind-idea-board --namespace argocd get secret argocd-initial-a
   -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-## 5. Test the app
+## 5. Test the app and deployment process
 
-With the app reachable through ingress:
+Check the page and API through ingress:
 
 ```bash
 IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
-IDEA_BOARD_BASE_URL=http://localhost:8081 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
-  npm --prefix apps/frontend run test:load
 ```
 
-To check staging, preview redeployment, cleanup, failed rollout and rollback:
+To repeat the Kubernetes delivery checks used by CI, run these in order on a fresh demo cluster, before creating staging or previews:
 
 ```bash
-export IMAGE_TAG=76058522cebbcb5ff2292e44da1356624bdfcc6d
-export CHART_REVISION="$(git rev-parse HEAD)"
-uv sync --project tools/deploy --locked --all-groups
+python3 gitops/tests/check_local.py \
+  --context kind-idea-board --revision "$CHART_REVISION" --image-tag "$IMAGE_TAG"
+
+python3 gitops/tests/check_core_services.py \
+  --context kind-idea-board --revision "$CHART_REVISION"
+
 uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
   --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
   --evidence-output /tmp/idea-board-failed-rollout.json
 ```
 
-The chart revision must be pushed to the public repository so Argo CD can fetch it. The image tag above identifies published application images.
+| Check | What it does |
+| ----- | ------------ |
+| `check_local.py` | Applies the root with the selected images and revision, waits for its children, checks ownership and confirms the local profile starts without External Secrets |
+| `check_core_services.py` | Enables the External Secrets Operator through that root and verifies its deployment and CRDs |
+| `check_kind.py` | Deploys staging and a preview, redeploys the preview, checks cleanup, injects a failed frontend image, restores the previous release and verifies that schema and test data survive |
 
-The check uses fixed AI-response fixtures and creates isolated test databases and namespaces. It refuses existing staging/test-preview environments and removes its own environments afterward. Run it before creating the persistent demo below. See the [recorded verification](kind/verification.md).
+The bootstrap check expects no External Secrets CRDs. The operator check installs them afterward; it does not test AWS/GCP secret access. The release check refuses existing staging/test-preview resources and removes only the environments it creates. It saves failure evidence for the live AI diagnosis in step 9. The base app stays running.
 
-## 6. Keep staging and a preview running
+## 6. Plan and deploy with AI
 
-Each environment has a parent Application with backend and frontend children:
+Ask for a small local staging environment:
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py prompt \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --request 'Local staging for a few reviewers. Use one backend replica and one frontend replica.' \
+  >/tmp/idea-board-prompt.md
+
+codex exec --sandbox read-only --ephemeral \
+  --output-schema .agents/skills/deploy/output.schema.json \
+  --output-last-message /tmp/idea-board-recommendation.json \
+  - </tmp/idea-board-prompt.md
+
+uv run --project tools/deploy python tools/deploy/deploy.py prepare \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-recommendation.json
+```
+
+The prompt includes the [deployment skill](../.agents/skills/deploy/SKILL.md). AI proposes replicas, CPU and memory. Python validates the response and generates the deployment commands.
+
+Review the recommendation and plan:
+
+```bash
+cat /tmp/idea-board-recommendation.json
+cat release-plan/plan.md
+```
+
+Then deploy the reviewed settings:
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py release \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-recommendation.json --context kind-idea-board
+```
+
+The tool creates staging's database and parent Application, waits for the backend, then releases the frontend. It checks HTTP responses before recording the release as healthy.
+
+Open [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081). For command-line clients that do not resolve `.localhost` names, leave this port-forward running in another terminal:
+
+```bash
+kubectl --context kind-idea-board --namespace idea-board-staging \
+  port-forward service/frontend 3002:80
+```
+
+Staging is then also available at [localhost:3002](http://localhost:3002).
+
+## 7. Create a preview
+
+Preview `123` gets a parent Application, frontend, backend, namespace, database and login. It shares staging's PostgreSQL server. Staging must be healthy first.
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py prompt \
+  --cloud kind --environment preview --pr 123 \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --request 'A small disposable preview for reviewing this change.' \
+  >/tmp/idea-board-preview-prompt.md
+
+codex exec --sandbox read-only --ephemeral \
+  --output-schema .agents/skills/deploy/output.schema.json \
+  --output-last-message /tmp/idea-board-preview-recommendation.json \
+  - </tmp/idea-board-preview-prompt.md
+
+uv run --project tools/deploy python tools/deploy/deploy.py prepare \
+  --cloud kind --environment preview --pr 123 \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-preview-recommendation.json
+```
+
+Review the preview recommendation and `release-plan/plan.md`, then deploy:
+
+```bash
+uv run --project tools/deploy python tools/deploy/deploy.py release \
+  --cloud kind --environment preview --pr 123 \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-preview-recommendation.json --context kind-idea-board
+```
+
+Open [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081). Create an idea and rerun the release command to check that preview data survives redeployment.
+
+Argo CD shows both environment parents:
 
 ```text
 idea-board-staging                 idea-board-pr-123
@@ -121,37 +221,7 @@ idea-board-staging                 idea-board-pr-123
 └── idea-board-staging-frontend     └── idea-board-pr-123-frontend
 ```
 
-The deployment tool creates staging's database on the local PostgreSQL server. Preview `123` gets its own namespace, database and login on the same server. Staging must be healthy before creating a preview.
-
-Using the image and chart variables from step 5, deploy with the recorded recommendation:
-
-```bash
-uv run --project tools/deploy python tools/deploy/deploy.py release \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation gitops/kind/evidence/recommendation.json --context kind-idea-board
-
-uv run --project tools/deploy python tools/deploy/deploy.py release \
-  --cloud kind --environment preview --pr 123 \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --recommendation gitops/kind/evidence/recommendation.json --context kind-idea-board
-```
-
-The tool updates the parent, waits for the backend, then updates the frontend. It checks both services and their HTTP responses before reporting a verified release.
-
-With ingress reachable on port `8081`:
-
-- Staging: [idea-board-staging.localhost:8081](http://idea-board-staging.localhost:8081)
-- Preview: [idea-board-pr-123.localhost:8081](http://idea-board-pr-123.localhost:8081)
-
-Browsers resolve `.localhost` names locally. For a command-line client that does not, use an explicit mapping:
-
-```bash
-curl --resolve idea-board-staging.localhost:8081:127.0.0.1 \
-  http://idea-board-staging.localhost:8081/api/ideas
-```
-
-Preview `123` is a local example. Remove it when finished:
+Remove the preview when finished:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
@@ -159,7 +229,62 @@ uv run --project tools/deploy python tools/deploy/deploy.py cleanup \
   --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" --context kind-idea-board
 ```
 
-Cleanup removes the parent first, then its services, namespace and preview database. The [deployment tool guide](../tools/deploy/README.md) covers AI planning and rollback.
+This removes the preview's parent, services, namespace, database and login.
+
+## 8. Test performance and scaling
+
+Use the staging port-forward from step 6. Check the running replica count and run a baseline load test:
+
+```bash
+kubectl --context kind-idea-board --namespace idea-board-staging get deployments
+IDEA_BOARD_BASE_URL=http://localhost:3002 LOAD_CYCLES=1000 LOAD_CONCURRENCY=25 \
+  npm --prefix apps/frontend run test:load
+```
+
+Each cycle creates an idea, lists ideas and deletes its test idea. Record requests per second, p95 response time and errors. Repeat with `LOAD_CONCURRENCY=10` and `50` to increase parallelism. Set `LOAD_MAX_P95_MS` to enforce a response-time limit.
+
+To compare two backend replicas, copy the reviewed staging settings and change the replica count:
+
+```bash
+uv run --project tools/deploy python - <<'PYTHON'
+import json
+from pathlib import Path
+
+settings = json.loads(Path('/tmp/idea-board-recommendation.json').read_text())
+settings['backend']['replicas'] = 2
+settings['reason'] = 'Compare local performance with two backend replicas.'
+Path('/tmp/idea-board-two-replicas.json').write_text(json.dumps(settings, indent=2))
+PYTHON
+
+uv run --project tools/deploy python tools/deploy/deploy.py release \
+  --cloud kind --environment staging \
+  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
+  --recommendation /tmp/idea-board-two-replicas.json --context kind-idea-board
+```
+
+Rerun the same load commands and compare results at matching concurrency. Releasing `/tmp/idea-board-recommendation.json` again restores the original sizing. These measurements describe your local machine's capacity.
+
+## 9. Explain a failed rollout with AI
+
+Step 5 saved evidence from its deliberately failed frontend rollout. That check already rolled the application back and cleaned up its test environments. Use the saved evidence to ask AI what went wrong:
+
+```bash
+uv run --project tools/deploy python tools/deploy/analyze.py prompt \
+  --evidence /tmp/idea-board-failed-rollout.json >/tmp/idea-board-diagnosis-prompt.md
+
+codex exec --sandbox read-only --ephemeral \
+  --output-schema .agents/skills/deploy/diagnosis.schema.json \
+  --output-last-message /tmp/idea-board-diagnosis.json \
+  - </tmp/idea-board-diagnosis-prompt.md
+
+uv run --project tools/deploy python tools/deploy/analyze.py report \
+  --evidence /tmp/idea-board-failed-rollout.json \
+  --diagnosis /tmp/idea-board-diagnosis.json
+
+cat diagnosis.md
+```
+
+The report links the explanation to collected evidence. AI provides advice; the deployment checks and rollback command control the actual release. For a failure during your own staging release, use `deployment-diagnostics.json` from that attempt. See the [rollback procedure](../tools/deploy/README.md#roll-back-application-code) before restoring a previous release.
 
 ## Inspect or stop
 
@@ -167,7 +292,7 @@ Cleanup removes the parent first, then its services, namespace and preview datab
 kubectl --context kind-idea-board --namespace argocd get applications
 kubectl --context kind-idea-board --namespace idea-board get pods,jobs,pvc,ingress
 kubectl --context kind-idea-board --namespace idea-board logs deployment/backend
-kubectl --context kind-idea-board --namespace idea-board logs job/backend-migrate
+kubectl --context kind-idea-board --namespace idea-board logs -l app.kubernetes.io/component=migrate --all-containers=true
 ```
 
 Successful migration Jobs are removed, so their logs are available while they run or after a failure. Stopping a port-forward closes its local address. The cluster keeps running.

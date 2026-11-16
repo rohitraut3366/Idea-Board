@@ -2,7 +2,63 @@
 
 Idea Board is a web app where you can write an idea, see ideas from others, and delete an idea.
 
-This guide explains how the app works, how to run it on your computer, and how to deploy it to AWS or GCP.
+This guide explains how the app works, how to run it locally, and how to test deployments with AI on kind.
+
+## Contents
+
+- [Project structure](#project-structure)
+- [Architecture and API](#how-the-app-works)
+- [Local development with Docker Compose](#local-development)
+- [App tests and performance testing](#testing)
+- [Local Kubernetes: complete kind walkthrough](gitops/README.md)
+  - [Cluster, Argo CD and root Application](gitops/README.md#1-create-the-cluster)
+  - [App and deployment checks](gitops/README.md#5-test-the-app-and-deployment-process)
+  - [Live AI planning and deployment](gitops/README.md#6-plan-and-deploy-with-ai)
+  - [PR preview deployment and cleanup](gitops/README.md#7-create-a-preview)
+  - [Performance and scaling tests](gitops/README.md#8-test-performance-and-scaling)
+  - [Live AI rollout diagnosis](gitops/README.md#9-explain-a-failed-rollout-with-ai)
+  - [Logs and cluster cleanup](gitops/README.md#inspect-or-stop)
+- [Cloud deployment: AWS and GCP](infra/cloud-deployment.md) and [Terraform reference](infra/terraform/README.md)
+- [AI integration and design](#ai-integration)
+- [Troubleshooting and rollback](#when-something-goes-wrong)
+- [Verification results and limits](#what-has-been-tested)
+
+## Project structure
+
+The main directories and entry points are:
+
+```text
+Idea-Board/
+├── apps/
+│   ├── frontend/                 # React app, Dockerfile, and frontend tests
+│   └── backend/                  # FastAPI app, Dockerfile, migrations, and backend tests
+├── charts/                       # Helm charts for apps and cluster services
+│   ├── idea-board-frontend/
+│   ├── idea-board-backend/        # Includes optional PostgreSQL for local deployments
+│   ├── external-secrets/          # External Secrets Operator
+│   ├── external-secret-config/    # SecretStore and ExternalSecret resources
+│   └── ingress-controller/        # Local ingress controller
+├── gitops/
+│   ├── applications/              # Argo CD root chart and kind/AWS/GCP app declarations
+│   ├── argocd/                    # Argo CD installation
+│   ├── kind/                      # Local cluster configuration and recorded results
+│   ├── tests/                     # GitOps deployment checks
+│   └── README.md                  # Local kind and AI walkthrough
+├── infra/
+│   ├── terraform/
+│   │   ├── aws/                   # AWS Terragrunt projects
+│   │   ├── gcp/                   # GCP Terragrunt projects
+│   │   └── modules/               # Reusable Terraform modules
+│   ├── ingress/                   # Cloud routing configuration and guides
+│   └── cloud-deployment.md        # AWS and GCP deployment instructions
+├── tools/deploy/                  # Deployment planning, checks, diagnosis, rollback, and tests
+├── .agents/skills/deploy/         # AI instructions and response schemas
+├── .github/workflows/             # CI, image publishing, deployment, and preview workflows
+├── docker-compose.yml            # Run the complete app locally
+└── README.md                      # Project overview and starting point
+```
+
+Start with `apps/` for the application, `charts/` and `gitops/` for Kubernetes deployment, and `tools/deploy/` with `.agents/skills/deploy/` for the AI-assisted deployment flow. Tests live alongside the code they check.
 
 ## How the app works
 
@@ -206,189 +262,24 @@ GitHub Actions creates temporary kind clusters to run the Kubernetes deployment 
 
 ## Local Kubernetes deployment
 
-The Kubernetes demo runs in **kind**. Apply one root Argo CD Application to deploy Traefik ingress, the backend with its PostgreSQL child chart, and the frontend. Local values provide development database credentials. Follow the [kind guide](gitops/README.md) to start it and open [localhost:8081](http://localhost:8081).
+Use the [complete kind walkthrough](gitops/README.md) to run the platform locally. It covers:
 
-The [verification results](gitops/kind/verification.md) record the app checks, preview lifecycle, rollback, and measured local load tests. AWS and GCP configuration is included below; there are no current hosted application URLs.
+| Step | What you run |
+| ---- | ------------ |
+| [Setup](gitops/README.md#1-create-the-cluster) | kind, Argo CD, the root Application, ingress, frontend, backend and PostgreSQL |
+| [Deployment checks](gitops/README.md#5-test-the-app-and-deployment-process) | App requests, cluster services, staging, preview redeployment, cleanup, failed rollout and rollback |
+| [Live AI deployment](gitops/README.md#6-plan-and-deploy-with-ai) | Ask for settings, review the generated plan and deploy staging |
+| [Preview](gitops/README.md#7-create-a-preview) | Generate a preview plan and deploy its frontend, backend and isolated database |
+| [Performance](gitops/README.md#8-test-performance-and-scaling) | Send concurrent requests and compare backend replica counts |
+| [Live AI diagnosis](gitops/README.md#9-explain-a-failed-rollout-with-ai) | Ask AI to explain evidence captured from the failed-rollout check |
+
+The app opens at [localhost:8081](http://localhost:8081). The [verification results](gitops/kind/verification.md) record previous runs. The [cloud deployment guide](infra/cloud-deployment.md) covers AWS and GCP setup; there are no current hosted application URLs.
 
 ## Cloud deployment
 
-Deployment has two stages:
+AWS and GCP use the same app images, Helm charts, PostgreSQL schema, and release checks. Terraform modules define each cloud's infrastructure; Terragrunt declares its settings and dependencies.
 
-1. **Set up a place to run the app:** create the cloud network, Kubernetes cluster, database, and deployment access.
-2. **Release an app version:** build its containers and tell the cluster to run them.
-
-Follow steps 1–3 to set up an environment. Use step 4 whenever you want to release an app version.
-
-### 1. Create the cloud resources
-
-Terraform defines the resources. Terragrunt supplies their settings, state locations, and dependency order. Each cloud has four projects:
-
-```text
-infra/terraform/
-├── state.hcl                         # Shared S3 state bucket and its region
-├── root.hcl                          # Shared state and input rules
-├── aws/staging/
-│   ├── environment.hcl               # Stack name
-│   └── ap-southeast-2/
-│       ├── region.hcl                # Region and availability zones
-│       ├── networking/terragrunt.hcl
-│       ├── cluster/terragrunt.hcl
-│       ├── cluster-core-services/terragrunt.hcl
-│       └── applications/idea-board/terragrunt.hcl
-├── gcp/staging/                      # Same project layout for GCP
-└── modules/                          # Reusable Terraform resources
-```
-
-The checked-in declarations contain the stack name, regions, Kubernetes versions, machine sizes, and database settings. Change these files to change the deployment. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
-
-Before deploying:
-
-1. Install Terraform 1.17.x, Terragrunt 1.2.2, kubectl, GitHub CLI, and your cloud CLI.
-2. Sign in to AWS for infrastructure and state access. For GCP, also configure Application Default Credentials in a billed project.
-3. Check `infra/terraform/state.hcl` points to your existing S3 state bucket. Both clouds use this bucket; project paths determine separate state keys.
-4. Sign in to GitHub CLI and export its token for Terraform to publish shared-service values:
-
-   ```bash
-   export GITHUB_TOKEN="$(gh auth token)"
-   ```
-
-For AWS, select your authenticated profile and deploy:
-
-```bash
-export AWS_PROFILE=idea-board
-cd infra/terraform/aws/staging/ap-southeast-2
-terragrunt run --all apply
-```
-
-For GCP, run the same Terragrunt command from `infra/terraform/gcp/staging/australia-southeast1`. GCP deployments also use AWS credentials for the shared S3 state bucket.
-
-Terragrunt initializes each project and applies them in dependency order:
-
-```text
-networking → cluster → cluster-core-services → applications/idea-board
-```
-
-A fresh stack needs its dependencies created before their consumers can be planned. For an existing stack, preview all changes with `terragrunt run --all plan`. To review and apply one project, run these commands from its directory:
-
-```bash
-terragrunt run -- plan -out=project.tfplan
-terragrunt run -- apply project.tfplan
-terragrunt run -- output
-```
-
-The cluster project provides `cluster_name`. The application project provides the database connection details and secret reference used in step 3. The [Terraform guide](infra/terraform/README.md) covers settings, state, existing deployments, and teardown.
-
-### 2. Connect to the cluster and check public routing
-
-**Argo CD** runs inside the cluster. It reads the app's configuration from Git and makes the running services match it. Each service has a **Helm chart**, a template describing what Kubernetes should run.
-
-The `cluster-core-services` project installs Argo CD and waits for it to be ready. On AWS it also installs the AWS Load Balancer Controller and its IAM permissions. GKE's HTTP load-balancing controller is enabled by the `cluster` project.
-
-Terraform also creates a root Argo CD Application called `idea-board`. Its cloud values file selects which child Applications run. This is the **app-of-apps** pattern:
-
-```text
-Terraform → Argo CD → idea-board
-                         ├── External Secrets Operator
-                         ├── backend
-                         └── frontend
-```
-
-Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. Terraform stores the connection URL in the cloud secret manager and publishes its reference, External Secrets copies the URL into the Kubernetes database Secret, and the release workflow updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
-
-External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
-
-```text
-values.yaml
-values/<cloud>/values.yaml
-values/<cloud>/<cluster-name>/values.yaml
-values/<cloud>/<cluster-name>/values-terraform.yaml
-```
-
-Provider and cluster files are optional. Argo CD ignores missing files and picks them up when they appear on the watched Git branch.
-
-The External Secrets module creates the operator's cloud identity and secret-read permissions automatically: IRSA on AWS, Workload Identity on GCP. It writes the service-account annotation to `values-terraform.yaml` on `master`. Argo CD loads that file when rendering the operator chart. Keep `gitops_revision = "master"` to receive these updates.
-
-The [GitOps Applications guide](gitops/applications/README.md) explains application selection and chart overrides.
-
-Connect `kubectl`, the Kubernetes command-line tool, to the cluster. Use its name from the previous step:
-
-```bash
-# AWS
-aws eks update-kubeconfig --name YOUR_CLUSTER --region YOUR_REGION
-
-# GCP
-gcloud container clusters get-credentials YOUR_CLUSTER \
-  --region YOUR_REGION --project YOUR_PROJECT
-```
-
-Check the Applications, then wait for External Secrets Operator to be ready:
-
-```bash
-kubectl --context YOUR_CONTEXT --namespace argocd get applications
-kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
-  --for=jsonpath='{.status.sync.status}'=Synced --timeout=10m
-kubectl --context YOUR_CONTEXT --namespace argocd wait application/external-secrets \
-  --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m
-```
-
-When the app is released, its Ingress tells the controller to create a public load balancer and route browser requests to the frontend or API. The [ingress guide](infra/ingress/README.md) explains the routes, health checks, and cleanup.
-
-### 3. Configure GitHub Actions
-
-**GitHub Actions** runs the deployment workflow. Give it access to the cloud through **OIDC**, which lets a workflow obtain temporary cloud credentials:
-
-- **AWS:** a deployment role with EKS access and Kubernetes deployment permissions.
-- **GCP:** Workload Identity Federation and a service account with cluster deployment access.
-
-A **GitHub Environment** groups the settings and approval rules for a deployment target. Create the environments you will use: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add reviewers to production environments.
-
-Set these Environment variables:
-
-| Variable                         | Value                            |
-| -------------------------------- | -------------------------------- |
-| `CLOUD_REGION`                   | AWS region or GKE location       |
-| `CLUSTER_NAME`                   | `cluster`: `cluster_name` output |
-| `AWS_ROLE_ARN`                   | AWS deployment role              |
-| `GCP_PROJECT_ID`                 | GCP project                      |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP federation provider          |
-| `GCP_SERVICE_ACCOUNT`            | GCP deployment service account   |
-
-Add `OPENAI_API_KEY` as an Actions secret. External Secrets reads database credentials using its cloud identity and creates the Kubernetes Secret consumed by the backend and migration Job.
-
-### 4. Release the application
-
-After tests pass, CI publishes the frontend and backend container images to **GitHub Container Registry (GHCR)**. An image is the packaged app that Kubernetes runs.
-
-Each image is tagged with the full Git commit SHA, so a release can select an exact code version. Both images support `amd64` and `arm64`. Builds cache dependencies to speed up later builds.
-
-1. Wait for CI and image publishing to pass for the commit.
-2. Open **Actions → Deploy**. Choose the cloud and environment, enter the full image SHA, and describe the workload.
-3. The AI suggests how many copies of each service to run and how much CPU and memory they need. Review the saved recommendation. If it also suggests changing cloud machine or database sizes, review and apply those changes through Terraform separately.
-4. The workflow runs the database migration job, starts the backend, and then starts the frontend. It waits until Argo CD has applied the requested version and both services are healthy.
-5. It checks the page and API through the public Ingress address, then reports the application URL.
-
-For example:
-
-```bash
-gh workflow run deploy.yml --ref master \
-  -f cloud=aws -f environment=staging \
-  -f image_tag=FULL_40_CHARACTER_COMMIT_SHA \
-  -f request='Low-traffic staging for a few reviewers'
-```
-
-Use `cloud=gcp` for GCP. See the [deployment tool guide](tools/deploy/README.md) for workflow inputs and verification details.
-
-### Environments and previews
-
-- **Staging** is where you check a release before production.
-- **Production** is where the stable app runs.
-- **PR previews** let someone try the frontend and backend from one pull request.
-
-Staging and production each have their own infrastructure and deployment settings. A **namespace** groups an environment's resources inside Kubernetes.
-
-Set the repository variable `PREVIEW_CLOUD` to `aws` or `gcp` to enable previews for same-repository PRs. Each preview deploys both apps into its own namespace with a dedicated database, login, Secret, and public load balancer. Previews share the staging cluster and database server; the staging database identity needs permission to create databases and roles.
-
-Successful PR CI triggers deployment. Updates preserve preview data. Closing the PR removes its application and database resources. See the [deployment guide](tools/deploy/README.md) for permissions and cleanup.
+The [cloud deployment guide](infra/cloud-deployment.md) covers infrastructure setup, cluster access, GitHub Actions, releases, previews, and cleanup.
 
 ## AI integration
 
@@ -396,15 +287,15 @@ AI helps with two jobs: choosing deployment settings and explaining rollout fail
 
 ### Example 1: Plan a small staging environment
 
-Open **Actions → Deploy → Run workflow**, choose your cloud and `staging`, enter a published image SHA, and put this in `request`:
+Follow [live AI planning and deployment on kind](gitops/README.md#6-plan-and-deploy-with-ai) and use this request:
 
 > Low-traffic staging for a few reviewers. Keep resource use small.
 
 The AI recommends the number of frontend/backend copies, their CPU and memory, and cloud machine/database sizes. It explains why those settings fit the request. For example, our [recorded local recommendation](gitops/kind/evidence/recommendation.json) chose one copy of each service and more memory for the Python backend.
 
-The deployment tool validates the response and turns it into Helm values and a release plan. The workflow then deploys the app through Argo CD and checks it.
+The deployment tool validates the response and turns it into Helm values and a release plan. The release command deploys the app through Argo CD and checks it.
 
-Open the workflow run's **Artifacts** to download:
+The generated files include:
 
 | File                             | What it gives you                                                 |
 | -------------------------------- | ----------------------------------------------------------------- |
@@ -415,7 +306,7 @@ Open the workflow run's **Artifacts** to download:
 
 Review infrastructure proposals through a Terraform plan before applying them. Preview environments share staging infrastructure; kind uses the local cluster.
 
-To try the planning flow locally, follow [Plan a release locally](tools/deploy/README.md#plan-a-release-locally). It shows how to generate the prompt, run the AI and inspect the resulting files.
+Cloud workflow runs save these files in **Artifacts**. See [cloud releases](infra/cloud-deployment.md#4-release-the-application) for setup and workflow instructions.
 
 ### Example 2: Explain a failed rollout
 
@@ -427,21 +318,13 @@ The workflow passes that evidence to the AI. A diagnosis can say:
 
 The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. Our [recorded diagnosis](gitops/kind/evidence/diagnosis.json) shows this case.
 
-You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [diagnosis guide](tools/deploy/README.md#diagnose-a-rollout) shows how to run this locally.
+You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [local AI diagnosis example](gitops/README.md#9-explain-a-failed-rollout-with-ai) uses evidence captured by the kind deployment check.
 
 ## When something goes wrong
 
 **Failed release:** inspect the workflow diagnostics, Argo CD Application status, pod events, and migration job logs.
 
 **Restore a previous version (rollback):** the deployment tool saves the last release that passed its checks. Run Deploy with `operation=rollback`, the failed image SHA, and `schema_compatible=true` after confirming the previous app supports the current schema. Rollback restores the application version and preserves the database schema and data. See the [rollback procedure](tools/deploy/README.md).
-
-**Remove the cloud setup:** remove application Ingress resources and wait for their load balancers to disappear while the controller is running. Then destroy `applications/idea-board`, `cluster-core-services`, `cluster`, and `networking`, in that order. The [Terraform guide](infra/terraform/README.md) covers deletion protection, snapshots, and retained resources.
-
-## How AWS and GCP use the same app
-
-Both clouds use the same application images, PostgreSQL schema, Helm charts, and release checks. Provider-specific networking, Kubernetes, database, identity, and ingress settings live in their infrastructure modules and deployment adapters.
-
-Choose the cloud and its GitHub Environment to select the target. Adding another provider requires infrastructure modules and authentication, secret, and ingress adapters.
 
 ## What has been tested
 
