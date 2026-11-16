@@ -118,7 +118,7 @@ If existing state is in another bucket or GCS, migrate it to the declared S3 buc
 
 ## Cluster services
 
-The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with the cloud's values file. The root creates External Secrets, backend and frontend Applications. The first application release supplies the database Secret and updates the child configuration through this root.
+The core-services project installs Argo CD and the root `idea-board` Application. Argo CD reads the shared `gitops/applications` chart with the cloud's values file. The root creates External Secrets, backend and frontend Applications. The application project publishes database references for the backend chart. External Secrets creates the Kubernetes Secret, and application releases update child configuration through this root.
 
 AWS core services also install AWS Load Balancer Controller with its IAM permissions. GKE's HTTP load-balancing controller is enabled by the cluster project. See [public routing](../ingress/README.md).
 
@@ -126,16 +126,16 @@ The core-services External Secrets module creates the operator's IRSA role on AW
 
 The root tracks `master` by default. A pinned revision uses the values present at that revision. Wait for each child Application to become Synced and Healthy; see [GitOps Applications](../../gitops/applications/README.md#bootstrap-the-root).
 
-The External Secrets connection to application credentials remains separate work. The current release workflow reads the cloud credential secret and supplies the Kubernetes database Secret.
+The `applications/idea-board` project publishes `charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml`. It contains the Kubernetes Secret name, database address and cloud secret reference. The backend child loads this file from `master`. Its chart creates a SecretStore and ExternalSecret; the operator uses its existing cloud identity to fetch credentials and build the database connection Secret.
 
 ## Release the application
 
 1. Read `cluster_name` from the cluster project's outputs.
-2. Read the database outputs from `applications/idea-board` using `terragrunt run -- output` in that directory.
+2. Apply `applications/idea-board` to create PostgreSQL and publish the backend values file.
 3. Configure the GitHub deployment Environment using the [deployment guide](../../README.md#3-configure-github-actions).
 4. Run the Deploy workflow for a tested image commit. Argo CD deploys the backend and frontend, including the separate backend migration Job.
 
-Applying password generation to an existing GCP database changes its password. Release the application afterward to refresh its Kubernetes Secret. Before reverting that change, retrieve the active password from Secret Manager and supply it to the previous configuration.
+External Secrets refreshes cloud database credentials into Kubernetes. Backend processes read their Secret when they start; restart backend pods after rotating a database password.
 
 ## AI sizing proposals
 

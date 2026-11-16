@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 
+from config import chart_source
+
 
 class Cluster:
     def __init__(self, context, namespace):
@@ -102,7 +104,7 @@ class Cluster:
                         or operation_state.get("phase") != "Succeeded"
                     ):
                         continue
-                source = expected["spec"]["source"]
+                source = chart_source(expected)
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (
                     all(
@@ -116,10 +118,18 @@ class Cluster:
                     and compared.get("helm", {}).get("valuesObject")
                     == source["helm"]["valuesObject"]
                 )
+                revision = status.get("sync", {}).get("revision")
+                if "sources" in expected["spec"]:
+                    same_source = (
+                        status.get("sync", {}).get("comparedTo", {}).get("sources")
+                        == expected["spec"]["sources"]
+                    )
+                    revisions = status.get("sync", {}).get("revisions", [])
+                    revision = revisions[0] if revisions else None
                 is_parent = source["path"] == "gitops/applications"
                 if not same_source or (
                     (not is_parent or re.fullmatch(r"[0-9a-f]{40}", source["targetRevision"]))
-                    and status.get("sync", {}).get("revision") != source["targetRevision"]
+                    and revision != source["targetRevision"]
                 ):
                     continue
                 if (

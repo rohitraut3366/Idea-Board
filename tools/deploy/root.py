@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from config import REPOSITORY
+from config import REPOSITORY, chart_source, source_fields
 
 
 def cloud_root(target, applications, current=None, automated=True):
@@ -50,10 +50,12 @@ def cloud_root(target, applications, current=None, automated=True):
         raise ValueError("cloud root does not match the requested cloud and environment")
     children = values.setdefault("applications", {})
     for application in applications:
-        service = application["spec"]["source"]["helm"]["releaseName"]
+        service = chart_source(application)["helm"]["releaseName"]
         children[service] = {
             "enabled": True,
-            "source": deepcopy(application["spec"]["source"]),
+            "source": None,
+            "sources": None,
+            **deepcopy(source_fields(application)),
             "syncPolicy": deepcopy(application["spec"]["syncPolicy"]),
         }
     root["spec"]["syncPolicy"]["automated"]["enabled"] = automated

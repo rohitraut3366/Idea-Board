@@ -1,3 +1,5 @@
+mock_provider "github" {}
+
 mock_provider "aws" {
   override_during = plan
 
@@ -41,4 +43,25 @@ run "configuration" {
     condition     = data.terraform_remote_state.cluster.config.bucket == var.state_bucket && data.terraform_remote_state.cluster.config.key == "infra/terraform/aws/staging/ap-southeast-2/cluster.tfstate"
     error_message = "Read the cluster state from the same environment."
   }
+}
+
+run "backend_secret_values" {
+  command = plan
+  assert {
+    condition     = module.backend_values.file_path == "charts/idea-board-backend/values/aws/idea-board-test/values-terraform.yaml"
+    error_message = "Publish the backend's generated values under its cloud and cluster."
+  }
+  assert {
+    condition     = module.backend_values.file_content != "" && yamldecode(module.backend_values.file_content).databaseSecretName == "idea-board-database" && yamldecode(module.backend_values.file_content).externalSecret.enabled
+    error_message = "Configure External Secrets to create the backend database Secret."
+  }
+  assert {
+    condition     = yamldecode(module.backend_values.file_content).externalSecret.host == output.database_host && yamldecode(module.backend_values.file_content).externalSecret.remoteKey == output.database_credential_secret_id && yamldecode(module.backend_values.file_content).externalSecret.provider.aws.region == var.region
+    error_message = "Pass the actual database address, provider, and remote secret reference to External Secrets."
+  }
+  assert {
+    condition     = !can(yamldecode(module.backend_values.file_content).externalSecret.password)
+    error_message = "Database passwords must stay in the cloud secret manager."
+  }
+
 }

@@ -25,13 +25,20 @@ applications:
         - ServerSideApply=true
   backend:
     enabled: true
-    source:
-      path: charts/idea-board-backend
-      helm:
-        releaseName: backend
-        skipTests: true
-        valueFiles:
-          - values-gcp.yaml
+    sources:
+      - repoURL: "{{ .Values.repositoryURL }}"
+        targetRevision: "{{ .Values.targetRevision }}"
+        path: charts/idea-board-backend
+        helm:
+          releaseName: backend
+          skipTests: true
+          ignoreMissingValueFiles: true
+          valueFiles:
+            - values-gcp.yaml
+            - "$values/charts/idea-board-backend/values/gcp/{{ .Values.clusterName }}/values-terraform.yaml"
+      - repoURL: "{{ .Values.repositoryURL }}"
+        targetRevision: master
+        ref: values
     syncPolicy:
       automated:
         prune: true

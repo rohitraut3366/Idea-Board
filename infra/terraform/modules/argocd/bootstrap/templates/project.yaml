@@ -34,6 +34,10 @@ spec:
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
   namespaceResourceWhitelist:
+    - group: external-secrets.io
+      kind: SecretStore
+    - group: external-secrets.io
+      kind: ExternalSecret
     - group: cloud.google.com
       kind: BackendConfig
     - group: batch

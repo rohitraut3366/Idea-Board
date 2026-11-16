@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests, parent_application, prompt, validate_recommendation
+from config import (
+    Target,
+    chart_source,
+    manifests,
+    parent_application,
+    prompt,
+    validate_recommendation,
+)
 
 SHA = "a" * 40
 
@@ -46,8 +53,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
         backend["spec"]["destination"]["namespace"] == frontend["spec"]["destination"]["namespace"]
     )
     assert (
-        backend["spec"]["source"]["helm"]["valuesObject"]["databaseSecretName"]
-        == "idea-board-database"
+        chart_source(backend)["helm"]["valuesObject"]["databaseSecretName"] == "idea-board-database"
     )
     assert backend["metadata"]["name"] != frontend["metadata"]["name"]
 
@@ -58,7 +64,7 @@ def test_preview_has_its_own_project_namespace_and_both_services():
 def test_chart_render_matches_cloud_exposure(cloud, service_type):
     target = Target(cloud, "staging", SHA, SHA)
     application = manifests(target, recommendation(cloud))[2]
-    values = application["spec"]["source"]["helm"]["valuesObject"]
+    values = chart_source(application)["helm"]["valuesObject"]
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
         [
@@ -68,7 +74,7 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
             str(root / "charts/idea-board-frontend"),
             *[
                 argument
-                for file in application["spec"]["source"]["helm"].get("valueFiles", [])
+                for file in chart_source(application)["helm"].get("valueFiles", [])
                 for argument in ("-f", str(root / "charts/idea-board-frontend" / file))
             ],
             "--namespace",
@@ -119,15 +125,27 @@ def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment
                 str(root / f"charts/idea-board-{service}"),
                 *[
                     argument
-                    for file in app["spec"]["source"]["helm"].get("valueFiles", [])
+                    for file in chart_source(app)["helm"].get("valueFiles", [])
+                    if not file.startswith("$values/")
                     for argument in ("-f", str(root / f"charts/idea-board-{service}" / file))
                 ],
+                *(
+                    [
+                        "-f",
+                        str(
+                            root
+                            / f"charts/idea-board-backend/tests/values-external-secret-{cloud}.yaml"
+                        ),
+                    ]
+                    if service == "backend" and target.uses_cloud_root
+                    else []
+                ),
                 "--namespace",
                 target.namespace,
                 "-f",
                 "-",
             ],
-            input=json.dumps(app["spec"]["source"]["helm"]["valuesObject"]),
+            input=json.dumps(chart_source(app)["helm"]["valuesObject"]),
             capture_output=True,
             text=True,
             check=True,

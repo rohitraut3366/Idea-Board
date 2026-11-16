@@ -1,4 +1,3 @@
-databaseSecretName: idea-board-database
 gcpBackendConfig: true
 service:
   annotations:

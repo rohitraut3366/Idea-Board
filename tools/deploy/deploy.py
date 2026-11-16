@@ -11,6 +11,7 @@ from pathlib import Path
 from cluster import Cluster
 from config import (
     Target,
+    chart_source,
     deployment_manifests,
     manifests,
     parent_application,
@@ -41,7 +42,7 @@ def preview_database(cluster, target, delete=False):
         "--",
         "python",
         "-",
-        data=database_source + "\n" + operation + "\n",
+        data=database_source + "\nimport json\nimport os\n" + operation + "\n",
     )
 
 
@@ -61,7 +62,7 @@ def local_database(cluster, target):
             "--",
             "python",
             "-",
-            data=source + "\n" + operation + "\n",
+            data=source + "\nimport json\nimport os\n" + operation + "\n",
         )
     )
 
@@ -80,7 +81,6 @@ def cleanup_closed_preview(cluster, target):
 
 
 def release(cluster, target, recommendation):
-    from database import managed_database_url
     from diagnosis import collect
     from rollback import checkpoint, record_healthy, state
 
@@ -108,16 +108,15 @@ def release(cluster, target, recommendation):
             phase = "database"
         cluster.ensure_namespace(target.environment)
         rollback_available = bool(state(cluster)["healthy"])
-        if target.environment == "preview":
-            url = json.loads(preview_database(cluster, target))
-        elif target.cloud == "kind" and not os.environ.get("IDEA_BOARD_DATABASE_URL"):
-            url = local_database(cluster, target)
-        else:
-            url = managed_database_url(target.cloud)
-        cluster.set_database_url(url)
-        documents[1]["spec"]["source"]["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
-            url.encode()
-        ).hexdigest()
+        if not target.uses_cloud_root:
+            if target.environment == "preview":
+                url = json.loads(preview_database(cluster, target))
+            else:
+                url = os.environ.get("IDEA_BOARD_DATABASE_URL") or local_database(cluster, target)
+            cluster.set_database_url(url)
+            chart_source(documents[1])["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
+                url.encode()
+            ).hexdigest()
         release_documents = documents
         if target.cloud == "kind":
             release_documents = [documents[0], parent_application(target, documents[1:])]
@@ -146,14 +145,14 @@ def release(cluster, target, recommendation):
             cluster.wait([documents[2]])
         elif target.uses_cloud_root:
             for application in documents[1:]:
-                phase = application["spec"]["source"]["helm"]["releaseName"]
+                phase = chart_source(application)["helm"]["releaseName"]
                 root = cloud_root(target, [application], root)
                 cluster.apply(root)
                 cluster.wait([root])
                 cluster.wait([application])
         else:
             for application in documents[1:]:
-                phase = application["spec"]["source"]["helm"]["releaseName"]
+                phase = chart_source(application)["helm"]["releaseName"]
                 cluster.apply(application)
                 cluster.wait([application])
         phase = "http"

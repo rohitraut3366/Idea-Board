@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 from recommendations import recommendation
 
-from config import Target, deployment_manifests, manifests
+from config import Target, chart_source, deployment_manifests, manifests
 from deploy import release
 from rollback import checkpoint, record_healthy, rollback, state
 from root import cloud_root
@@ -50,7 +50,7 @@ def test_cloud_plan_updates_bootstrap_root_and_keeps_operator_enabled(cloud, env
         )
         assert f"namespace: {target.namespace}" in child
         assert "project: idea-board" in child
-        assert f'targetRevision: "{NEW}"' in child
+        assert NEW in child
         assert f"tag: {NEW}" in child
         assert f"- values-{cloud}.yaml" in child
 
@@ -79,13 +79,14 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
 
         cluster.wait.side_effect = wait
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("database.managed_database_url", lambda _: "postgresql://private")
     monkeypatch.setattr("diagnosis.collect", lambda *args: {})
     if backend_fails:
         with pytest.raises(TimeoutError):
             release(cluster, target, recommendation(cloud))
     else:
         release(cluster, target, recommendation(cloud))
+    cluster.set_database_url.assert_not_called()
+    cluster.database_url.assert_not_called()
     parents = [
         entry.args[0]
         for entry in cluster.apply.call_args_list
@@ -95,7 +96,7 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
     assert all(parent["metadata"]["name"] == "idea-board" for parent in parents)
     first = parents[0]["spec"]["source"]["helm"]["valuesObject"]["applications"]
     assert first["frontend"]["source"] == previous[1]["spec"]["source"]
-    assert first["backend"]["source"]["helm"]["valuesObject"]["image"]["tag"] == NEW
+    assert chart_source({"spec": first["backend"]})["helm"]["valuesObject"]["image"]["tag"] == NEW
     assert (
         first["external-secrets"]
         == current["spec"]["source"]["helm"]["valuesObject"]["applications"]["external-secrets"]
@@ -131,6 +132,7 @@ def test_wrong_cloud_or_environment_is_rejected_before_mutation(
         release(cluster, target, recommendation("aws"))
     cluster.apply.assert_not_called()
     cluster.set_database_url.assert_not_called()
+    cluster.database_url.assert_not_called()
 
 
 @pytest.mark.parametrize("cloud", ["aws", "gcp"])
@@ -173,9 +175,12 @@ def test_cloud_rollback_pauses_root_and_restores_owned_sources(cloud, failure):
     restored = cluster.get("application", "idea-board")
     assert restored["spec"]["syncPolicy"]["automated"]["enabled"] is False
     for service in ("backend", "frontend"):
-        source = restored["spec"]["source"]["helm"]["valuesObject"]["applications"][service][
-            "source"
-        ]
+        source = chart_source(
+            {"spec": restored["spec"]["source"]["helm"]["valuesObject"]["applications"][service]}
+        )
         assert source["targetRevision"] == OLD
         assert source["helm"]["valuesObject"]["image"]["tag"] == OLD
+    backend = cluster.get("application", f"{target.namespace}-backend")
+    assert backend["operation"]["sync"]["revisions"] == [OLD, "master"]
+    assert "hook" not in backend["operation"]["sync"]["syncStrategy"]
     assert state(cluster)["attempt"] is None

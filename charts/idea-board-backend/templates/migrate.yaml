@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  {{- if .Values.postgres.enabled }}
+  {{- if or .Values.postgres.enabled .Values.externalSecret.enabled }}
   name: {{ .Release.Name | trunc 40 | trimSuffix "-" }}-migrate-{{ toJson .Values | sha256sum | trunc 8 }}
   {{- else }}
   name: {{ .Release.Name }}-migrate
@@ -10,7 +10,7 @@ metadata:
     {{- include "idea-board-backend.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    {{- if .Values.postgres.enabled }}
+    {{- if or .Values.postgres.enabled .Values.externalSecret.enabled }}
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/sync-wave: "-1"
     {{- else }}

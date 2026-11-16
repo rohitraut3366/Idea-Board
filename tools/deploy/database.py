@@ -1,52 +1,10 @@
-"""Read managed credentials and isolate preview databases on the staging server."""
+"""Isolate local environments and preview databases on the staging server."""
 
-import json
-import os
 import secrets
-import subprocess
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import psycopg
 from psycopg import sql
-
-
-def read_command(*arguments):
-    return subprocess.check_output(arguments, text=True)
-
-
-def managed_database_url(cloud):
-    if cloud == "kind":
-        return os.environ["IDEA_BOARD_DATABASE_URL"]
-    secret_id = os.environ["DATABASE_CREDENTIAL_SECRET_ID"]
-    if cloud == "aws":
-        response = json.loads(
-            read_command(
-                "aws",
-                "secretsmanager",
-                "get-secret-value",
-                "--secret-id",
-                secret_id,
-                "--output",
-                "json",
-                "--no-cli-pager",
-            )
-        )
-        credentials = json.loads(response["SecretString"])
-        username, password = credentials["username"], credentials["password"]
-    elif cloud == "gcp":
-        password = read_command(
-            "gcloud", "secrets", "versions", "access", "latest", "--secret", secret_id
-        )
-        username = os.environ["DATABASE_USERNAME"]
-    else:
-        raise ValueError("unsupported cloud")
-    host = os.environ["DATABASE_HOST"]
-    port = int(os.environ.get("DATABASE_PORT", "5432"))
-    database = os.environ["DATABASE_NAME"]
-    return (
-        f"postgresql+psycopg://{quote(username, safe='')}:{quote(password, safe='')}"
-        f"@{host}:{port}/{quote(database, safe='')}?sslmode=require"
-    )
 
 
 def driver_url(url):

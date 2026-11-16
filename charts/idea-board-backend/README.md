@@ -15,6 +15,28 @@ helm upgrade --install backend charts/idea-board-backend \
   --wait --timeout 5m
 ```
 
+## Cloud database credentials
+
+The application’s Terraform project publishes this file through the GitHub provider:
+
+```text
+charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml
+```
+
+It supplies `databaseSecretName` and the `externalSecret` settings: cloud provider, remote secret reference, host, port and database name. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP to read the username and password.
+
+```text
+Terraform → generated values → Argo CD → SecretStore → ExternalSecret
+                                                            ↓
+                                                  Kubernetes database Secret
+                                                            ↓
+                                                   migration Job → backend
+```
+
+The SecretStore uses wave -3, the ExternalSecret uses wave -2, and the migration Job uses a Sync hook at wave -1. The generated Secret contains `IDEA_BOARD_DATABASE_URL` with encoded credentials and TLS enabled. Credentials stay in the cloud secret manager and Kubernetes.
+
+Changes to the database connection references roll out backend pods. After rotating a password inside the same cloud secret, restart backend pods so they read the refreshed Kubernetes Secret.
+
 ## Local PostgreSQL
 
 The chart includes an optional PostgreSQL child chart in `charts/postgres`. It is disabled by default. The local `values-kind.yaml` enables it:
@@ -33,7 +55,7 @@ PostgreSQL and database Secret → migration Job → backend
           wave -2                  wave -1        wave 0
 ```
 
-The local migration Job uses a `Sync` hook so PostgreSQL can start first. With an existing database, migrations keep the `PreSync` hook for Argo CD and the pre-install/pre-upgrade hooks for Helm. A failed migration blocks backend deployment in Argo CD.
+The local migration Job uses a `Sync` hook so PostgreSQL can start first. With a pre-existing Kubernetes database Secret, migrations use the `PreSync` hook for Argo CD and pre-install/pre-upgrade hooks for Helm. When External Secrets creates the Secret, migrations use the Sync hook after the secret resources. A failed migration blocks backend deployment in Argo CD.
 
 Use the [kind guide](../../gitops/README.md) to deploy the local profile. Local data survives pod replacement; the volume is retained when the PostgreSQL resources are pruned or the Helm release is removed. Deleting the namespace or cluster removes the data.
 
@@ -49,15 +71,16 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 ## Configuration
 
-| Value                | Default                                    | Purpose                                                |
-| -------------------- | ------------------------------------------ | ------------------------------------------------------ |
-| `databaseSecretName` | Required for an external database          | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
-| `image.repository`   | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                   |
-| `image.tag`          | Published commit tag                       | Image tag; use a commit tag for published images       |
-| `image.pullPolicy`   | `IfNotPresent`                             | Image pull policy                                      |
-| `replicas`           | `1`                                        | Backend replicas                                       |
-| `postgres.enabled`   | `false`                                    | Deploy the local PostgreSQL child chart                |
-| `resources`          | See `values.yaml`                          | Backend and migration Job resource requests and limits |
+| Value                    | Default                                    | Purpose                                                   |
+| ------------------------ | ------------------------------------------ | --------------------------------------------------------- |
+| `databaseSecretName`     | Required for an external database          | Existing Secret with `IDEA_BOARD_DATABASE_URL`            |
+| `image.repository`       | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                      |
+| `image.tag`              | Published commit tag                       | Image tag; use a commit tag for published images          |
+| `image.pullPolicy`       | `IfNotPresent`                             | Image pull policy                                         |
+| `replicas`               | `1`                                        | Backend replicas                                          |
+| `externalSecret.enabled` | `false`                                    | Create the cloud database Secret through External Secrets |
+| `postgres.enabled`       | `false`                                    | Deploy the local PostgreSQL child chart                   |
+| `resources`              | See `values.yaml`                          | Backend and migration Job resource requests and limits    |
 
 Readiness uses `/health`; startup and liveness use TCP probes. A database outage removes traffic without repeatedly restarting healthy API processes. Pods run as non-root, disable privilege escalation, and do not mount service-account tokens.
 

@@ -13,9 +13,9 @@ spec:
       app.kubernetes.io/component: backend
   template:
     metadata:
-      {{- with .Values.databaseRevision }}
+      {{- if or .Values.databaseRevision .Values.externalSecret.enabled }}
       annotations:
-        checksum/database: {{ . | quote }}
+        checksum/database: {{ default (toJson .Values.externalSecret | sha256sum) .Values.databaseRevision | quote }}
       {{- end }}
       labels:
         app.kubernetes.io/instance: {{ .Release.Name }}

@@ -135,6 +135,16 @@ def prompt(target, request):
     )
 
 
+def chart_source(application):
+    spec = application["spec"]
+    return spec["sources"][0] if spec.get("sources") else spec["source"]
+
+
+def source_fields(application):
+    spec = application["spec"]
+    return {"sources": spec["sources"]} if spec.get("sources") else {"source": spec["source"]}
+
+
 def manifests(target, recommendation):
     validate_recommendation(recommendation, target.environment, target.cloud)
     namespace = target.namespace
@@ -177,9 +187,9 @@ def manifests(target, recommendation):
                 "limits": {"memory": f"{sizing['memory_limit_mib']}Mi"},
             },
         }
-        if service == "backend":
+        if service == "backend" and not target.uses_cloud_root:
             values["databaseSecretName"] = "idea-board-database"
-        else:
+        if service == "frontend":
             values["service"] = {"type": "ClusterIP"}
         applications.append(
             {
@@ -218,6 +228,16 @@ def manifests(target, recommendation):
                     "CreateNamespace=true",
                     "ServerSideApply=true",
                 ]
+                if application["spec"]["source"]["helm"]["releaseName"] == "backend":
+                    source = application["spec"].pop("source")
+                    source["helm"]["ignoreMissingValueFiles"] = True
+                    source["helm"]["valueFiles"].append(
+                        f"$values/charts/idea-board-backend/values/{target.cloud}/{target.namespace}/values-terraform.yaml"
+                    )
+                    application["spec"]["sources"] = [
+                        source,
+                        {"repoURL": REPOSITORY, "targetRevision": "master", "ref": "values"},
+                    ]
                 application["spec"]["syncPolicy"]["managedNamespaceMetadata"] = {
                     "labels": {
                         "app.kubernetes.io/part-of": "idea-board",

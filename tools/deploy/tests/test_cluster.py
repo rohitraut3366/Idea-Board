@@ -231,3 +231,43 @@ def test_cloud_root_wait_accepts_resolved_branch_revision(monkeypatch):
     cluster = Cluster("test", target.namespace)
     monkeypatch.setattr(cluster, "get", Mock(return_value={"status": status}))
     cluster.wait([root], timeout=1)
+
+
+@pytest.mark.parametrize("stale", [None, "chart_revision", "values_source"])
+def test_multi_source_backend_checks_chart_revision_and_current_values(monkeypatch, stale):
+    from config import chart_source
+
+    target = Target("aws", "staging", SHA, SHA)
+    app = manifests(target, recommendation("aws"))[1]
+    _, _, deployment = release_state()
+    status = {
+        "sync": {
+            "status": "Synced",
+            "revisions": [SHA, "c" * 40],
+            "comparedTo": {"sources": deepcopy(app["spec"]["sources"])},
+        },
+        "health": {"status": "Healthy"},
+    }
+    assert chart_source(app)["targetRevision"] == SHA
+    if stale == "chart_revision":
+        status["sync"]["revisions"][0] = "b" * 40
+    elif stale == "values_source":
+        status["sync"]["comparedTo"]["sources"][1]["targetRevision"] = "old-values"
+    cluster = Cluster("test", target.namespace)
+    monkeypatch.setattr(
+        cluster,
+        "get",
+        Mock(
+            side_effect=lambda kind, *args: (
+                {"status": status} if kind == "application" else deployment
+            )
+        ),
+    )
+    clock = iter(range(20))
+    monkeypatch.setattr("cluster.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("cluster.time.sleep", lambda _: None)
+    if stale:
+        with pytest.raises(TimeoutError):
+            cluster.wait([app], timeout=3)
+    else:
+        cluster.wait([app], timeout=3)

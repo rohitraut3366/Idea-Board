@@ -1,3 +1,5 @@
+mock_provider "github" {}
+
 mock_provider "google" {
   override_during = plan
 
@@ -39,4 +41,30 @@ run "configuration" {
     condition     = alltrue([for api in google_project_service.required : !api.disable_on_destroy])
     error_message = "Keep project APIs enabled during teardown."
   }
+}
+
+override_data {
+  target = data.terraform_remote_state.cluster
+  values = { outputs = { cluster_name = "idea-board-test" } }
+}
+
+run "backend_secret_values" {
+  command = plan
+  assert {
+    condition     = module.backend_values.file_path == "charts/idea-board-backend/values/gcp/idea-board-test/values-terraform.yaml"
+    error_message = "Publish the backend's generated values under its cloud and cluster."
+  }
+  assert {
+    condition     = module.backend_values.file_content != "" && yamldecode(module.backend_values.file_content).databaseSecretName == "idea-board-database" && yamldecode(module.backend_values.file_content).externalSecret.enabled
+    error_message = "Configure External Secrets to create the backend database Secret."
+  }
+  assert {
+    condition     = yamldecode(module.backend_values.file_content).externalSecret.host == output.database_host && yamldecode(module.backend_values.file_content).externalSecret.remoteKey == basename(output.database_credential_secret_id) && yamldecode(module.backend_values.file_content).externalSecret.provider.gcpsm.projectID == var.project_id
+    error_message = "Pass the actual database address, provider, and remote secret reference to External Secrets."
+  }
+  assert {
+    condition     = !can(yamldecode(module.backend_values.file_content).externalSecret.password)
+    error_message = "Database passwords must stay in the cloud secret manager."
+  }
+
 }

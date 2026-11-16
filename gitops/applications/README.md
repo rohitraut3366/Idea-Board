@@ -44,9 +44,11 @@ The bootstrap chart in `infra/terraform/modules/argocd/bootstrap` creates the `i
 
 The AWS and GCP profiles enable External Secrets, backend and frontend. Application children use the cluster name as their namespace, such as `idea-board-staging` or `idea-board-production`. External Secrets runs in its own namespace.
 
-The release workflow creates the database Secret and updates the existing root’s child configuration: backend first, then frontend after the backend is healthy. Cloud routing settings live in each application chart’s `values-aws.yaml` and `values-gcp.yaml`. The first backend sync waits for the release workflow to supply its database Secret.
+External Secrets creates the database Secret. The release workflow updates the existing root’s child configuration: backend first, then frontend after the backend is healthy. Cloud routing settings live in each application chart’s `values-aws.yaml` and `values-gcp.yaml`. The backend chart creates its SecretStore and ExternalSecret before running migrations.
 
-Cloud PR previews keep their own Applications and namespace on the staging cluster.
+The cloud backend Application has two Git sources: its pinned chart revision and a `values` reference to `master`. Its Helm `valueFiles` lists the generated backend file through `$values`, so Terraform’s database references are available even when they were committed after the release’s chart revision.
+
+Cloud PR previews keep their own Applications, database credentials and namespace on the staging cluster.
 
 Wait for the root and each enabled child to become Synced and Healthy:
 

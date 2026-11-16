@@ -293,7 +293,7 @@ Terraform → Argo CD → idea-board
                          └── frontend
 ```
 
-Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. The release workflow supplies the database Secret and updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. Terraform publishes the database references, External Secrets creates the Kubernetes database Secret, and the release workflow updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
 External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 
@@ -337,26 +337,23 @@ When the app is released, its Ingress tells the controller to create a public lo
 
 **GitHub Actions** runs the deployment workflow. Give it access to the cloud through **OIDC**, which lets a workflow obtain temporary cloud credentials:
 
-- **AWS:** a deployment role with EKS access, Kubernetes permissions, and permission to read the database credential secret.
-- **GCP:** Workload Identity Federation and a service account with cluster and Secret Manager access.
+- **AWS:** a deployment role with EKS access and Kubernetes deployment permissions.
+- **GCP:** Workload Identity Federation and a service account with cluster deployment access.
 
 A **GitHub Environment** groups the settings and approval rules for a deployment target. Create the environments you will use: `aws-staging`, `aws-production`, `gcp-staging`, and `gcp-production`. Add reviewers to production environments.
 
 Set these Environment variables:
 
-| Variable                                          | Value                             |
-| ------------------------------------------------- | --------------------------------- |
-| `CLOUD_REGION`                                    | AWS region or GKE location        |
-| `CLUSTER_NAME`                                    | `cluster`: `cluster_name` output  |
-| `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME` | `applications/idea-board` outputs |
-| `DATABASE_CREDENTIAL_SECRET_ID`                   | Database secret reference         |
-| `DATABASE_USERNAME`                               | GCP database username             |
-| `AWS_ROLE_ARN`                                    | AWS deployment role               |
-| `GCP_PROJECT_ID`                                  | GCP project                       |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER`                  | GCP federation provider           |
-| `GCP_SERVICE_ACCOUNT`                             | GCP deployment service account    |
+| Variable                         | Value                            |
+| -------------------------------- | -------------------------------- |
+| `CLOUD_REGION`                   | AWS region or GKE location       |
+| `CLUSTER_NAME`                   | `cluster`: `cluster_name` output |
+| `AWS_ROLE_ARN`                   | AWS deployment role              |
+| `GCP_PROJECT_ID`                 | GCP project                      |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP federation provider          |
+| `GCP_SERVICE_ACCOUNT`            | GCP deployment service account   |
 
-Add `OPENAI_API_KEY` as an Actions secret. The deployment job reads the cloud database secret and creates the Kubernetes Secret consumed by the backend and migration job.
+Add `OPENAI_API_KEY` as an Actions secret. External Secrets reads database credentials using its cloud identity and creates the Kubernetes Secret consumed by the backend and migration Job.
 
 ### 4. Release the application
 
