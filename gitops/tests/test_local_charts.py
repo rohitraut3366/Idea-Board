@@ -34,7 +34,7 @@ def test_local_environment_has_two_child_applications_with_existing_chart_overri
     for service in ("backend", "frontend"):
         assert f"name: {service}\n" in output
         assert f'path: "charts/idea-board-{service}"' in output
-        assert f"../../gitops/kind/{service}-values.yaml" in output
+    assert output.count("- values-kind.yaml") == 2
 
 
 def test_ingress_wrapper_uses_native_ingress_without_provider_crds():

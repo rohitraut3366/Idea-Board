@@ -51,19 +51,19 @@ The root waits for PostgreSQL before creating its child Applications. Backend sy
 
 ### Where the local settings live
 
-| File                            | Purpose                                                   |
-| ------------------------------- | --------------------------------------------------------- |
-| `kind/root.yaml`                | Root Application and its permissions; watches `master`    |
-| `local/values-kind.yaml`        | Enables PostgreSQL and ingress; disables External Secrets |
-| `applications/values-kind.yaml` | Backend and frontend child Applications                   |
-| `kind/backend-values.yaml`      | Backend image and Kubernetes Secret reference             |
-| `kind/frontend-values.yaml`     | Frontend image and `localhost` ingress routes             |
+| File                                             | Purpose                                                   |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `kind/root.yaml`                                 | Root Application and its permissions; watches `master`    |
+| `local/values-kind.yaml`                         | Enables PostgreSQL and ingress; disables External Secrets |
+| `applications/values-kind.yaml`                  | Backend and frontend child Applications                   |
+| `../charts/idea-board-backend/values-kind.yaml`  | Backend Kubernetes Secret reference                       |
+| `../charts/idea-board-frontend/values-kind.yaml` | `localhost` ingress routes                                |
 
 Local PostgreSQL uses development credentials from `local/values-kind.yaml`. The root creates a Kubernetes Secret directly. External Secrets, cloud SecretStores and their CRDs are disabled in this local profile. Cloud secret configuration remains in the cloud charts.
 
 The database has a 1 GiB persistent volume. Data survives replacing its pod. Deleting the volume or kind cluster removes the data.
 
-To release another image, update the tags in the backend/frontend values files and merge. Argo CD applies the change.
+Each chart keeps its shared image defaults in `values.yaml` and its local overrides in `values-kind.yaml`. To release another image locally, set `imageTag` in `local/values-kind.yaml` and merge. Argo CD applies that tag to both services.
 
 ## 4. Open the app and Argo CD
 

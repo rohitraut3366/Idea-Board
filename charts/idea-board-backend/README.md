@@ -15,7 +15,7 @@ helm upgrade --install backend charts/idea-board-backend \
   --wait --timeout 5m
 ```
 
-For local kind, use `--kube-context kind-idea-board` and `-f gitops/kind/backend-values.yaml` instead of the image overrides. Those values point to the published GHCR commit tag.
+For local kind, use `--kube-context kind-idea-board` and `-f charts/idea-board-backend/values-kind.yaml` for the local settings. The chart defaults select a published GHCR image; use `--set image.tag=YOUR_COMMIT` to select another release.
 
 The Service name matches the Helm release name: `backend` in this example. The frontend chart defaults to connecting to `backend:8000` in the same namespace. The charts are separate releases and can be upgraded independently.
 
@@ -27,14 +27,14 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 
 ## Configuration
 
-| Value                | Default              | Purpose                                                |
-| -------------------- | -------------------- | ------------------------------------------------------ |
-| `databaseSecretName` | Required             | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
-| `image.repository`   | `idea-board-backend` | Container repository                                   |
-| `image.tag`          | `local`              | Image tag; use a commit tag for published images       |
-| `image.pullPolicy`   | `IfNotPresent`       | Image pull policy                                      |
-| `replicas`           | `1`                  | Backend replicas                                       |
-| `resources`          | See `values.yaml`    | Backend and migration Job resource requests and limits |
+| Value                | Default                                    | Purpose                                                |
+| -------------------- | ------------------------------------------ | ------------------------------------------------------ |
+| `databaseSecretName` | Required                                   | Existing Secret with `IDEA_BOARD_DATABASE_URL`         |
+| `image.repository`   | `ghcr.io/rohitraut3366/idea-board-backend` | Container repository                                   |
+| `image.tag`          | Published commit tag                       | Image tag; use a commit tag for published images       |
+| `image.pullPolicy`   | `IfNotPresent`                             | Image pull policy                                      |
+| `replicas`           | `1`                                        | Backend replicas                                       |
+| `resources`          | See `values.yaml`                          | Backend and migration Job resource requests and limits |
 
 Readiness uses `/health`; startup and liveness use TCP probes. A database outage removes traffic without repeatedly restarting healthy API processes. Pods run as non-root, disable privilege escalation, and do not mount service-account tokens.
 
