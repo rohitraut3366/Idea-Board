@@ -138,8 +138,8 @@ jobs:
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
           helm dependency build charts/external-secrets
-          helm lint charts/idea-board-backend --strict -f gitops/kind/backend-values.yaml
-          helm lint charts/idea-board-frontend --strict -f gitops/kind/frontend-values.yaml
+          helm lint charts/idea-board-backend --strict -f charts/idea-board-backend/values-kind.yaml
+          helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
           helm lint infra/terraform/modules/argocd/bootstrap --strict
           helm lint gitops/cluster-core-services --strict
           helm lint charts/external-secrets --strict
@@ -158,14 +158,14 @@ jobs:
           kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
       - name: Install charts and test both services
         run: |
-          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Verify upgrade and repeat migrations
         run: |
-          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f gitops/kind/backend-values.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f gitops/kind/frontend-values.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
+          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
           helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
           helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs

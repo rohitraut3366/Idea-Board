@@ -1,8 +1,0 @@
-image:
-  repository: ghcr.io/rohitraut3366/idea-board-frontend
-  tag: 5ae00d82541190e313a06e14f39ddc94124455a8
-
-ingress:
-  enabled: true
-  className: traefik
-  host: localhost

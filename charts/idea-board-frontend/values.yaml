@@ -1,7 +1,7 @@
 # Backend Service address, including its port.
 image:
-  repository: idea-board-frontend
-  tag: local
+  repository: ghcr.io/rohitraut3366/idea-board-frontend
+  tag: 5ae00d82541190e313a06e14f39ddc94124455a8
   pullPolicy: IfNotPresent
 replicas: 1
 resources:

@@ -14,7 +14,7 @@ helm upgrade --install frontend charts/idea-board-frontend \
   --wait --timeout 5m
 ```
 
-For local kind, use `--kube-context kind-idea-board` and `-f gitops/kind/frontend-values.yaml` instead of the image overrides. Those values point to the published GHCR commit tag.
+For local kind, use `--kube-context kind-idea-board` and `-f charts/idea-board-frontend/values-kind.yaml` for the local settings. The chart defaults select a published GHCR image; use `--set image.tag=YOUR_COMMIT` to select another release.
 
 The Service name matches the release name: `frontend` in this example. For local access:
 
@@ -26,14 +26,14 @@ Open `http://localhost:3001`. Port `3001` leaves Compose's default port `3000` a
 
 ## Configuration
 
-| Value              | Default               | Purpose                                                                                         |
-| ------------------ | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `image.repository` | `idea-board-frontend` | Container repository                                                                            |
-| `image.tag`        | `local`               | Image tag; use a commit tag for published images                                                |
-| `image.pullPolicy` | `IfNotPresent`        | Image pull policy                                                                               |
-| `backendUpstream`  | Empty                 | Uses `backend.<release namespace>.svc.cluster.local:8000`; override with a full Service address |
-| `replicas`         | `1`                   | Frontend replicas                                                                               |
-| `resources`        | See `values.yaml`     | Container resource requests and limits                                                          |
+| Value              | Default                                     | Purpose                                                                                         |
+| ------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `image.repository` | `ghcr.io/rohitraut3366/idea-board-frontend` | Container repository                                                                            |
+| `image.tag`        | Published commit tag                        | Image tag; use a commit tag for published images                                                |
+| `image.pullPolicy` | `IfNotPresent`                              | Image pull policy                                                                               |
+| `backendUpstream`  | Empty                                       | Uses `backend.<release namespace>.svc.cluster.local:8000`; override with a full Service address |
+| `replicas`         | `1`                                         | Frontend replicas                                                                               |
+| `resources`        | See `values.yaml`                           | Container resource requests and limits                                                          |
 
 If the backend release has a different name or namespace, set `backendUpstream` to its Service address, for example `api.idea-board.svc.cluster.local:8000`.
 

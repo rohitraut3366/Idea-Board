@@ -6,7 +6,7 @@ applications:
         releaseName: backend
         skipTests: true
         valueFiles:
-          - ../../gitops/kind/backend-values.yaml
+          - values-kind.yaml
   frontend:
     source:
       path: charts/idea-board-frontend
@@ -14,4 +14,4 @@ applications:
         releaseName: frontend
         skipTests: true
         valueFiles:
-          - ../../gitops/kind/frontend-values.yaml
+          - values-kind.yaml

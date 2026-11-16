@@ -1,11 +1,11 @@
 # The database Secret must exist before installing this chart.
 image:
-  repository: idea-board-backend
-  tag: local
+  repository: ghcr.io/rohitraut3366/idea-board-backend
+  tag: 5ae00d82541190e313a06e14f39ddc94124455a8
   pullPolicy: IfNotPresent
 replicas: 1
-databaseSecretName: ''
-databaseRevision: ''
+databaseSecretName: ""
+databaseRevision: ""
 gcpBackendConfig: false
 service:
   annotations: {}
