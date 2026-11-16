@@ -1,4 +1,4 @@
-"""Check the cluster services app-of-apps on an existing kind cluster."""
+"""Enable and verify External Secrets through the existing shared kind root."""
 
 import argparse
 import json

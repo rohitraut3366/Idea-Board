@@ -71,4 +71,4 @@ Keep credentials in the cloud secret manager. Generated values contain configura
 3. Enable it in the appropriate profile.
 4. Allow its namespace and resource types in the bootstrap AppProject.
 
-`cascadeDelete: true` lets Argo CD remove a child's resources when its Application is deleted. External Secrets keeps cascading deletion and automatic pruning disabled. Review its installed resources separately when retiring the operator.
+Disabling an app removes its child Application. `cascadeDelete: true` also removes that child's installed resources. External Secrets keeps cascading deletion and automatic pruning disabled. Review its installed resources separately when retiring the operator.

@@ -22,4 +22,7 @@ spec:
     namespace: {{ .Release.Namespace }}
   syncPolicy:
     automated:
+      prune: true
       selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

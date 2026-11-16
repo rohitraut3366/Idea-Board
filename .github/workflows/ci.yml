@@ -422,7 +422,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 gitops/tests/check_local.py --context kind-idea-board --revision "$SOURCE_SHA" --image-tag "$SOURCE_SHA"
-      - name: Verify the cluster services app-of-apps
+      - name: Verify cluster services through the shared root
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 gitops/tests/check_core_services.py --context kind-idea-board --revision "$SOURCE_SHA"

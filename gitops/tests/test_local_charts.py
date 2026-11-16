@@ -83,3 +83,14 @@ def test_ingress_wrapper_uses_native_ingress_without_provider_crds():
     assert "nodePort: 30080" in output
     assert "type: NodePort" in output
     assert "--providers.kubernetesingress.ingressendpoint.ip=127.0.0.1" in output
+
+
+@pytest.mark.parametrize("cloud", ["kind", "aws", "gcp"])
+def test_same_bootstrap_selects_the_cloud_profile_and_reconciles_applications(cloud):
+    output = render("infra/terraform/modules/argocd/bootstrap", "--set", f"cloud={cloud}")
+    root = next(document for document in output.split("---") if "\nkind: Application\n" in document)
+    assert "name: idea-board" in root
+    assert "path: gitops/applications" in root
+    assert f"- values-{cloud}.yaml" in root
+    assert "prune: true" in root
+    assert "- ServerSideApply=true" in root
