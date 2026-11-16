@@ -12,7 +12,7 @@ This guide explains how the app works, how to run it locally, and how to test de
 - [App tests and performance testing](#testing)
 - [Local Kubernetes: complete kind walkthrough](gitops/README.md)
   - [Cluster, Argo CD and root Application](gitops/README.md#1-create-the-cluster)
-  - [App and deployment checks](gitops/README.md#5-test-the-app-and-deployment-process)
+  - [App HTTP check](gitops/README.md#5-test-the-app)
   - [Live AI planning and deployment](gitops/README.md#6-plan-and-deploy-with-ai)
   - [PR preview deployment and cleanup](gitops/README.md#7-create-a-preview)
   - [Performance and scaling tests](gitops/README.md#8-test-performance-and-scaling)
