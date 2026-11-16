@@ -81,7 +81,7 @@ class Cluster:
         print(f"Waiting up to {timeout}s for Applications: {names}", file=sys.stderr, flush=True)
         deadline = time.monotonic() + timeout
         pending = applications.copy()
-        last_progress = {}
+        last_progress: dict[str, str] = {}
         poll_count = 0
         while pending and time.monotonic() < deadline:
             poll_count += 1
