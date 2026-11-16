@@ -25,7 +25,7 @@ These addresses use local port-forwards on the machine running kind. Preview `12
 | Failed rollout      | An intentionally unpublished frontend image produced ImagePullBackOff                                            |
 | Rollback            | Parent and child sources restored; HTTP checks passed; migration hooks skipped; schema and canary data preserved |
 
-`tools/deploy/tests/check_kind.py` ran the isolated lifecycle and rollback checks and removed its test resources. Staging and preview `123` were then deployed for the persistent demo. Staging's database was created automatically on the local PostgreSQL server. Page and API checks through all three ingress hostnames passed, and test ideas remained isolated between the databases.
+The isolated lifecycle and rollback checks passed and removed their test resources. Staging and preview `123` were then deployed for the persistent demo. Staging's database was created automatically on the local PostgreSQL server. Page and API checks through all three ingress hostnames passed, and test ideas remained isolated between the databases.
 
 - Application image: `5ae00d82541190e313a06e14f39ddc94124455a8`.
 - Chart revision: `d671dc6822ce187919c431eb177da2cdfd98cf32`.

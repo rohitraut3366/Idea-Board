@@ -64,17 +64,7 @@ PostgreSQL tests create uniquely named preview databases/roles and remove them. 
 
 The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against the cluster and application projects for both clouds using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
 
-For the full integration check, use the existing test kind cluster with Argo CD and the chart-test PostgreSQL Deployment/Secret in namespace `idea-board`:
-
-```bash
-uv run --project tools/deploy python tools/deploy/tests/check_kind.py \
-  --context kind-idea-board --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --evidence-output /tmp/idea-board-failed-rollout.json
-```
-
-It refuses existing staging/test-preview resources, creates isolated test databases and namespaces, checks staging and preview redeployment, removes the preview, injects an unpublished frontend image, checks failure evidence, restores the verified release, reruns HTTP checks, and removes only resources it created. The chart commit must be publicly reachable because Argo fetches it from Git. CI repeats the flow with its newly published images.
-
-The integration test uses explicit recommendation fixtures, independently of model availability. A live AI runner invocation tests the skill separately. Hosted runner authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.
+CI runs the Kubernetes deployment checks with fixed recommendations, independently of model availability. A live AI runner invocation tests the skill separately. Hosted runner authentication, cloud federation, managed database permissions, and external routing still require checks in the target accounts.
 
 ## Public routing
 
