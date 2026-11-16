@@ -188,7 +188,7 @@ Your request + deployment skill
    Tool releases and checks the app
 ```
 
-The [deployment skill](../.agents/skills/deploy/SKILL.md) supplies repository context, rules and the response format. `codex exec` makes the model call. The Python commands prepare its input and handle its output.
+The [deployment skill](../.agents/skills/deploy/SKILL.md) supplies repository context, rules and the response format. `codex exec` makes the model call. The Python commands validate the settings and deploy the reviewed release.
 
 ### Build the version to deploy
 
@@ -210,54 +210,38 @@ Use that same SHA as the version label for the two images you are about to build
 export IMAGE_TAG="$CHART_REVISION"
 ```
 
-Build the backend image from the local backend source:
+Build the backend image from the local backend source. `--load` saves the result in Docker so it can be copied into kind:
 
 ```bash
-docker build -t "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" apps/backend
+docker build --load -t "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" apps/backend
 ```
 
-Build the frontend image from the local frontend source:
+Build and save the frontend image the same way:
 
 ```bash
-docker build -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
+docker build --load -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
 ```
 
-Copy both images into the kind node. Their names match the chart configuration; this command loads them locally. The charts use `IfNotPresent`, so Kubernetes can use the loaded images.
+Load both images into kind. This helper uses each node’s architecture and configured containerd snapshotter, imports the images, and checks that Kubernetes can see them. The charts use `IfNotPresent`, so Kubernetes uses these local images.
 
 ```bash
-kind load docker-image --name idea-board \
+python3 gitops/kind/load_images.py --name idea-board \
   "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" \
   "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
 ```
 
 ### Ask AI for staging settings
 
-**1. Create the prompt.** Combine the request, staging target, image version, chart revision and skill into one prompt. `>` writes it to a temporary file. This command prepares text; it does not call the model.
-
-```bash
-uv run --project tools/deploy python tools/deploy/deploy.py prompt \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --request 'Local staging for a few reviewers. Use one backend replica and one frontend replica.' \
-  >/tmp/idea-board-prompt.md
-```
-
-**2. Call the model.** `<` supplies the prompt file as input. The schema defines the JSON response format. The response is saved in `/tmp/idea-board-recommendation.json`. The session uses a read-only sandbox; `--ephemeral` skips saving session history.
+**1. Ask AI for settings.** `$deploy` loads the deployment skill. The request selects kind staging and describes the workload. The schema defines the JSON settings that the deployment tool accepts; `--output-last-message` saves the model's answer for the next command. Codex also displays that answer in the terminal.
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
   --output-last-message /tmp/idea-board-recommendation.json \
-  - </tmp/idea-board-prompt.md
+  '$deploy Recommend settings for cloud kind, environment staging. Local staging for a few reviewers. Use one backend replica and one frontend replica. Do not change the cluster.'
 ```
 
-**3. Read the recommendation.** Check the proposed replica counts, CPU, memory and reasoning:
-
-```bash
-cat /tmp/idea-board-recommendation.json
-```
-
-**4. Prepare the plan.** Validate the recommendation and generate the proposed Argo CD Applications in `release-plan/applications.json` and a readable plan in `release-plan/plan.md`. This writes local files; it does not change the cluster.
+**2. Prepare the plan.** Validate the recommendation and generate the proposed Argo CD Applications in `release-plan/applications.json` and a readable plan in `release-plan/plan.md`. This writes local files; it does not change the cluster.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
@@ -266,13 +250,13 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --recommendation /tmp/idea-board-recommendation.json
 ```
 
-**5. Review the plan.** Check its target, resource settings and execution order before deploying:
+**3. Review the plan.** Check its target, resource settings and execution order before deploying:
 
 ```bash
 cat release-plan/plan.md
 ```
 
-**6. Release staging.** This changes the cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. The deployment tool requires `--context` to identify the cluster it will change.
+**4. Release staging.** This changes the cluster: it creates staging's credentials and parent Application. The backend chart starts PostgreSQL and runs migrations before the backend becomes ready, then the tool releases the frontend and checks HTTP responses. The deployment tool requires `--context` to identify the cluster it will change.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
@@ -287,32 +271,16 @@ When the release succeeds, open [idea-board-staging.localhost:8081](http://idea-
 
 Preview `123` gets a namespace, frontend, backend, PostgreSQL instance, persistent volume and generated credentials. Its database runs in the preview namespace. Preview creation and cleanup need no staging or production database access.
 
-**1. Create the preview prompt.** `--environment preview --pr 123` identifies this preview. Save its request and deployment context for the model:
-
-```bash
-uv run --project tools/deploy python tools/deploy/deploy.py prompt \
-  --cloud kind --environment preview --pr 123 \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --request 'A small disposable preview for reviewing this change.' \
-  >/tmp/idea-board-preview-prompt.md
-```
-
-**2. Generate its settings.** Call the model with the preview prompt and save its JSON recommendation:
+**1. Ask AI for preview settings.** Request settings for kind preview `123`. Codex displays the recommendation and saves it for the release tool:
 
 ```bash
 codex exec --sandbox read-only --ephemeral \
   --output-schema .agents/skills/deploy/output.schema.json \
   --output-last-message /tmp/idea-board-preview-recommendation.json \
-  - </tmp/idea-board-preview-prompt.md
+  '$deploy Recommend settings for cloud kind, environment preview, PR 123. A small disposable preview for reviewing this change. Do not change the cluster.'
 ```
 
-**3. Review the recommendation.** Check the settings and reasoning for the preview:
-
-```bash
-cat /tmp/idea-board-preview-recommendation.json
-```
-
-**4. Prepare its release plan.** Validate those settings and generate the preview Applications. This replaces the staging plan files in `release-plan/`.
+**2. Prepare its release plan.** Validate those settings and generate the preview Applications. This replaces the staging plan files in `release-plan/`.
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py prepare \
@@ -321,13 +289,13 @@ uv run --project tools/deploy python tools/deploy/deploy.py prepare \
   --recommendation /tmp/idea-board-preview-recommendation.json
 ```
 
-**5. Review the plan.** Confirm that the target is `idea-board-pr-123` and inspect its resource settings:
+**3. Review the plan.** Confirm that the target is `idea-board-pr-123` and inspect its resource settings:
 
 ```bash
 cat release-plan/plan.md
 ```
 
-**6. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
+**4. Release the preview.** Create its credentials and parent Application, start its PostgreSQL instance and backend, deploy the frontend, and check the HTTP responses:
 
 ```bash
 uv run --project tools/deploy python tools/deploy/deploy.py release \
