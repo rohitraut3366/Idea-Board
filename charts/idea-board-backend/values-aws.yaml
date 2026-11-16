@@ -1,0 +1,4 @@
+databaseSecretName: idea-board-database
+service:
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /health

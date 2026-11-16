@@ -4,7 +4,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: {{ printf "%s%s" $.Values.namePrefix $name }}
+  name: {{ default (printf "%s%s" (tpl $.Values.namePrefix $) $name) $application.name }}
   namespace: {{ $.Release.Namespace }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -18,8 +18,8 @@ spec:
       {{- tpl (toYaml $application.source.helm) $ | nindent 6 }}
   destination:
     server: https://kubernetes.default.svc
-    namespace: {{ default $.Values.namespace $application.namespace }}
+    namespace: {{ tpl (default $.Values.namespace $application.namespace) $ }}
   syncPolicy:
-    {{- toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true" "ServerSideApply=true"))) | nindent 4 }}
+    {{- tpl (toYaml ($application.syncPolicy | default (dict "automated" (dict "prune" true "selfHeal" true) "syncOptions" (list "CreateNamespace=true" "ServerSideApply=true")))) $ | nindent 4 }}
 {{- end }}
 {{- end }}

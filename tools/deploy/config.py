@@ -44,6 +44,10 @@ class Target:
                 raise ValueError("image tag and chart revision must be full commit SHAs")
 
     @property
+    def uses_cloud_root(self):
+        return self.cloud != "kind" and self.environment != "preview"
+
+    @property
     def namespace(self):
         suffix = f"pr-{self.pr}" if self.environment == "preview" else self.environment
         return f"idea-board-{suffix}"
@@ -177,38 +181,6 @@ def manifests(target, recommendation):
             values["databaseSecretName"] = "idea-board-database"
         else:
             values["service"] = {"type": "ClusterIP"}
-        if target.cloud == "aws":
-            values["service"] = {
-                "annotations": {
-                    "alb.ingress.kubernetes.io/healthcheck-path": "/health"
-                    if service == "backend"
-                    else "/"
-                }
-            }
-            if service == "frontend":
-                values["service"]["type"] = "ClusterIP"
-                values["ingress"] = {
-                    "enabled": True,
-                    "className": "alb",
-                    "annotations": {
-                        "alb.ingress.kubernetes.io/scheme": "internet-facing",
-                        "alb.ingress.kubernetes.io/target-type": "ip",
-                    },
-                }
-        elif target.cloud == "gcp":
-            values["gcpBackendConfig"] = True
-            values["service"] = {
-                "annotations": {
-                    "cloud.google.com/neg": json.dumps({"ingress": True}),
-                    "cloud.google.com/backend-config": json.dumps({"default": service}),
-                }
-            }
-            if service == "frontend":
-                values["service"]["type"] = "ClusterIP"
-                values["ingress"] = {
-                    "enabled": True,
-                    "annotations": {"kubernetes.io/ingress.class": "gce"},
-                }
         applications.append(
             {
                 "apiVersion": "argoproj.io/v1alpha1",
@@ -219,12 +191,16 @@ def manifests(target, recommendation):
                     "finalizers": ["resources-finalizer.argocd.argoproj.io"],
                 },
                 "spec": {
-                    "project": namespace,
+                    "project": "idea-board" if target.uses_cloud_root else namespace,
                     "source": {
                         "repoURL": REPOSITORY,
                         "targetRevision": target.revision,
                         "path": f"charts/idea-board-{service}",
-                        "helm": {"releaseName": service, "skipTests": True, "valuesObject": values},
+                        "helm": {
+                            "releaseName": service,
+                            "skipTests": True,
+                            "valuesObject": values,
+                        },
                     },
                     "destination": {
                         "server": "https://kubernetes.default.svc",
@@ -234,6 +210,20 @@ def manifests(target, recommendation):
                 },
             }
         )
+    if target.cloud != "kind":
+        for application in applications:
+            application["spec"]["source"]["helm"]["valueFiles"] = [f"values-{target.cloud}.yaml"]
+            if target.uses_cloud_root:
+                application["spec"]["syncPolicy"]["syncOptions"] = [
+                    "CreateNamespace=true",
+                    "ServerSideApply=true",
+                ]
+                application["spec"]["syncPolicy"]["managedNamespaceMetadata"] = {
+                    "labels": {
+                        "app.kubernetes.io/part-of": "idea-board",
+                        "idea-board/environment": target.environment,
+                    }
+                }
     if target.cloud == "kind":
         project["spec"]["destinations"].append(
             {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
@@ -299,4 +289,8 @@ def deployment_manifests(target, recommendation):
     project, *applications = manifests(target, recommendation)
     if target.cloud == "kind":
         return [project, parent_application(target, applications)]
+    if target.uses_cloud_root:
+        from root import cloud_root
+
+        return [cloud_root(target, applications)]
     return [project, *applications]

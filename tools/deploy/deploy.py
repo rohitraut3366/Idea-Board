@@ -17,6 +17,7 @@ from config import (
     prompt,
     validate_recommendation,
 )
+from root import cloud_root
 
 
 def preview_database(cluster, target, delete=False):
@@ -84,6 +85,12 @@ def release(cluster, target, recommendation):
     from rollback import checkpoint, record_healthy, state
 
     documents = manifests(target, recommendation)
+    root = None
+    if target.uses_cloud_root:
+        current = cluster.get("application", "idea-board", "argocd")
+        if not current:
+            raise ValueError("install the cloud root through cluster-core-services first")
+        root = cloud_root(target, [], current)
     outcome = "failed"
     phase = "database"
     rollback_available = False
@@ -111,23 +118,18 @@ def release(cluster, target, recommendation):
         documents[1]["spec"]["source"]["helm"]["valuesObject"]["databaseRevision"] = hashlib.sha256(
             url.encode()
         ).hexdigest()
+        release_documents = documents
+        if target.cloud == "kind":
+            release_documents = [documents[0], parent_application(target, documents[1:])]
+        elif target.uses_cloud_root:
+            release_documents = [cloud_root(target, documents[1:], root)]
         Path("applications.json").write_text(
-            json.dumps(
-                {
-                    "apiVersion": "v1",
-                    "kind": "List",
-                    "items": (
-                        [documents[0], parent_application(target, documents[1:])]
-                        if target.cloud == "kind"
-                        else documents
-                    ),
-                },
-                indent=2,
-            )
+            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_documents}, indent=2)
             + "\n"
         )
         checkpoint(cluster, target, documents[1:])
-        cluster.apply(documents[0])
+        if not target.uses_cloud_root:
+            cluster.apply(documents[0])
         if target.cloud == "kind":
             # Keep the serving frontend while the new backend runs its migration and checks.
             existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
@@ -142,6 +144,13 @@ def release(cluster, target, recommendation):
             cluster.apply(parent)
             cluster.wait([parent])
             cluster.wait([documents[2]])
+        elif target.uses_cloud_root:
+            for application in documents[1:]:
+                phase = application["spec"]["source"]["helm"]["releaseName"]
+                root = cloud_root(target, [application], root)
+                cluster.apply(root)
+                cluster.wait([root])
+                cluster.wait([application])
         else:
             for application in documents[1:]:
                 phase = application["spec"]["source"]["helm"]["releaseName"]

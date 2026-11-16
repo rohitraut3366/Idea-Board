@@ -6,6 +6,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 from config import REPOSITORY, parent_application
+from root import cloud_root
 
 STATE_NAME = "idea-board-release"
 
@@ -70,7 +71,8 @@ def rollback(cluster, target, schema_compatible):
             application["kind"] != "Application"
             or application["metadata"]["name"] != name
             or application["metadata"]["namespace"] != "argocd"
-            or application["spec"]["project"] != target.namespace
+            or application["spec"]["project"]
+            != ("idea-board" if target.uses_cloud_root else target.namespace)
             or application["spec"]["destination"]
             != {
                 "server": "https://kubernetes.default.svc",
@@ -125,18 +127,43 @@ def rollback(cluster, target, schema_compatible):
                 "spec": parent["spec"],
             }
         )
+    elif target.uses_cloud_root:
+        current = cluster.get("application", "idea-board", "argocd")
+        if not current:
+            raise ValueError("cloud root is missing; inspect before rollback")
+        parent = cloud_root(target, [], current, automated=False)
+        entries = parent["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
+        for old, attempted in zip(previous, attempt["applications"], strict=True):
+            service = old["spec"]["source"]["helm"]["releaseName"]
+            if entries.get(service, {}).get("source") not in (
+                old["spec"]["source"],
+                attempted["spec"]["source"],
+            ):
+                raise ValueError("cloud root changed since the failed attempt")
+        if current.get("operation") or current.get("status", {}).get("operationState", {}).get(
+            "phase"
+        ) in {"Running", "Terminating"}:
+            raise ValueError("cloud root sync is still running; inspect before rollback")
+        cluster.apply(parent)
     for application in restored:
         # The parent owns these fields through SSA; takeover follows the drift guards above.
-        cluster.apply(application, force=target.cloud == "kind")
+        cluster.apply(application, force=target.cloud == "kind" or target.uses_cloud_root)
         cluster.wait([application])
         # An operation is a one-time request, not part of a release checkpoint.
         del application["operation"]
-    if target.cloud == "kind":
+    if target.cloud == "kind" or target.uses_cloud_root:
         restored_target = replace(target, revision=previous[0]["spec"]["source"]["targetRevision"])
-        parent = parent_application(restored_target, restored, automated=False)
+        parent = (
+            cloud_root(restored_target, restored, parent, automated=False)
+            if target.uses_cloud_root
+            else parent_application(restored_target, restored, automated=False)
+        )
         parent["operation"] = {
             "info": [{"name": "idea-board/rollback-id", "value": str(uuid4())}],
-            "sync": {"revision": restored_target.revision, "syncStrategy": {"apply": {}}},
+            "sync": {
+                "revision": parent["spec"]["source"]["targetRevision"],
+                "syncStrategy": {"apply": {}},
+            },
         }
         cluster.apply(parent)
         cluster.wait([parent])

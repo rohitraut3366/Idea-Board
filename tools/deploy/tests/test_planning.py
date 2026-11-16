@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests, terraform_variables, validate_recommendation
+from config import (
+    Target,
+    deployment_manifests,
+    manifests,
+    terraform_variables,
+    validate_recommendation,
+)
 from planning import prepare
 
 SHA = "a" * 40
@@ -36,7 +42,7 @@ def test_generated_sizing_uses_existing_terraform_inputs(cloud, tmp_path):
             assert f'variable "{key}"' in definitions
         assert f"--working-dir infra/terraform/{cloud}/production/YOUR_REGION/{project}" in plan
     applications = json.loads((tmp_path / "applications.json").read_text())["items"]
-    assert applications == manifests(target, proposal)
+    assert applications == deployment_manifests(target, proposal)
     assert "terraform" in (tmp_path / "plan.md").read_text()
 
 

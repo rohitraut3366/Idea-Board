@@ -66,6 +66,11 @@ def test_chart_render_matches_cloud_exposure(cloud, service_type):
             "template",
             "frontend",
             str(root / "charts/idea-board-frontend"),
+            *[
+                argument
+                for file in application["spec"]["source"]["helm"].get("valueFiles", [])
+                for argument in ("-f", str(root / "charts/idea-board-frontend" / file))
+            ],
             "--namespace",
             target.namespace,
             "-f",
@@ -112,6 +117,11 @@ def test_ingress_routes_to_both_services_in_its_own_namespace(cloud, environment
                 "template",
                 service,
                 str(root / f"charts/idea-board-{service}"),
+                *[
+                    argument
+                    for file in app["spec"]["source"]["helm"].get("valueFiles", [])
+                    for argument in ("-f", str(root / f"charts/idea-board-{service}" / file))
+                ],
                 "--namespace",
                 target.namespace,
                 "-f",

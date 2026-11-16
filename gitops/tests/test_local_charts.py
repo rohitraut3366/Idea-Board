@@ -36,16 +36,27 @@ def test_kind_profile_enables_only_ingress_and_application_services():
 
 
 @pytest.mark.parametrize("cloud", ["aws", "gcp"])
-def test_cloud_profile_enables_only_external_secrets(cloud):
+def test_cloud_profile_enables_operator_and_environment_services(cloud):
     output = render(
-        "gitops/applications", "-f", str(ROOT / f"gitops/applications/values-{cloud}.yaml")
+        "gitops/applications",
+        "-f",
+        str(ROOT / f"gitops/applications/values-{cloud}.yaml"),
+        "--set",
+        "clusterName=idea-board-staging",
     )
-    assert output.count("kind: Application") == 1
-    assert "name: external-secrets\n" in output
-    assert "namespace: external-secrets" in output
-    assert "- resources-finalizer.argocd.argoproj.io" in output
-    assert "prune: true" not in output
-    assert f"values/{cloud}/idea-board/values-terraform.yaml" in output
+    assert output.count("kind: Application") == 3
+    assert output.count("- resources-finalizer.argocd.argoproj.io") == 3
+    operator = next(doc for doc in output.split("---") if "name: external-secrets\n" in doc)
+    assert "namespace: external-secrets" in operator
+    assert "prune: true" not in operator
+    assert f"values/{cloud}/idea-board-staging/values-terraform.yaml" in operator
+    for service in ("backend", "frontend"):
+        child = next(
+            doc for doc in output.split("---") if f"name: idea-board-staging-{service}\n" in doc
+        )
+        assert "namespace: idea-board-staging" in child
+        assert f"- values-{cloud}.yaml" in child
+        assert "managedNamespaceMetadata:" in child
 
 
 def test_values_can_disable_apps_and_enable_another_service():

@@ -116,9 +116,10 @@ class Cluster:
                     and compared.get("helm", {}).get("valuesObject")
                     == source["helm"]["valuesObject"]
                 )
-                if (
-                    not same_source
-                    or status.get("sync", {}).get("revision") != source["targetRevision"]
+                is_parent = source["path"] == "gitops/applications"
+                if not same_source or (
+                    (not is_parent or re.fullmatch(r"[0-9a-f]{40}", source["targetRevision"]))
+                    and status.get("sync", {}).get("revision") != source["targetRevision"]
                 ):
                     continue
                 if (
@@ -126,7 +127,7 @@ class Cluster:
                     or status.get("health", {}).get("status") != "Healthy"
                 ):
                     continue
-                if source["path"] == "gitops/applications":
+                if is_parent:
                     # Child readiness is checked separately, after the parent has reconciled.
                     if status.get("operationState", {}).get("phase") != "Succeeded":
                         continue

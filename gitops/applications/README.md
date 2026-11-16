@@ -33,7 +33,7 @@ applications:
           - values-kind.yaml
 ```
 
-`gitops/applications/values-kind.yaml` selects the local services. Their settings stay in each service's chart. Staging and preview parents use the same shared template with their own enabled services, namespaces, image tags and sizing.
+`gitops/applications/values-kind.yaml` selects the local services. Their settings stay in each service's chart. Local staging and preview parents use the same shared template with their own enabled services, namespaces, image tags and sizing.
 
 ## Bootstrap the root
 
@@ -42,7 +42,11 @@ The bootstrap chart in `infra/terraform/modules/argocd/bootstrap` creates the `i
 - **kind:** install Argo CD, then apply the bootstrap chart manually. Follow the [kind guide](../README.md).
 - **AWS or GCP:** apply the cloud's Terraform `cluster-core-services` project. It installs Argo CD and the same bootstrap chart. Follow the [Terraform guide](../../infra/terraform/README.md).
 
-The cloud profiles enable External Secrets. Application releases use their environment settings and database credentials through the deployment workflow.
+The AWS and GCP profiles enable External Secrets, backend and frontend. Application children use the cluster name as their namespace, such as `idea-board-staging` or `idea-board-production`. External Secrets runs in its own namespace.
+
+The release workflow creates the database Secret and updates the existing root’s child configuration: backend first, then frontend after the backend is healthy. Cloud routing settings live in each application chart’s `values-aws.yaml` and `values-gcp.yaml`. The first backend sync waits for the release workflow to supply its database Secret.
+
+Cloud PR previews keep their own Applications and namespace on the staging cluster.
 
 Wait for the root and each enabled child to become Synced and Healthy:
 

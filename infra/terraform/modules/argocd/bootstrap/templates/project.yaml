@@ -16,6 +16,8 @@ spec:
       namespace: ingress-system
     - server: https://kubernetes.default.svc
       namespace: idea-board
+    - server: https://kubernetes.default.svc
+      namespace: {{ .Values.clusterName | quote }}
   clusterResourceWhitelist:
     - group: networking.k8s.io
       kind: IngressClass
@@ -32,6 +34,8 @@ spec:
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
   namespaceResourceWhitelist:
+    - group: cloud.google.com
+      kind: BackendConfig
     - group: batch
       kind: Job
     - group: ""

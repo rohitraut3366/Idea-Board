@@ -212,3 +212,22 @@ def test_pr_closing_during_rollout_triggers_cleanup(monkeypatch):
     cluster = Cluster("test", target.namespace)
     assert cleanup_closed_preview(cluster, target)
     cleanup.assert_called_once_with(cluster, target)
+
+
+def test_cloud_root_wait_accepts_resolved_branch_revision(monkeypatch):
+    from root import cloud_root
+
+    target = Target("aws", "staging", SHA, SHA)
+    root = cloud_root(target, manifests(target, recommendation("aws"))[1:])
+    status = {
+        "sync": {
+            "status": "Synced",
+            "revision": SHA,
+            "comparedTo": {"source": deepcopy(root["spec"]["source"])},
+        },
+        "health": {"status": "Healthy"},
+        "operationState": {"phase": "Succeeded"},
+    }
+    cluster = Cluster("test", target.namespace)
+    monkeypatch.setattr(cluster, "get", Mock(return_value={"status": status}))
+    cluster.wait([root], timeout=1)

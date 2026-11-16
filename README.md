@@ -287,10 +287,13 @@ The `cluster-core-services` project installs Argo CD and waits for it to be read
 Terraform also creates a root Argo CD Application called `idea-board`. Its cloud values file selects which child Applications run. This is the **app-of-apps** pattern:
 
 ```text
-Terraform → Argo CD → idea-board → External Secrets Operator
+Terraform → Argo CD → idea-board
+                         ├── External Secrets Operator
+                         ├── backend
+                         └── frontend
 ```
 
-Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. The External Secrets umbrella chart wraps the upstream chart with our defaults.
+Each `gitops/applications/values-kind.yaml`, `values-aws.yaml` and `values-gcp.yaml` file declares its own services. The default `values.yaml` contains shared settings and an empty applications map. Each service has its own chart under `charts/`. Both cloud profiles enable External Secrets, backend and frontend. Application children run in the cluster’s environment namespace, such as `idea-board-staging`. The release workflow supplies the database Secret and updates the root with the selected images and sizing. The External Secrets umbrella chart wraps the upstream chart with our defaults.
 
 External Secrets reads these files from its chart directory, in order. Later files override earlier ones:
 
