@@ -392,19 +392,42 @@ Successful PR CI triggers deployment. Updates preserve preview data. Closing the
 
 ## AI integration
 
-You describe what the environment is for, for example:
+AI helps with two jobs: choosing deployment settings and explaining rollout failures. The [deployment skill](.agents/skills/deploy/SKILL.md) tells it what to consider and how to format its response. The GitHub workflow runs the skill through the Codex Action using `OPENAI_API_KEY`.
 
-> Low-traffic staging for a few reviewers.
+### Example 1: Plan a small staging environment
 
-The AI uses the [deployment skill](.agents/skills/deploy/SKILL.md), a set of instructions for planning and diagnosing releases. It suggests how many copies of each service to run, how much CPU and memory to give them, and what cloud machine and database sizes fit the request. It explains its choices.
+Open **Actions → Deploy → Run workflow**, choose your cloud and `staging`, enter a published image SHA, and put this in `request`:
 
-The deployment tool checks the suggested values, then writes the app configuration and separate Terraform sizing proposals for the cluster and database projects. Infrastructure changes go through a reviewed Terraform plan.
+> Low-traffic staging for a few reviewers. Keep resource use small.
 
-The skill includes a defined JSON response format so compatible AI tools can use it. The current GitHub workflow runs it through the Codex Action.
+The AI recommends the number of frontend/backend copies, their CPU and memory, and cloud machine/database sizes. It explains why those settings fit the request. For example, our [recorded local recommendation](gitops/kind/evidence/recommendation.json) chose one copy of each service and more memory for the Python backend.
 
-After deployment, the tool records whether the services started, whether containers restarted, and which known errors appeared. It also collects CPU and memory use when available. The AI uses these facts to explain failures and suggest next steps. The workflow checks whether the release works; an operator decides whether to restore the previous version.
+The deployment tool validates the response and turns it into Helm values and a release plan. The workflow then deploys the app through Argo CD and checks it.
 
-The resource proposal helps an operator choose settings for a workload. The diagnosis helps them understand why a release failed using facts collected from that release. The [deployment guide](tools/deploy/README.md) explains validation rules, evidence handling, and runner setup.
+Open the workflow run's **Artifacts** to download:
+
+| File                             | What it gives you                                                 |
+| -------------------------------- | ----------------------------------------------------------------- |
+| `recommendation.json`            | The AI's settings and reasons                                     |
+| `release-plan/plan.md`           | The deployment steps and generated commands                       |
+| `release-plan/applications.json` | The Argo CD deployment configuration                              |
+| `release-plan/terraform/`        | Cloud machine/database sizing proposals for staging or production |
+
+Review infrastructure proposals through a Terraform plan before applying them. Preview environments share staging infrastructure; kind uses the local cluster.
+
+To try the planning flow locally, follow [Plan a release locally](tools/deploy/README.md#plan-a-release-locally). It shows how to generate the prompt, run the AI and inspect the resulting files.
+
+### Example 2: Explain a failed rollout
+
+Suppose the new frontend image cannot start. The deployment tool collects the failed checks, pod readiness, restart counts and recognized error signatures such as `ImagePullBackOff`. It also collects CPU and memory use when available.
+
+The workflow passes that evidence to the AI. A diagnosis can say:
+
+> The new frontend is waiting for its image. The previous frontend and backend are still ready. Check that the image exists and can be pulled. A previous verified release is available; confirm database schema compatibility before restoring it.
+
+The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. Our [recorded diagnosis](gitops/kind/evidence/diagnosis.json) shows this case.
+
+You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [diagnosis guide](tools/deploy/README.md#diagnose-a-rollout) shows how to run this locally.
 
 ## When something goes wrong
 
