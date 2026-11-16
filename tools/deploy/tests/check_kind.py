@@ -13,10 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recommendations import recommendation  # noqa: E402
 
 from cluster import Cluster  # noqa: E402
-from config import Target, manifests, parent_application  # noqa: E402
+from config import REPOSITORY, Target, manifests  # noqa: E402
+from database import ensure_database_secret  # noqa: E402
 from deploy import cleanup, release  # noqa: E402
 from diagnosis import collect  # noqa: E402
 from rollback import checkpoint, rollback, state  # noqa: E402
+from root import existing_root, shared_root  # noqa: E402
 
 
 def main():
@@ -66,8 +68,81 @@ def main():
         proposal = recommendation()
         with tempfile.TemporaryDirectory(prefix="idea-board-release-check-") as directory:
             os.chdir(directory)
+            # Start with the former environment-parent layout to exercise adoption.
+            staging_cluster.ensure_namespace("staging")
+            ensure_database_secret(staging_cluster)
+            project, *children = manifests(staging, proposal)
+            project["spec"]["destinations"].append(
+                {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
+            )
+            project["spec"]["namespaceResourceWhitelist"].append(
+                {"group": "argoproj.io", "kind": "Application"}
+            )
+            staging_cluster.apply(project)
+            legacy_parent = {
+                "apiVersion": "argoproj.io/v1alpha1",
+                "kind": "Application",
+                "metadata": {
+                    "name": staging.namespace,
+                    "namespace": "argocd",
+                    "finalizers": ["resources-finalizer.argocd.argoproj.io"],
+                },
+                "spec": {
+                    "project": staging.namespace,
+                    "source": {
+                        "repoURL": REPOSITORY,
+                        "targetRevision": args.revision,
+                        "path": "gitops/applications",
+                        "helm": {
+                            "valuesObject": {
+                                "project": staging.namespace,
+                                "namespace": staging.namespace,
+                                "namePrefix": staging.namespace + "-",
+                                "applications": {
+                                    child["spec"]["source"]["helm"]["releaseName"]: {
+                                        "enabled": True,
+                                        "source": child["spec"]["source"],
+                                        "syncPolicy": child["spec"]["syncPolicy"],
+                                    }
+                                    for child in children
+                                },
+                            }
+                        },
+                    },
+                    "destination": {
+                        "server": "https://kubernetes.default.svc",
+                        "namespace": "argocd",
+                    },
+                    "syncPolicy": {
+                        "automated": {"prune": True, "selfHeal": True},
+                        "syncOptions": ["ServerSideApply=true"],
+                    },
+                },
+            }
+            staging_cluster.apply(legacy_parent)
+            staging_cluster.wait([legacy_parent])
+            staging_cluster.wait(children)
+            original_credentials = staging_cluster.database_url()
+            psql(
+                staging_cluster,
+                "CREATE TABLE adoption_canary (content text); "
+                "INSERT INTO adoption_canary VALUES ('keep while adopting')",
+            )
             release(staging_cluster, staging, proposal)
+            assert not source.get("application", staging.namespace, "argocd")
+            assert staging_cluster.database_url() == original_credentials
+            assert psql(staging_cluster, "SELECT content FROM adoption_canary").strip() == (
+                "keep while adopting"
+            )
             release(preview_cluster, preview, proposal)
+            roots = json.loads(
+                source.run("--namespace", "argocd", "get", "applications", "-o", "json")
+            )
+            assert [
+                app["metadata"]["name"]
+                for app in roots["items"]
+                if app["spec"].get("source", {}).get("path") == "gitops/applications"
+            ] == ["idea-board"]
             assert staging_cluster.database_url() != preview_cluster.database_url()
             psql(
                 preview_cluster,
@@ -106,7 +181,9 @@ def main():
                 "cpu"
             ] = "125m"
             checkpoint(staging_cluster, failed, bad_applications)
-            failed_parent = parent_application(failed, bad_applications)
+            failed_parent = shared_root(
+                failed, bad_applications, existing_root(staging_cluster, failed)
+            )
             staging_cluster.apply(failed_parent)
             staging_cluster.wait([failed_parent])
             staging_cluster.wait([bad_applications[0]])
@@ -155,16 +232,13 @@ def main():
     finally:
         # Only these environments were checked absent and created by this test.
         for target in (preview, staging):
-            source.run(
-                "--namespace",
-                "argocd",
-                "delete",
-                "application",
-                target.namespace,
-                "--ignore-not-found",
-                "--wait=true",
-                "--timeout=5m",
-            )
+            root = existing_root(source, target)
+            entries = root["spec"]["source"]["helm"]["valuesObject"].get("applications", {})
+            for service in ("backend", "frontend"):
+                entries.pop(f"{target.namespace}-{service}", None)
+            # Root auto-sync remains enabled after rollback; only restored children pause.
+            source.apply(root)
+            source.wait([root])
             for document in reversed(manifests(target, recommendation())):
                 kind = document["kind"].lower()
                 source.run(

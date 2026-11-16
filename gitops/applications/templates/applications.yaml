@@ -9,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ $.Values.project }}
+  project: {{ default $.Values.project $application.project }}
   {{- if $application.sources }}
   sources:
     {{- tpl (toYaml $application.sources) $ | nindent 4 }}

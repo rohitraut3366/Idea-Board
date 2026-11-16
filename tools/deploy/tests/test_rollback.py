@@ -4,8 +4,9 @@ from unittest.mock import Mock
 import pytest
 from recommendations import recommendation
 
-from config import Target, manifests, parent_application
+from config import Target, manifests
 from rollback import checkpoint, record_healthy, rollback, state
+from root import shared_root
 
 OLD = "a" * 40
 NEW = "b" * 40
@@ -29,7 +30,7 @@ def cluster():
     new = manifests(Target("kind", "staging", NEW, NEW), recommendation())[1:]
     for app in new:
         apply(app)
-    apply(parent_application(Target("kind", "staging", NEW, NEW), new))
+    apply(shared_root(Target("kind", "staging", NEW, NEW), new))
     record_healthy(client, old)
     checkpoint(client, Target("kind", "staging", NEW, NEW), new)
     client.apply.reset_mock()
@@ -81,11 +82,11 @@ def test_rollback_guards_run_before_any_application_mutation(cluster, failure):
         else:
             app["operation"] = {"sync": {"syncStrategy": {"hook": {}}}}
     elif failure == "parent_drift":
-        cluster.documents[("application", "idea-board-staging")]["spec"]["source"][
-            "targetRevision"
-        ] = "c" * 40
+        cluster.documents[("application", "idea-board")]["spec"]["source"]["helm"]["valuesObject"][
+            "applications"
+        ]["idea-board-staging-frontend"]["source"]["targetRevision"] = "c" * 40
     elif failure == "parent_running":
-        cluster.documents[("application", "idea-board-staging")]["status"] = {
+        cluster.documents[("application", "idea-board")]["status"] = {
             "operationState": {"phase": "Running"}
         }
     elif failure == "no_previous":
@@ -106,16 +107,16 @@ def test_unverified_rollback_does_not_replace_the_healthy_checkpoint(cluster):
     assert state(cluster)["attempt"] is not None
 
 
-def test_rollback_leaves_parent_consistent_and_paused(cluster):
+def test_rollback_keeps_root_active_and_restored_children_paused(cluster):
     rollback(cluster, Target("kind", "staging", NEW, NEW), True)
-    parent = cluster.get("application", "idea-board-staging")
-    assert parent["spec"]["syncPolicy"]["automated"]["enabled"] is False
+    parent = cluster.get("application", "idea-board")
+    assert parent["spec"]["syncPolicy"]["automated"]["enabled"] is True
     values = parent["spec"]["source"]["helm"]["valuesObject"]
     for service in ("backend", "frontend"):
-        child = values["applications"][service]
+        child = values["applications"][f"idea-board-staging-{service}"]
         assert child["source"]["targetRevision"] == OLD
         assert child["syncPolicy"]["automated"]["enabled"] is False
         assert "operation" not in child
     mutations = [entry.args[0] for entry in cluster.apply.call_args_list]
-    assert mutations[0]["metadata"]["name"] == "idea-board-staging"
-    assert mutations[0]["spec"]["syncPolicy"]["automated"]["enabled"] is False
+    assert mutations[0]["metadata"]["name"] == "idea-board"
+    assert mutations[0]["spec"]["syncPolicy"]["automated"]["enabled"] is True

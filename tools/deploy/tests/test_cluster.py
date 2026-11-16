@@ -191,13 +191,16 @@ def test_cleanup_cannot_delete_production(monkeypatch):
 
 def test_preview_cleanup_removes_ingress_owner_before_backend(monkeypatch):
     from deploy import cleanup
+    from root import shared_root
 
-    cluster = Cluster("test", "idea-board-pr-42")
-    monkeypatch.setattr(cluster, "get", Mock(return_value=None))
-    run = Mock()
-    monkeypatch.setattr(cluster, "run", run)
-    cleanup(cluster, Target("gcp", "preview", SHA, SHA, 42))
-    deleted = [entry.args[4] for entry in run.call_args_list if entry.args[3] == "application"]
+    cluster = Mock(namespace="idea-board-pr-42")
+    target = Target("gcp", "preview", SHA, SHA, 42)
+    root = shared_root(target, [])
+    cluster.get.side_effect = lambda kind, name, *args: root if name == "idea-board" else None
+    cleanup(cluster, target)
+    deleted = [
+        entry.args[4] for entry in cluster.run.call_args_list if entry.args[3] == "application"
+    ]
     assert deleted == ["idea-board-pr-42-frontend", "idea-board-pr-42-backend"]
 
 
@@ -214,10 +217,10 @@ def test_pr_closing_during_rollout_triggers_cleanup(monkeypatch):
 
 
 def test_cloud_root_wait_accepts_resolved_branch_revision(monkeypatch):
-    from root import cloud_root
+    from root import shared_root
 
     target = Target("aws", "staging", SHA, SHA)
-    root = cloud_root(target, manifests(target, recommendation("aws"))[1:])
+    root = shared_root(target, manifests(target, recommendation("aws"))[1:])
     status = {
         "sync": {
             "status": "Synced",

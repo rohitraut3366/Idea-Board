@@ -33,7 +33,7 @@ applications:
           - values-kind.yaml
 ```
 
-`gitops/applications/values-kind.yaml` selects the local services. Their settings stay in each service's chart. Local staging and preview parents use the same shared template with their own enabled services, namespaces, image tags and sizing.
+`gitops/applications/values-kind.yaml` selects the local services. Their settings stay in each service's chart. The deployment tool adds staging and preview entries to the same root’s `valuesObject.applications`, with their own names, namespaces, Argo projects, image tags and sizing.
 
 ## Bootstrap the root
 
@@ -48,7 +48,7 @@ External Secrets creates the database Secret. The release workflow updates the e
 
 The cloud backend Application has two Git sources: its pinned chart revision and a `values` reference to `master`. Its Helm `valueFiles` lists the generated backend file through `$values`, so Terraform’s database references are available even when they were committed after the release’s chart revision.
 
-Cloud PR previews keep their own Applications, database credentials and namespace on the staging cluster.
+PR previews are direct children of the shared root, with their own database credentials and namespace on the staging cluster. Cleanup removes only the selected preview entries.
 
 Wait for the root and each enabled child to become Synced and Healthy:
 
