@@ -14,7 +14,7 @@ Build a version → ask AI for settings → review → release staging
 
 ## Before you start
 
-Start Docker Desktop. Install kind, kubectl, Helm, Node.js 24, Python 3.12 and uv. The AI steps also need an authenticated Codex CLI.
+Start Docker Desktop. Install kind 0.32.0 or newer, kubectl, Helm, Node.js 24, Python 3.12 and uv. The AI steps also need an authenticated Codex CLI.
 
 For a new checkout, download the repository and enter it:
 
@@ -35,7 +35,7 @@ Kind runs Kubernetes inside Docker. This command creates a cluster named `idea-b
 kind create cluster --name idea-board --config gitops/kind/config.yaml
 ```
 
-If that cluster already exists, continue with the next command.
+If that cluster already exists and was created with the current configuration, continue with the next command. Updating the configuration file does not upgrade an existing cluster.
 
 Select the cluster once. The remaining `kubectl` commands use this selection. Kind stores its connection details in your kubeconfig, so it also appears in `kubectx`.
 
@@ -222,10 +222,10 @@ Build and save the frontend image the same way:
 docker build --load -t "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG" apps/frontend
 ```
 
-Load both images into kind. This helper uses each node’s architecture and configured containerd snapshotter, imports the images, and checks that Kubernetes can see them. The charts use `IfNotPresent`, so Kubernetes uses these local images.
+Load both images from Docker into kind. The charts use `IfNotPresent`, so Kubernetes can use these local images.
 
 ```bash
-python3 gitops/kind/load_images.py --name idea-board \
+kind load docker-image --name idea-board \
   "ghcr.io/rohitraut3366/idea-board-backend:$IMAGE_TAG" \
   "ghcr.io/rohitraut3366/idea-board-frontend:$IMAGE_TAG"
 ```
