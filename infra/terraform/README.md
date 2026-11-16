@@ -2,6 +2,20 @@
 
 Terraform defines the cloud resources. Terragrunt declares the settings and dependencies for each project. Every project has its own state and can be planned or applied separately.
 
+## Why Terragrunt
+
+Each cloud has four separate Terraform projects: networking, cluster, core services, and the application database. Terraform orders resources within a project, but it does not order runs across these separate states. For example, core services need an existing cluster before their Helm provider can connect to Kubernetes.
+
+Terragrunt handles the configuration and execution shared by these projects:
+
+- **Shared state configuration:** `root.hcl` reads the bucket settings from `state.hcl` and derives a separate state key from each project's directory. Each project inherits the same encryption and locking settings.
+- **Shared inputs:** environment and region files supply the stack name, region, and cloud-specific settings. Each project's `terragrunt.hcl` adds its own settings, such as worker count or database backup retention, without repeating the common inputs.
+- **Ordered runs:** `dependencies` blocks let `terragrunt run --all apply` create networking before the cluster, then core services and the application database. Destroy runs reverse that order. Terraform's `terraform_remote_state` data sources still read the outputs; Terragrunt's dependency declarations control execution order.
+
+Plain Terraform could manage the same resources, but keeping these separate states would require passing the backend configuration and inputs to each project and coordinating their execution manually or through scripts or CI. Terragrunt centralizes that work while retaining separate plans and state for each project. The tradeoff is an additional pinned CLI and HCL configuration layer to maintain alongside Terraform.
+
+## Layout
+
 ```text
 infra/terraform/
 ├── state.hcl                         # One S3 state bucket for AWS and GCP
