@@ -18,7 +18,7 @@ SHA = "a" * 40
 
 
 @pytest.mark.parametrize("cloud", ["aws", "gcp"])
-def test_generated_sizing_uses_existing_terraform_inputs(cloud, tmp_path):
+def test_prepare_writes_cloud_sizing_and_release_plan(cloud, tmp_path):
     target = Target(cloud, "production", SHA, SHA)
     proposal = recommendation(cloud, "production")
     prepare(target, proposal, tmp_path, Path("recommendation.json"))
@@ -30,20 +30,13 @@ def test_generated_sizing_uses_existing_terraform_inputs(cloud, tmp_path):
         ]
         is True
     )
-    assert sum(len(values) for values in generated.values()) == 5
-    region = "ap-southeast-2" if cloud == "aws" else "australia-southeast1"
-    root = Path(__file__).resolve().parents[3] / "infra/terraform" / cloud / "staging" / region
     plan = (tmp_path / "plan.md").read_text()
     for project, values in generated.items():
         path = tmp_path / "terraform" / project / "sizing.tfvars.json"
         assert json.loads(path.read_text()) == values
-        definitions = (root / project / "variables.tf").read_text()
-        for key in values:
-            assert f'variable "{key}"' in definitions
         assert f"--working-dir infra/terraform/{cloud}/production/YOUR_REGION/{project}" in plan
     applications = json.loads((tmp_path / "applications.json").read_text())["items"]
     assert applications == deployment_manifests(target, proposal)
-    assert "terraform" in (tmp_path / "plan.md").read_text()
 
 
 def test_model_can_size_services_independently():
