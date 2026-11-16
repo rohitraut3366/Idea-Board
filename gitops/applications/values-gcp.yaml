@@ -3,13 +3,17 @@ applications:
   external-secrets:
     enabled: true
     namespace: external-secrets
-    cascadeDelete: false
-    clusterValues: true
     source:
       path: charts/external-secrets
       helm:
         releaseName: external-secrets
         skipTests: true
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - values.yaml
+          - values/gcp/values.yaml
+          - "values/gcp/{{ .Values.clusterName }}/values.yaml"
+          - "values/gcp/{{ .Values.clusterName }}/values-terraform.yaml"
     syncPolicy:
       automated:
         selfHeal: true

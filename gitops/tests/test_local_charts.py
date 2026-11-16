@@ -24,6 +24,7 @@ def test_root_defaults_deploy_nothing():
 def test_kind_profile_enables_only_ingress_and_application_services():
     output = render("gitops/applications", "-f", str(ROOT / "gitops/applications/values-kind.yaml"))
     assert output.count("kind: Application") == 3
+    assert output.count("- resources-finalizer.argocd.argoproj.io") == 3
     for service in ("backend", "frontend", "ingress-controller"):
         assert f"name: {service}\n" in output
     assert "name: external-secrets\n" not in output
@@ -42,7 +43,7 @@ def test_cloud_profile_enables_only_external_secrets(cloud):
     assert output.count("kind: Application") == 1
     assert "name: external-secrets\n" in output
     assert "namespace: external-secrets" in output
-    assert "finalizers:" not in output
+    assert "- resources-finalizer.argocd.argoproj.io" in output
     assert "prune: true" not in output
     assert f"values/{cloud}/idea-board/values-terraform.yaml" in output
 

@@ -24,7 +24,6 @@ For example, the backend entry in `values-kind.yaml` includes:
 applications:
   backend:
     enabled: true
-    cascadeDelete: true
     source:
       path: charts/idea-board-backend
       helm:
@@ -55,7 +54,7 @@ kubectl --context YOUR_CONTEXT --namespace argocd get applications --watch
 
 For local settings, a child Application selects `values-kind.yaml` from its own chart.
 
-Services with `clusterValues: true`, including External Secrets, load these files from their chart in order:
+Each root values file lists the External Secrets child’s `helm.valueFiles` and sets `ignoreMissingValueFiles: true`. The AWS and GCP entries load these files from the service chart in order:
 
 ```text
 values.yaml
@@ -65,6 +64,8 @@ values/<cloud>/<cluster-name>/values-terraform.yaml
 ```
 
 Provider and cluster files are optional. Terraform publishes generated settings, such as the External Secrets service-account annotation, to `values-terraform.yaml`. The child uses `ignoreMissingValueFiles: true` and picks up a file when it appears on the watched Git branch. A pinned revision uses the files at that revision.
+
+The paths use `{{ .Values.clusterName }}` for the cluster name passed by the bootstrap. The shared template renders the declared Helm settings.
 
 Keep credentials in the cloud secret manager. Generated values contain configuration references.
 
@@ -95,4 +96,4 @@ Apply the core-services project to create or update this setup. General chart ov
 3. Set `enabled: true` in those entries.
 4. Allow its namespace and resource types in the bootstrap AppProject.
 
-Disabling an app removes its child Application. `cascadeDelete: true` also removes that child's installed resources. External Secrets keeps cascading deletion and automatic pruning disabled. Review its installed resources separately when retiring the operator.
+Every child Application has Argo CD’s cascading deletion finalizer. Disabling or deleting a child Application also deletes its managed resources. External Secrets keeps automatic pruning disabled during sync.

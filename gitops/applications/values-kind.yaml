@@ -3,13 +3,17 @@ applications:
   external-secrets:
     enabled: false
     namespace: external-secrets
-    cascadeDelete: false
-    clusterValues: true
     source:
       path: charts/external-secrets
       helm:
         releaseName: external-secrets
         skipTests: true
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - values.yaml
+          - values/kind/values.yaml
+          - "values/kind/{{ .Values.clusterName }}/values.yaml"
+          - "values/kind/{{ .Values.clusterName }}/values-terraform.yaml"
     syncPolicy:
       automated:
         selfHeal: true
@@ -19,7 +23,6 @@ applications:
   ingress-controller:
     enabled: true
     namespace: ingress-system
-    cascadeDelete: true
     source:
       path: charts/ingress-controller
       helm:
@@ -28,7 +31,6 @@ applications:
         skipCrds: true
   backend:
     enabled: true
-    cascadeDelete: true
     source:
       path: charts/idea-board-backend
       helm:
@@ -38,7 +40,6 @@ applications:
           - values-kind.yaml
   frontend:
     enabled: true
-    cascadeDelete: true
     source:
       path: charts/idea-board-frontend
       helm:
