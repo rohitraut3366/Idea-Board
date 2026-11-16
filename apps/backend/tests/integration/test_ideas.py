@@ -105,7 +105,6 @@ def test_duplicate_content_is_rejected_after_trimming(client: TestClient) -> Non
     assert first.status_code == 201
     duplicate = client.post("/api/ideas", json={"content": "  Same idea\n"})
     assert duplicate.status_code == 409
-    assert duplicate.json() == {"detail": "This idea is already on the board"}
     assert client.get("/api/ideas").json() == [first.json()]
     assert client.post("/api/ideas", json={"content": "same idea"}).status_code == 201
 

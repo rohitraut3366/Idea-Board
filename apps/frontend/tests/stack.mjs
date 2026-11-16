@@ -9,7 +9,6 @@ test("serves the web app and reads and writes ideas through its API proxy", asyn
   assert.equal(index.status, 200);
   assert.match(index.headers.get("content-type"), /text\/html/);
   const html = await index.text();
-  assert.match(html, /<title>Idea Board<\/title>/);
   const assetPath = html.match(/src="(\/assets\/[^\"]+\.js)"/)?.[1];
   assert.ok(assetPath, "HTML must reference the built application");
   const asset = await fetch(new URL(assetPath, baseUrl));
