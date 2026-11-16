@@ -82,8 +82,8 @@ def test_cloud_secret_resources_run_before_migration():
         assert 'argocd.argoproj.io/sync-wave: "-2"' in external
         assert "name: idea-board-database" in external
         assert "creationPolicy: Owner" in external
-        assert "secretKey: DATABASE_URL" in external
-        assert "property: DATABASE_URL" in external
+        assert "dataFrom:" in external and "- extract:" in external
+        assert 'key: "test-database-credentials"' in external
         assert "template:" not in external
         assert "postgresql" not in external
         assert "auth:" not in store

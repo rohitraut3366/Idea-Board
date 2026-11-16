@@ -23,7 +23,7 @@ The application’s Terraform project publishes this file through the GitHub pro
 charts/idea-board-backend/values/<cloud>/<cluster-name>/values-terraform.yaml
 ```
 
-It supplies `databaseSecretName`, the cloud provider and the remote secret reference. Terraform builds the complete connection URL and stores it under `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP to copy that key into Kubernetes.
+It supplies `databaseSecretName`, the cloud provider and the remote secret reference. Terraform builds the complete connection URL and stores it under `DATABASE_URL` in the cloud secret manager. External Secrets uses the operator’s IRSA role on AWS or Workload Identity on GCP and `dataFrom.extract` to copy the secret’s JSON fields into Kubernetes.
 
 ```text
 Terraform → generated values → Argo CD → SecretStore → ExternalSecret
