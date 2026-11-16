@@ -198,11 +198,11 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | -------------------- | --------------------------------------------------------------------------------------------- |
 | Frontend and backend | App tests, types, and code formatting                                                         |
 | Docker Compose       | Container builds, migrations, page/API requests, backend replacement, and concurrent requests |
-| Kubernetes           | Helm installation and upgrades; cluster services, releases, previews, cleanup, and rollback   |
+| Kubernetes (kind)    | Helm installation and upgrades; cluster services, releases, previews, cleanup, and rollback   |
 | Terraform            | AWS and GCP configuration and module tests using simulated cloud responses                    |
 | Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
 
-Kubernetes deployment tests run in kind, a Kubernetes cluster running in Docker. Terraform tests use simulated cloud responses. Cloud permissions, managed databases, and public routing require verification in the target accounts.
+GitHub Actions creates temporary kind clusters to run the Kubernetes deployment tests. Terraform tests use simulated cloud responses. Cloud permissions, managed databases, and public routing require verification in the target accounts.
 
 ## Local Kubernetes deployment
 
