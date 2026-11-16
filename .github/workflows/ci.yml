@@ -314,9 +314,10 @@ jobs:
       - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests
       - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests --check-untyped-defs --ignore-missing-imports
-      - name: Build External Secrets chart dependencies
+      - name: Build chart dependencies
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
+          helm repo add traefik https://traefik.github.io/charts
           helm dependency build ../../charts/external-secrets
           helm dependency build ../../charts/ingress-controller
       - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../gitops/tests
