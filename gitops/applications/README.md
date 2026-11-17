@@ -28,7 +28,6 @@ applications:
       path: charts/idea-board-backend
       helm:
         releaseName: backend
-        skipTests: true
         valueFiles:
           - values-kind.yaml
 ```

@@ -31,7 +31,6 @@ applications:
         path: charts/idea-board-backend
         helm:
           releaseName: backend
-          skipTests: true
           ignoreMissingValueFiles: true
           valueFiles:
             - values-gcp.yaml
@@ -56,7 +55,6 @@ applications:
       path: charts/idea-board-frontend
       helm:
         releaseName: frontend
-        skipTests: true
         valueFiles:
           - values-gcp.yaml
     syncPolicy:

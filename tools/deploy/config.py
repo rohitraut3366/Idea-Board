@@ -209,7 +209,6 @@ def manifests(target, recommendation):
                         "path": f"charts/idea-board-{service}",
                         "helm": {
                             "releaseName": service,
-                            "skipTests": True,
                             "valuesObject": values,
                         },
                     },

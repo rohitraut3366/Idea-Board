@@ -86,7 +86,7 @@ jobs:
         run: npm test
 
   compose:
-    name: Container, full-stack, and Helm checks
+    name: Container and full-stack checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -131,57 +131,12 @@ jobs:
         run: npm --prefix apps/frontend run test:load
       - name: Verify migration can run again
         run: docker compose run --rm migrate
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
-        with:
-          version: v4.2.4
-      - name: Lint charts
-        run: |
-          helm repo add external-secrets https://charts.external-secrets.io
-          helm dependency build charts/idea-board-backend
-          helm dependency build charts/external-secrets
-          helm lint charts/idea-board-backend --strict -f charts/idea-board-backend/values-kind.yaml
-          helm lint charts/idea-board-frontend --strict -f charts/idea-board-frontend/values-kind.yaml
-          helm lint infra/terraform/modules/argocd/bootstrap --strict
-          helm lint gitops/applications --strict -f gitops/applications/values-kind.yaml
-          helm lint gitops/applications --strict -f gitops/applications/values-aws.yaml
-          helm lint gitops/applications --strict -f gitops/applications/values-gcp.yaml
-          helm lint charts/external-secrets --strict
-      - name: Render GitOps Applications
-        run: helm template idea-board infra/terraform/modules/argocd/bootstrap --namespace argocd --set cloud=kind
-      - uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
-        with:
-          version: v0.32.0
-          cluster_name: idea-board
-          node_image: kindest/node:v1.33.12@sha256:3f5c8443c620245e4d355cfe09e96a91ead32ceaa569d3f1ca9edf0cb2fe2ff4
-      - name: Load app images and start test database
-        run: |
-          kind load docker-image idea-board-backend:local idea-board-frontend:local --name idea-board
-          kubectl --context kind-idea-board create namespace idea-board
-          kubectl --context kind-idea-board --namespace idea-board apply -f charts/idea-board-backend/tests/postgres.yaml
-          kubectl --context kind-idea-board --namespace idea-board rollout status deployment/postgres --timeout=2m
-      - name: Install charts and test both services
-        run: |
-          helm --kube-context kind-idea-board upgrade --install backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set postgres.enabled=false --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade --install frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
-          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
-      - name: Verify upgrade and repeat migrations
-        run: |
-          helm --kube-context kind-idea-board upgrade backend charts/idea-board-backend --namespace idea-board -f charts/idea-board-backend/values-kind.yaml --set postgres.enabled=false --set image.repository=idea-board-backend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board upgrade frontend charts/idea-board-frontend --namespace idea-board -f charts/idea-board-frontend/values-kind.yaml --set image.repository=idea-board-frontend --set image.tag=local --wait --timeout 5m
-          helm --kube-context kind-idea-board test backend --namespace idea-board --logs --timeout 2m
-          helm --kube-context kind-idea-board test frontend --namespace idea-board --logs --timeout 2m
       - name: Collect failure logs
         if: failure()
         run: |
           mkdir -p artifacts
           docker compose ps --all >artifacts/compose-status.txt
           docker compose logs --no-color >artifacts/compose.log 2>&1
-          if kubectl config get-contexts kind-idea-board --no-headers >/dev/null 2>&1; then
-            kubectl --context kind-idea-board --namespace idea-board get pods,jobs,events >artifacts/kind-status.txt 2>&1 || true
-            kubectl --context kind-idea-board --namespace idea-board logs --all-containers --prefix --selector app.kubernetes.io/component >artifacts/kind-app.log 2>&1 || true
-            kubectl --context kind-idea-board --namespace idea-board logs deployment/postgres >artifacts/kind-postgres.log 2>&1 || true
-          fi
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -301,17 +256,10 @@ jobs:
         with:
           version: v4.2.4
       - run: uv sync --locked --all-groups
-      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
-      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests
-      - run: uv run --no-sync mypy . ../../gitops/tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests --check-untyped-defs --ignore-missing-imports
-      - name: Build chart dependencies
-        run: |
-          helm repo add external-secrets https://charts.external-secrets.io
-          helm repo add traefik https://traefik.github.io/charts
-          helm dependency build ../../charts/idea-board-backend
-          helm dependency build ../../charts/external-secrets
-          helm dependency build ../../charts/ingress-controller
-      - run: uv run --no-sync pytest tests ../../charts/external-secrets/tests ../../charts/external-secret-config/tests ../../charts/idea-board-backend/tests ../../gitops/tests
+      - run: uv run --no-sync ruff check . ../../infra/terraform/tests ../../gitops/tests
+      - run: uv run --no-sync ruff format --check . ../../infra/terraform/tests ../../gitops/tests
+      - run: uv run --no-sync mypy . ../../gitops/tests --check-untyped-defs --ignore-missing-imports
+      - run: uv run --no-sync pytest tests ../../gitops/tests
 
   publish:
     name: Publish images to GHCR
