@@ -3,8 +3,8 @@
 Ingress gives the web app and API one public address. The frontend chart declares the routes. The cloud controller creates the load balancer and connects it to the app's pods.
 
 ```text
-Browser → public load balancer → /api/* → backend Service → API pods
-                             → /*      → frontend Service → frontend pods
+Browser → public load balancer → /api/* → API pods:8000
+                             → /*      → frontend pods:8080
 ```
 
 ## Set up the controllers
@@ -37,19 +37,19 @@ Terraform manages the platform installation. Argo CD manages the application cha
 | AWS   | Public ALB, `alb` ingress class, IP targets            | Service annotations select backend `/health` and frontend `/`        |
 | GCP   | `gce` Ingress, network endpoint groups for pod targets | Each chart creates a BackendConfig with the health path and pod port |
 
-Both use ClusterIP Services. The `/api` path prefix reaches backend port 8000; `/` reaches frontend port 80. Kubernetes Prefix matching includes `/api` and `/api/...`. Pods and databases use private addresses.
+The Ingress references ClusterIP Services: backend port 8000 and frontend port 80. The controllers use those Services to identify pod endpoints. AWS IP targets and GCP network endpoint groups send traffic to pod IPs on backend port 8000 or frontend port 8080. Kubernetes Prefix matching includes `/api` and `/api/...`.
 
 For GCP inspection commands, see the [GKE notes](gcp/README.md).
 
 ## Previews and access
 
-Staging, production, and each PR preview have their own namespace and Ingress. Each Ingress creates a public load balancer. Closing a PR removes its Applications, Ingress, and associated cloud resources. Previews share staging's cluster and database server.
+Staging, production, and each PR preview have their own namespace and Ingress. Each Ingress creates a public load balancer. Closing a PR removes its Applications, Ingress, and associated cloud resources. Previews share staging's cluster; each preview runs its own PostgreSQL instance and persistent volume.
 
 Public routing currently serves HTTP on port 80. HTTPS requires DNS and certificate configuration. Local kind uses Traefik ingress; follow the [kind guide](../../gitops/README.md). Compose routes `/api/` requests through Nginx.
 
 ## Check and remove
 
-CI renders charts for both clouds and checks routing, health settings, namespace permissions, and public-response validation. The Terraform jobs validate and mock-test the controller module and core-services projects. Live cloud routing and cleanup remain to be verified.
+The Terraform CI jobs validate and mock-test the controller module and core-services projects. Argo CD deployment checks run on kind. Live cloud routing and cleanup remain to be verified.
 
 Inspect an environment's Ingress:
 
