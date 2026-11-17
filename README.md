@@ -257,7 +257,7 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | Terraform            | AWS and GCP Terraform validation and module tests using provider mocks                        |
 | Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
 
-GitHub Actions creates temporary kind clusters to run the Kubernetes deployment tests. Terraform provider mocks supply fake AWS/GCP responses to check configuration and resource wiring without contacting either cloud or creating resources. Cloud permissions, quotas, managed databases, and public routing require verification in the target accounts.
+GitHub Actions creates a temporary kind cluster to run the Kubernetes deployment tests. Terraform provider mocks supply fake AWS/GCP responses to check configuration and resource wiring without contacting either cloud or creating resources. Cloud permissions, quotas, managed databases, and public routing require verification in the target accounts.
 
 ## Local Kubernetes deployment
 
@@ -266,7 +266,7 @@ Use the [complete kind walkthrough](gitops/README.md) to run the platform locall
 | Step | What you run |
 | ---- | ------------ |
 | [Setup](gitops/README.md#1-create-the-cluster) | kind, Argo CD, the root Application, ingress, frontend, backend and PostgreSQL |
-| [Deployment checks](gitops/README.md#5-test-the-app-and-deployment-process) | App requests, cluster services, staging, preview redeployment, cleanup, failed rollout and rollback |
+| [App HTTP check](gitops/README.md#5-test-the-app) | Page assets and API requests through ingress to the backend and database |
 | [Live AI deployment](gitops/README.md#6-plan-and-deploy-with-ai) | Ask for settings, review the generated plan and deploy staging |
 | [Preview](gitops/README.md#7-create-a-preview) | Generate a preview plan and deploy its frontend, backend and isolated database |
 | [Performance](gitops/README.md#8-test-performance-and-scaling) | Send concurrent requests and compare backend replica counts |
@@ -303,7 +303,7 @@ The generated files include:
 | `release-plan/applications.json` | The Argo CD deployment configuration                              |
 | `release-plan/terraform/`        | Cloud machine/database sizing proposals for staging or production |
 
-Review infrastructure proposals through a Terraform plan before applying them. Preview environments share staging infrastructure; kind uses the local cluster.
+Review infrastructure proposals through a Terraform plan before applying them. Cloud previews reuse the staging cluster and run their own PostgreSQL instance. Kind uses the local cluster.
 
 Cloud workflow runs save these files in **Artifacts**. See [cloud releases](infra/cloud-deployment.md#4-release-the-application) for setup and workflow instructions.
 

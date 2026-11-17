@@ -16,7 +16,7 @@ The API is available at `http://127.0.0.1:8000`; interactive API documentation i
 
 The database volume survives `docker compose down`; `docker compose down --volumes` deletes local data. To inspect migration failures, run `docker compose logs migrate`.
 
-For development outside the backend container, install uv and Python 3.12, then run from `apps/backend`:
+For development outside the backend container, install uv and Python 3.12, then run from `apps/backend`. If the Compose backend is running, stop it first with `docker compose -f ../../docker-compose.yml stop backend` to free port 8000:
 
 ```bash
 export DATABASE_URL=postgresql+psycopg://idea_board:idea_board_local@127.0.0.1:55432/idea_board
@@ -25,8 +25,6 @@ uv sync --locked --all-extras --all-groups
 uv run alembic upgrade head
 uv run uvicorn idea_board.server:create_app --factory --host 127.0.0.1 --port 8000
 ```
-
-Stop the Compose backend with `docker compose -f ../../docker-compose.yml stop backend` before starting a host process on the same port. Apply migrations before starting either process.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/ideas \
@@ -53,7 +51,7 @@ Content is trimmed and must contain 1–2,000 characters. Exact duplicate text i
 
 Database connection failures, query timeouts, and pool exhaustion return `503` without database details or submitted content. A failed POST response or a client timeout does not establish whether a write committed. Clients must not automatically retry writes; this API does not provide idempotency keys.
 
-The API permits anonymous submissions and deletion. Any visitor can delete an idea. Public routing, TLS termination, write-rate limiting, and metrics are later platform steps. Run this first step on loopback.
+The API permits anonymous submissions and deletion. Any visitor can delete an idea.
 
 ## Configuration
 
@@ -81,4 +79,4 @@ uv run pytest tests/integration
 
 The integration suite covers API behavior, keyset pagination, concurrent writes, persistence across application restarts, the migration lifecycle, duplicate rejection under concurrent writes, long Unicode content, deletion, and an unavailable database. See the root README for the repeatable load runner. Cloud capacity measurements still require a live deployment.
 
-The Docker build installs locked runtime dependencies before copying the README and application code. It reuses a uv download cache and copies only the installed environment and migration files into the runtime stage. Documentation and migration edits do not reinstall third-party dependencies.
+The Docker build copies the backend source and migration files, installs locked runtime dependencies with uv, and runs the application as a non-root user. Tests are excluded from the image.

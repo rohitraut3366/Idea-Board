@@ -6,6 +6,8 @@ By default, the chart uses an existing PostgreSQL database and a Kubernetes Secr
 
 ## Install
 
+Run from the repository root. This example requires an existing `idea-board` namespace, PostgreSQL database, and `idea-board-database` Secret containing `DATABASE_URL`.
+
 ```bash
 helm dependency build charts/idea-board-backend
 helm upgrade --install backend charts/idea-board-backend \
