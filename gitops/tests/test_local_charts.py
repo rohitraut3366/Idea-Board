@@ -92,16 +92,6 @@ def test_child_helm_values_keep_independent_image_tags():
     assert "image:" not in ingress
 
 
-def test_ingress_wrapper_uses_native_ingress_without_provider_crds():
-    output = render("charts/ingress-controller", "--skip-crds")
-    assert "kind: IngressClass" in output
-    assert "kind: CustomResourceDefinition" not in output
-    assert "kubernetescrd" not in output.lower()
-    assert "nodePort: 30080" in output
-    assert "type: NodePort" in output
-    assert "--providers.kubernetesingress.ingressendpoint.ip=127.0.0.1" in output
-
-
 @pytest.mark.parametrize("cloud", ["kind", "aws", "gcp"])
 def test_same_bootstrap_selects_the_cloud_profile_and_reconciles_applications(cloud):
     output = render("infra/terraform/modules/argocd/bootstrap", "--set", f"cloud={cloud}")

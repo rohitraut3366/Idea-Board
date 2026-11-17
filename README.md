@@ -253,7 +253,7 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | -------------------- | --------------------------------------------------------------------------------------------- |
 | Frontend and backend | App tests, types, and code formatting                                                         |
 | Docker Compose       | Container builds, migrations, page/API requests, backend replacement, and concurrent requests |
-| Kubernetes (kind)    | Helm installation and upgrades; cluster services, releases, previews, cleanup, and rollback   |
+| Kubernetes (kind)    | Argo CD sync, cluster services, releases, previews, cleanup, and rollback   |
 | Terraform            | AWS and GCP Terraform validation and module tests using provider mocks                        |
 | Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
 

@@ -66,12 +66,6 @@ The chart defaults select a published GHCR image. Override `image.tag` to select
 
 The Service name matches the Helm release name: `backend` in this example. The frontend chart defaults to connecting to `backend:8000` in the same namespace. The charts are separate releases and can be upgraded independently.
 
-```bash
-helm test backend --namespace idea-board --logs --timeout 2m
-```
-
-The backend smoke test checks health, creates an idea, reads it, and deletes it. Use a test environment for smoke checks.
-
 ## Configuration
 
 | Value                    | Default                                    | Purpose                                                   |
@@ -89,15 +83,6 @@ The backend smoke test checks health, creates an idea, reads it, and deletes it.
 Readiness uses `/health`; startup and liveness use TCP probes. A database outage removes traffic without repeatedly restarting healthy API processes. Pods run as non-root, disable privilege escalation, and do not mount service-account tokens.
 
 With an external database, the database and Secret must exist before the migration hook runs. Helm rollback restores application manifests, not database migrations; migrations must remain compatible with the previous application version.
-
-## Checks
-
-```bash
-helm dependency build charts/idea-board-backend
-helm lint charts/idea-board-backend --strict --set databaseSecretName=idea-board-database
-```
-
-GitHub Actions installs this chart into kind, runs the smoke test, upgrades it to rerun migrations, and repeats the smoke test. `tests/postgres.yaml` is an ephemeral database fixture for those CI tests; it is not installed by the chart and is not a persistent development database.
 
 For local staging and PR previews, the deployment tool selects `values-postgres.yaml`. Each namespace gets its own PostgreSQL Deployment and volume. The tool creates a stable Kubernetes Secret with `DATABASE_URL` for the backend and `POSTGRES_PASSWORD` for PostgreSQL. `postgres.existingSecret` selects this Secret, so credentials are referenced rather than stored in Argo CD Application values.
 

@@ -39,15 +39,6 @@ If the backend release has a different name or namespace, set `backendUpstream` 
 
 Nginx refreshes the backend address through cluster DNS. Probes use `/`; the app runs as non-root, disables privilege escalation, and does not mount service-account tokens. Public routing and TLS are configured separately.
 
-## Checks
-
-```bash
-helm lint charts/idea-board-frontend --strict
-helm test frontend --namespace idea-board --logs --timeout 2m
-```
-
-The smoke test checks the frontend page and reads ideas through the API proxy. GitHub Actions installs and upgrades this chart alongside the backend chart and runs both charts' smoke tests.
-
 ## Public cloud access
 
 The Service defaults to `ClusterIP`. Set `ingress.enabled: true` to create an Ingress routing `/api` to `ingress.backendServiceName` (default `backend`) on port 8000 and `/` to this frontend Service on port 80. Prefix matching covers `/api/...`. If the backend release name changes, update both the Ingress backend name and `backendUpstream`.

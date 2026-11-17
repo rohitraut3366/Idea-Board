@@ -35,7 +35,6 @@ applications:
       path: charts/idea-board-backend
       helm:
         releaseName: backend
-        skipTests: true
         valueFiles:
           - values-kind.yaml
   frontend:
@@ -44,6 +43,5 @@ applications:
       path: charts/idea-board-frontend
       helm:
         releaseName: frontend
-        skipTests: true
         valueFiles:
           - values-kind.yaml
