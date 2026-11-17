@@ -7,7 +7,6 @@ applications:
       path: charts/external-secrets
       helm:
         releaseName: external-secrets
-        skipTests: true
         ignoreMissingValueFiles: true
         valueFiles:
           - values.yaml
@@ -27,7 +26,6 @@ applications:
       path: charts/ingress-controller
       helm:
         releaseName: ingress-controller
-        skipTests: true
         skipCrds: true
   backend:
     enabled: true
