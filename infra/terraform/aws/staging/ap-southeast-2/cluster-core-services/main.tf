@@ -9,26 +9,8 @@ provider "github" {
   owner = "rohitraut3366"
 }
 
-data "terraform_remote_state" "networking" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = "${var.state_prefix}/networking.tfstate"
-    region = var.state_region
-  }
-}
-
-data "terraform_remote_state" "cluster" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = "${var.state_prefix}/cluster.tfstate"
-    region = var.state_region
-  }
-}
-
 data "aws_eks_cluster" "this" {
-  name = data.terraform_remote_state.cluster.outputs.cluster_name
+  name = var.cluster_name
 }
 
 provider "helm" {
@@ -47,13 +29,13 @@ module "argocd" {
   source          = "../../../../modules/argocd"
   gitops_revision = var.gitops_revision
   cloud           = "aws"
-  cluster_name    = data.terraform_remote_state.cluster.outputs.cluster_name
+  cluster_name    = var.cluster_name
 }
 
 module "external_secrets" {
   source       = "../../../../modules/aws/external-secrets"
   name         = var.name
-  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
+  cluster_name = var.cluster_name
   oidc_issuer  = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
 
@@ -66,6 +48,6 @@ module "load_balancer_controller" {
   source       = "../../../../modules/aws/load-balancer-controller"
   name         = var.name
   region       = var.region
-  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
-  vpc_id       = data.terraform_remote_state.networking.outputs.vpc_id
+  cluster_name = var.cluster_name
+  vpc_id       = var.vpc_id
 }

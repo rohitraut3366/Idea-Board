@@ -44,17 +44,22 @@ variable "database_backup_retention_days" {
   default     = 0
 }
 
-variable "state_bucket" {
-  description = "Shared S3 bucket containing all Terraform project states."
+variable "vpc_id" {
+  description = "VPC ID supplied by the networking Terragrunt dependency."
   type        = string
 }
 
-variable "state_prefix" {
-  description = "Repository-relative environment path, supplied by Terragrunt."
+variable "private_subnet_ids" {
+  description = "Private subnet IDs supplied by the networking Terragrunt dependency."
+  type        = list(string)
+}
+
+variable "node_security_group_id" {
+  description = "Node security group ID supplied by the cluster Terragrunt dependency."
   type        = string
 }
 
-variable "state_region" {
-  description = "AWS region containing the state bucket, supplied by Terragrunt."
+variable "cluster_name" {
+  description = "Cluster name supplied by the cluster Terragrunt dependency."
   type        = string
 }

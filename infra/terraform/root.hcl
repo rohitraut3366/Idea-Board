@@ -3,7 +3,6 @@ locals {
   environment = read_terragrunt_config(find_in_parent_folders("environment.hcl")).locals
   region      = read_terragrunt_config(find_in_parent_folders("region.hcl")).locals
   project     = path_relative_to_include()
-  parts       = split("/", local.project)
 }
 
 terraform_binary              = "terraform"
@@ -32,8 +31,5 @@ remote_state {
 }
 
 inputs = merge(local.environment.inputs, {
-  region       = local.region.name
-  state_bucket = local.state.bucket
-  state_region = local.state.region
-  state_prefix = "infra/terraform/${join("/", slice(local.parts, 0, 3))}"
+  region = local.region.name
 })

@@ -13,30 +13,12 @@ provider "github" {
   owner = "rohitraut3366"
 }
 
-data "terraform_remote_state" "networking" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = "${var.state_prefix}/networking.tfstate"
-    region = var.state_region
-  }
-}
-
-data "terraform_remote_state" "cluster" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = "${var.state_prefix}/cluster.tfstate"
-    region = var.state_region
-  }
-}
-
 module "psql" {
   source                 = "../../../../../modules/aws/psql"
   name                   = var.name
-  vpc_id                 = data.terraform_remote_state.networking.outputs.vpc_id
-  private_subnet_ids     = data.terraform_remote_state.networking.outputs.private_subnet_ids
-  node_security_group_id = data.terraform_remote_state.cluster.outputs.node_security_group_id
+  vpc_id                 = var.vpc_id
+  private_subnet_ids     = var.private_subnet_ids
+  node_security_group_id = var.node_security_group_id
   instance_class         = var.database_instance_class
   storage_gb             = var.database_storage_gb
   multi_az               = var.database_multi_az
@@ -49,7 +31,7 @@ module "backend_values" {
   source       = "../../../../../modules/github/helm-values"
   chart_path   = "charts/idea-board-backend"
   cloud        = "aws"
-  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
+  cluster_name = var.cluster_name
   values = {
     externalSecret = {
       enabled          = true
