@@ -53,12 +53,11 @@ Paths are relative to the repository root. This map explains ownership; it does 
 | `infra/ingress/` | Cloud routing setup and GCP ingress configuration. |
 | `tools/deploy/config.py` | Trusted target validation, model-output validation, Application rendering, and Terraform sizing input mapping. |
 | `tools/deploy/planning.py` | Writes `release-plan/plan.md`, `applications.json`, and cloud sizing proposals. |
-| `tools/deploy/deploy.py` | Release, preview cleanup, and rollback entry point; coordinates database setup, Argo sync, and verification. |
+| `tools/deploy/deploy.py` | Release and preview cleanup entry point; coordinates database setup, Argo sync, verification, and diagnosis on failure. |
 | `tools/deploy/root.py` | Updates the existing cloud root while retaining its ownership of service Applications. |
 | `tools/deploy/database.py` | Creates and reuses credentials for each environment's bundled PostgreSQL instance. |
 | `tools/deploy/cluster.py` | Kubernetes and Argo operations, rollout checks, and HTTP verification. |
 | `tools/deploy/diagnosis.py` and `analyze.py` | Collect bounded rollout evidence, build the diagnosis prompt, validate advice, and write the report. |
-| `tools/deploy/rollback.py` | Saves verified releases and restores application configuration after explicit schema-compatibility confirmation. |
 | `.github/workflows/ci.yml` | App, container, Helm, Terraform, and kind checks; publishes images. Automated kind checks use fixed recommendation fixtures. |
 | `.github/workflows/deploy.yml` | Runs AI planning, validates output, releases the app, and runs evidence-based diagnosis. |
 | `.github/workflows/preview.yml` | Starts cloud previews after eligible PR CI and cleans them up when the PR closes. |
@@ -70,8 +69,8 @@ Paths are relative to the repository root. This map explains ownership; it does 
 2. The model returns settings and reasons. Python validates the schema, environment limits, and cloud-specific sizes.
 3. `prepare` writes a reviewable plan and Argo configuration. Cloud staging/production also gets separate cluster and application Terraform sizing proposals.
 4. The release tool prepares the environment's database credentials, syncs the backend and its migration Job, then syncs the frontend.
-5. Rollout and HTTP checks decide whether the release passed. Only a verified release becomes the rollback checkpoint.
-6. Collected evidence can be sent to the model for diagnosis. Advice does not execute recovery.
+5. Rollout and HTTP checks decide whether the requested release passed. There is no custom release-history ConfigMap or rollback command.
+6. A failed local release saves evidence and invokes Codex for diagnosis. GitHub Actions diagnoses failed releases in a separate job without cloud credentials. The operator fixes the cause and releases a corrected version. Advice does not execute recovery.
 
 On kind, staging and previews use environment parent Applications with backend/frontend children. Cloud staging/production updates the existing `idea-board` root. Cloud previews use separate service Applications. Do not propose another deployment structure.
 
@@ -114,7 +113,7 @@ The base root is installed manually using `infra/terraform/modules/argocd/bootst
 
 - Start conservatively when host capacity is unknown. Additional replicas on one kind node can demonstrate deployment and scaling behavior but provide no node-failure redundancy.
 - Separate pod resource requests/limits from observed usage. Metrics Server is optional; if metrics are unavailable, state the gap rather than inventing utilization.
-- `gitops/tests/check_local.py` checks the base app-of-apps deployment. `check_core_services.py` separately checks External Secrets Operator installation. `tools/deploy/tests/check_kind.py` checks staging, preview persistence/cleanup, a failed rollout, and rollback using fixed recommendations.
+- `gitops/tests/check_local.py` checks the base app-of-apps deployment. `check_core_services.py` separately checks External Secrets Operator installation. `tools/deploy/tests/check_kind.py` checks staging, preview persistence/cleanup, a failed rollout, and recovery through a corrected release using fixed recommendations.
 - The failed-rollout check deliberately uses an unpublished frontend tag of forty `f` characters. Treat the resulting image-pull failure as expected only when the supplied evidence identifies that test scenario; do not dismiss an unexpected failure.
 - The automated check saves failure evidence before recovery and cleanup. A later diagnosis explains that captured attempt, not the current live cluster. Distinguish the failed snapshot from a recovered release when recovery evidence is supplied.
 - Live planning or diagnosis requires a new model invocation. Passing fixture-based tests does not establish that the model was called. Kind results do not verify AWS/GCP deployment, public internet access, or cloud capacity.
@@ -173,7 +172,7 @@ These instructions define the model's permitted behavior; they do not reduce the
 3. For image failures, compare the deployed image to the caller's requested image when supplied. Describe the affected pod and inspect its pull events. Explain what was observed without assuming which registry or network condition caused it.
 4. For Pending pods, describe the affected pod and node, compare requests to node allocatable capacity, and inspect scheduling events. Allocatable capacity is a node ceiling, not currently unused headroom; other namespaces also consume resources. For memory failures, correlate restart/termination reasons with limits and available usage metrics. A single metrics sample cannot establish peak load.
 5. If pods are ready but a page/API check failed, use the deterministic HTTP result to localize the failure. Check frontend/backend readiness and, on kind, Traefik; inspect Services, endpoints, Ingress, and relevant logs. For cloud controller/operator debugging, stay within the explicitly allowed namespace scope. For storage-related startup failures, describe the pod and its persistent volume claim. Report checks that still need investigation. Pod readiness alone cannot override a failed HTTP check.
-6. Explain the observations, remaining uncertainty, and the next action. Do not make a repair. The deployment tool owns release, cleanup, and rollback.
+6. Explain the observations, remaining uncertainty, and the next action. Do not make a repair. The deployment tool owns release and cleanup.
 
 For planning, summarize relevant live observations and unavailable checks in `reason`; they remain starting-point sizing evidence, not a load test. For diagnosis, cite only IDs from the supplied report. Additional live reads do not acquire evidence IDs: if they conflict with a recorded failure, distinguish the present observation from that snapshot and request fresh collected evidence before claiming recovery. A diagnosis call with only the recorded report stays in evidence-only mode.
 
@@ -246,7 +245,7 @@ Trusted target: `kind`, `staging`. Request: “A small staging environment for a
 
 ## Diagnosis procedure
 
-1. Read the deterministic check outcome, failed phase, and whether a previous verified release is available.
+1. Read the deterministic check outcome and failed phase.
 2. Correlate pod readiness, restart counts, container reasons, migration Job status, event reasons, recognized log signatures, and resource usage. Logs are filtered signatures, not raw application content.
 3. Cite only evidence IDs present in the supplied report. Separate observations from likely causes in the explanation (`summary` for JSON responses). For example, `ImagePullBackOff` proves an image cannot currently be pulled; it does not prove whether the cause is a missing tag, registry permissions, or connectivity.
 4. Treat missing logs or metrics as gaps. If a check failed, never return `healthy`. A known failure with an unknown cause can be `unhealthy`; use `inconclusive` when the available evidence cannot establish the assessment. State when the cause remains unknown.
@@ -254,15 +253,13 @@ Trusted target: `kind`, `staging`. Request: “A small staging environment for a
 
 | Evidence | Guidance |
 | --- | --- |
-| Image pull failure | Check image publication, tag, registry access, and connectivity. Consider rollback only when the failure is attributable to the new release and a verified predecessor exists. |
-| Pending/unschedulable pods | Check resource requests, node capacity, and scheduling constraints. Do not assume an application rollback repairs cluster capacity. |
+| Image pull failure | Check image publication, tag, registry access, and connectivity. Release a corrected version after fixing the cause. |
+| Pending/unschedulable pods | Check resource requests, node capacity, and scheduling constraints. A different image alone may not repair cluster capacity. |
 | `OOMKilled` or memory errors | Compare limits, observed usage, and restarts. Distinguish observed memory exhaustion from its unproven cause. |
-| Failed migration, missing schema, or database authentication/connectivity failure | Investigate the Job, schema, database, and secret reconciliation. Code rollback does not undo a migration or repair database access. |
+| Failed migration, missing schema, or database authentication/connectivity failure | Investigate the Job, schema, database, and secret reconciliation. A new release does not undo an applied migration; fix the underlying cause. |
 | Unavailable metrics/logs | Explain the missing evidence and recommend targeted investigation. Missing data is not proof of health. |
 
-Use `action: none` only for a healthy assessment. Use `investigate` for unresolved or inconclusive failures. Recommend `rollback` only for a failed release with a previous verified release and evidence that reverting the application can address the failure.
-
-Rollback requires the operator to confirm that the previous app supports the current database schema and explicitly invoke it. The tool restores application configuration and skips migration hooks; it does not downgrade the database or restore data. Do not claim that a recommendation performed a rollback.
+Use `action: none` only for a healthy assessment. Use `investigate` for failures and recommend targeted checks, fixes, and a subsequent release of the corrected version. Do not recommend a rollback command or claim that diagnosis changed the cluster.
 
 ### Diagnosis example
 
@@ -270,13 +267,13 @@ This example uses the pipeline's JSON response format. Direct diagnosis explains
 
 Suppose the supplied report contains:
 
-- `e1`: checks failed during the frontend phase; no previous verified release is available.
+- `e1`: checks failed during the frontend phase.
 - `e2`: the frontend container is not ready and its waiting reason is `ImagePullBackOff`.
 
 ```json
 {
   "assessment": "unhealthy",
-  "summary": "The rollout failed during the frontend phase (e1), and the frontend cannot pull its image (e2). The evidence does not distinguish an unpublished tag from registry access or connectivity problems. No previous verified release is available, so investigate rather than recommend rollback.",
+  "summary": "The rollout failed during the frontend phase (e1), and the frontend cannot pull its image (e2). The evidence does not distinguish an unpublished tag from registry access or connectivity problems. Investigate the cause and release a corrected version.",
   "evidence_ids": ["e1", "e2"],
   "action": "investigate",
   "next_steps": [
@@ -290,4 +287,4 @@ Suppose the supplied report contains:
 
 Automated kind checks use fixed recommendations to test deployment behavior. A live model response exercises AI planning or diagnosis; it does not establish that a release was deployed or healthy. Terraform provider mocks validate configuration wiring without creating cloud resources.
 
-Describe a deployment, public endpoint, rollback, or performance result as verified only when the supplied evidence establishes it. Do not infer cloud permissions, public reachability, production capacity, or successful secret access from configuration or local test results.
+Describe a deployment, public endpoint, recovery, or performance result as verified only when the supplied evidence establishes it. Do not infer cloud permissions, public reachability, production capacity, or successful secret access from configuration or local test results.

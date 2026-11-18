@@ -25,12 +25,8 @@ on:
         type: number
       operation:
         type: choice
-        options: [release, cleanup, rollback]
+        options: [release, cleanup]
         default: release
-      schema_compatible:
-        description: For rollback, confirm the previous code supports the current database schema
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       cloud:
@@ -51,9 +47,6 @@ on:
       operation:
         type: string
         default: release
-      schema_compatible:
-        type: boolean
-        default: false
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -122,7 +115,7 @@ jobs:
 
   deploy:
     needs: plan
-    if: always() && (inputs.operation == 'cleanup' || inputs.operation == 'rollback' || needs.plan.result == 'success')
+    if: always() && (inputs.operation == 'cleanup' || needs.plan.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -198,16 +191,6 @@ jobs:
         if: inputs.operation == 'release'
         run: |
           uv run --project tools/deploy --no-sync python tools/deploy/deploy.py release --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --recommendation recommendation.json --context idea-board-deploy
-      - name: Restore the previous verified release
-        if: inputs.operation == 'rollback'
-        env:
-          SCHEMA_COMPATIBLE: ${{ inputs.schema_compatible }}
-        run: |
-          if [[ "$SCHEMA_COMPATIBLE" != true ]]; then
-            echo 'Confirm database schema compatibility before rollback.' >&2
-            exit 1
-          fi
-          uv run --project tools/deploy --no-sync python tools/deploy/deploy.py rollback --cloud "$DEPLOY_CLOUD" --environment "$DEPLOY_ENVIRONMENT" --image-tag "$IMAGE_TAG" --revision "$IMAGE_TAG" --pr "$PR_NUMBER" --context idea-board-deploy --schema-compatible
       - name: Delete a closed PR preview
         if: inputs.operation == 'cleanup'
         run: |
@@ -233,7 +216,7 @@ jobs:
 
   diagnose:
     needs: deploy
-    if: always() && needs.deploy.outputs.evidence_available == 'true'
+    if: always() && needs.deploy.result == 'failure' && needs.deploy.outputs.evidence_available == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

@@ -3,16 +3,16 @@ from unittest.mock import Mock
 
 import pytest
 
-from diagnosis import collect, validate_diagnosis
+from diagnosis import collect, diagnose, validate_diagnosis
 
 
-def report(outcome="failed", previous=True):
+def report(outcome="failed"):
     return {
         "evidence": [
             {
                 "id": "e1",
                 "kind": "checks",
-                "facts": {"outcome": outcome, "rollback_available": previous},
+                "facts": {"outcome": outcome},
             },
             {"id": "e2", "kind": "pod", "facts": {"reason": "ImagePullBackOff"}},
         ]
@@ -24,18 +24,18 @@ def diagnosis():
         "assessment": "unhealthy",
         "summary": "New image cannot be pulled; check publication and registry access.",
         "evidence_ids": ["e1", "e2"],
-        "action": "rollback",
-        "next_steps": ["Confirm schema compatibility before restoring the verified release."],
+        "action": "investigate",
+        "next_steps": ["Check the image tag and publish a corrected version before redeploying."],
     }
 
 
 def test_validated_diagnosis_cites_actual_evidence():
-    assert validate_diagnosis(diagnosis(), report())["action"] == "rollback"
+    assert validate_diagnosis(diagnosis(), report())["action"] == "investigate"
 
 
 @pytest.mark.parametrize(
     "failure",
-    ["invented_evidence", "override_health", "no_previous", "healthy_rollback", "extra_command"],
+    ["invented_evidence", "override_health", "unsupported_action", "extra_command"],
 )
 def test_model_cannot_invent_evidence_or_authorize_execution(failure):
     advice = diagnosis()
@@ -44,10 +44,8 @@ def test_model_cannot_invent_evidence_or_authorize_execution(failure):
         advice["evidence_ids"] = ["e999"]
     elif failure == "override_health":
         advice["assessment"] = "healthy"
-    elif failure == "no_previous":
-        evidence = report(previous=False)
-    elif failure == "healthy_rollback":
-        evidence = report(outcome="healthy")
+    elif failure == "unsupported_action":
+        advice["action"] = "rollback"
     else:
         advice["command"] = "kubectl delete namespace default"
     with pytest.raises(ValueError):
@@ -96,7 +94,7 @@ def test_collection_keeps_secrets_and_application_content_out_of_artifacts():
         return '{"items": []}'
 
     cluster = Mock(namespace="idea-board-staging", run=run)
-    result = collect(cluster, "failed", True)
+    result = collect(cluster, "failed")
     serialized = json.dumps(result)
     assert (
         secret not in serialized
@@ -110,6 +108,22 @@ def test_collection_keeps_secrets_and_application_content_out_of_artifacts():
 
 def test_unavailable_api_still_provides_check_failure_and_evidence_gaps():
     cluster = Mock(namespace="idea-board-staging", run=Mock(side_effect=RuntimeError("down")))
-    result = collect(cluster, "failed", False)
+    result = collect(cluster, "failed")
     assert result["evidence"][0]["facts"]["outcome"] == "failed"
     assert sum(entry["kind"] == "unavailable" for entry in result["evidence"]) == 4
+
+
+def test_local_diagnosis_invokes_codex_validates_and_displays_advice(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    def run(arguments, **kwargs):
+        assert arguments[:2] == ["codex", "exec"]
+        assert arguments[arguments.index("--sandbox") + 1] == "read-only"
+        assert '"id": "e1"' in kwargs["input"]
+        assert kwargs["check"] and kwargs["timeout"] == 300
+        (tmp_path / "diagnosis.json").write_text(json.dumps(diagnosis()))
+
+    monkeypatch.setattr("diagnosis.subprocess.run", run)
+    diagnose(report())
+    assert diagnosis()["summary"] in capsys.readouterr().out
+    assert "e1, e2" in (tmp_path / "diagnosis.md").read_text()

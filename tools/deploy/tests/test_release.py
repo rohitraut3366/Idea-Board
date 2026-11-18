@@ -11,14 +11,19 @@ SHA = "a" * 40
 
 
 @pytest.mark.parametrize("failed_check", [None, "backend", "http"])
-def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
+def test_release_reports_health_or_diagnoses_failure_without_saving_history(
     monkeypatch, tmp_path, failed_check
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     evidence = Mock(return_value={"evidence": []})
+    diagnose = Mock()
     monkeypatch.setattr("diagnosis.collect", evidence)
+    monkeypatch.setattr("diagnosis.diagnose", diagnose)
     cluster = Mock(namespace="idea-board-staging")
     cluster.get.return_value = None
+    # A repeated local command must not leave a stale success result behind.
+    (tmp_path / "deployment-result.json").write_text('{"status": "healthy"}')
     if failed_check == "backend":
         cluster.wait.side_effect = TimeoutError("backend failed")
     elif failed_check == "http":
@@ -27,27 +32,40 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
         with pytest.raises((TimeoutError, RuntimeError)):
             release(cluster, Target("kind", "staging", SHA, SHA), recommendation())
         assert not (tmp_path / "deployment-result.json").exists()
+        assert json.loads((tmp_path / "deployment-diagnostics.json").read_text()) == {
+            "evidence": []
+        }
+        diagnose.assert_called_once_with(evidence.return_value)
+        assert evidence.call_args.args[1] == "failed"
+        if failed_check == "backend":
+            cluster.verify.assert_not_called()
     else:
         release(cluster, Target("kind", "staging", SHA, SHA), recommendation())
         assert json.loads((tmp_path / "deployment-result.json").read_text())["status"] == "healthy"
-    snapshots = [
-        json.loads(call.args[0]["data"]["release.json"])
-        for call in cluster.apply.call_args_list
-        if call.args[0]["kind"] == "ConfigMap"
-    ]
-    assert snapshots[0]["healthy"] is None
-    assert snapshots[0]["attempt"]["image_tag"] == SHA
-    if failed_check:
-        assert len(snapshots) == 1
-        assert evidence.call_args.args[1] == "failed"
+        evidence.assert_not_called()
+        diagnose.assert_not_called()
+    assert not any(call.args[0]["kind"] == "ConfigMap" for call in cluster.apply.call_args_list)
+    assert not any(call.args[0] == "configmap" for call in cluster.get.call_args_list)
+
+
+@pytest.mark.parametrize("github_actions", [False, True])
+def test_ai_failure_cannot_hide_the_release_failure(monkeypatch, tmp_path, github_actions, capsys):
+    monkeypatch.chdir(tmp_path)
+    if github_actions:
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
     else:
-        assert len(snapshots) == 2
-        assert snapshots[-1]["healthy"] and snapshots[-1]["attempt"] is None
-        assert evidence.call_args.args[1] == "healthy"
-    credentials = next(
-        call.args[0]["stringData"]
-        for call in cluster.apply.call_args_list
-        if call.args[0]["kind"] == "Secret"
-    )
-    assert credentials["POSTGRES_PASSWORD"] not in json.dumps(snapshots)
-    cluster.run.assert_not_called()
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr("diagnosis.collect", Mock(return_value={"evidence": []}))
+    diagnose = Mock(side_effect=FileNotFoundError("codex missing"))
+    monkeypatch.setattr("diagnosis.diagnose", diagnose)
+    cluster = Mock(namespace="idea-board-staging")
+    cluster.get.return_value = None
+    cluster.wait.side_effect = TimeoutError("backend failed")
+    with pytest.raises(TimeoutError, match="backend failed"):
+        release(cluster, Target("kind", "staging", SHA, SHA), recommendation())
+    assert (tmp_path / "deployment-diagnostics.json").exists()
+    if github_actions:
+        diagnose.assert_not_called()  # The separate workflow job owns AI diagnosis.
+    else:
+        diagnose.assert_called_once()
+        assert "AI diagnosis unavailable" in capsys.readouterr().err

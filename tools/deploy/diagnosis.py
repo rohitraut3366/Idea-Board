@@ -2,7 +2,9 @@
 
 import json
 import re
+import subprocess
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from config import SKILL, validate_schema
@@ -19,13 +21,13 @@ SIGNATURES = {
 }
 
 
-def collect(cluster, outcome, rollback_available, phase="rollout"):
+def collect(cluster, outcome, phase="rollout"):
     evidence: list[dict[str, Any]] = []
 
     def add(kind, facts):
         evidence.append({"id": f"e{len(evidence) + 1}", "kind": kind, "facts": facts})
 
-    add("checks", {"outcome": outcome, "phase": phase, "rollback_available": rollback_available})
+    add("checks", {"outcome": outcome, "phase": phase})
     for kind in ("pods", "jobs", "events"):
         try:
             items = json.loads(
@@ -158,8 +160,35 @@ def validate_diagnosis(diagnosis, report):
         raise ValueError("AI cannot override a failed deterministic health check")
     if diagnosis["action"] == "none" and diagnosis["assessment"] != "healthy":
         raise ValueError("unhealthy or inconclusive diagnosis requires investigation")
-    if diagnosis["action"] == "rollback" and (
-        checks["outcome"] == "healthy" or not checks["rollback_available"]
-    ):
-        raise ValueError("rollback requires a failed check and a verified previous release")
     return diagnosis
+
+
+def diagnose(evidence):
+    """Ask the existing local Codex installation for advice; never change the cluster."""
+    output = Path("diagnosis.json").resolve()
+    subprocess.run(
+        [
+            "codex",
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+            "--output-schema",
+            str(SKILL.with_name("diagnosis.schema.json")),
+            "--output-last-message",
+            str(output),
+            "-",
+        ],
+        input=prompt(evidence),
+        check=True,
+        text=True,
+        capture_output=True,
+        timeout=300,
+    )
+    advice = validate_diagnosis(json.loads(output.read_text()), evidence)
+    report = "\n\n".join(
+        [advice["summary"], "Evidence: " + ", ".join(advice["evidence_ids"])]
+        + [f"- {step}" for step in advice["next_steps"]]
+    )
+    Path("diagnosis.md").write_text("# Rollout diagnosis\n\n" + report + "\n")
+    print(report)

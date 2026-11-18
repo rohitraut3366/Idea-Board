@@ -166,7 +166,7 @@ Test the app at the ingress address. This checks the page and JavaScript files, 
 IDEA_BOARD_BASE_URL=http://localhost:8081 npm --prefix apps/frontend run test:stack
 ```
 
-Continue when the test passes. GitHub Actions runs the separate automated bootstrap, preview and rollback checks on its own kind cluster.
+Continue when the test passes. GitHub Actions runs the separate automated bootstrap, preview and corrected-release checks on its own kind cluster.
 
 ## 6. Plan and deploy with AI
 
@@ -420,9 +420,9 @@ Stop the staging port-forward with Ctrl+C when you finish.
 
 ## 9. Explain a failed rollout with AI
 
-This second AI feature explains a failure using collected deployment evidence. The example uses a recorded attempt where an unpublished frontend image failed to start. The previous release was restored during that earlier test.
+This second AI feature explains a failure using collected deployment evidence. The example uses a recorded attempt where an unpublished frontend image failed to start.
 
-For a failure from your own release, use its `deployment-diagnostics.json` instead of the recorded evidence path below.
+A failed local `release` now invokes Codex diagnosis automatically and saves `deployment-diagnostics.json`, `diagnosis.json`, and `diagnosis.md`. If Codex is unavailable, the release still fails and keeps its evidence. The command below is only for a separate explanation of recorded evidence; use `deployment-diagnostics.json` to revisit your own failure.
 
 Run this from the repository root. `$deploy` selects the deployment skill in `.agents/skills/deploy/`. Codex reads the recorded evidence and prints an explanation of the failure, the evidence supporting it, and suggested next steps. The single quotes keep `$deploy` as a skill mention rather than a shell variable.
 
@@ -433,7 +433,7 @@ codex exec --sandbox read-only --ephemeral \
 
 This command analyzes the recorded attempt. GitHub Actions uses schema-validated JSON and saves its diagnosis as workflow artifacts.
 
-Diagnosis provides advice. To restore an application release, follow the separate [rollback procedure](../tools/deploy/README.md#roll-back-application-code), including its database compatibility check.
+Diagnosis provides advice. Fix the cause and run the normal release command with the corrected image tag and chart revision. See [roll-forward recovery](../tools/deploy/README.md#recover-by-rolling-forward).
 
 ## Inspect or stop
 

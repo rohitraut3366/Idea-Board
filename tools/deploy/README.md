@@ -1,6 +1,6 @@
 # Deployment tool
 
-The tool turns validated AI recommendations into Helm values, a Terraform sizing proposal, and a release plan. It deploys the two services through Argo CD, gathers rollout evidence, and supports restoring the last verified application release.
+The tool turns validated AI recommendations into Helm values, a Terraform sizing proposal, and a release plan. It deploys the two services through Argo CD, gathers rollout evidence, and asks AI to diagnose failed releases. Recovery is a subsequent release of a corrected version.
 
 ## Plan a release locally
 
@@ -18,7 +18,7 @@ Use `release` with the same image, revision and recommendation as `prepare`, plu
 
 On kind, each environment has a parent Application containing its backend and frontend Applications. The tool updates the parent with the new backend while keeping the serving frontend, then updates the frontend once the backend is ready. AWS and GCP staging/production releases update the existing `idea-board` root in the same order. The root owns the service Applications. Cloud previews have their own Applications.
 
-The backend migration runs in its separate Job. Cloud staging/production creates the ExternalSecret first, then runs the migration as a Sync hook in wave -1. Bundled PostgreSQL also starts before migrations run as a Sync hook. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool records the release as verified. Cloud runs additionally check the public page and API. External Secrets supplies cloud staging/production database credentials from the Terraform-generated backend values. Local and preview credentials are created by the deployment tool. Cloud access and Environment variables are described in the [cloud deployment guide](../../infra/cloud-deployment.md#3-configure-github-actions).
+The backend migration runs in its separate Job. Cloud staging/production creates the ExternalSecret first, then runs the migration as a Sync hook in wave -1. Bundled PostgreSQL also starts before migrations run as a Sync hook. The backend must be Synced and Healthy at the requested revision and image before the frontend is submitted. Both services must pass rollout and full-stack HTTP checks before the tool reports success. Cloud runs additionally check the public page and API. External Secrets supplies cloud staging/production database credentials from the Terraform-generated backend values. Local and preview credentials are created by the deployment tool. Cloud access and Environment variables are described in the [cloud deployment guide](../../infra/cloud-deployment.md#3-configure-github-actions).
 
 A preview uses `--environment preview --pr 123`. It gets its own PostgreSQL Deployment, volume and credentials in its namespace. Redeployment preserves the data and credentials. It needs no staging or production database access. The close-PR workflow calls `cleanup`; manual cleanup uses the same target arguments. Kind cleanup deletes the parent before its children so the parent cannot recreate them. Deleting the preview namespace removes its Secret and PostgreSQL volume. Cleanup rejects staging and production and checks namespace ownership.
 
@@ -26,30 +26,19 @@ Cloud previews use the cluster's default storage provisioner for their PostgreSQ
 
 ## Diagnose a rollout
 
-Every release attempt writes `deployment-diagnostics.json`. It records check outcome, pod readiness/restarts, migration Job counts, event reasons, recognized error signatures from bounded current/previous logs, and resource usage when available. Raw log lines, event messages, container environment, and Secrets stay out of the artifact. Missing APIs/logs are recorded as gaps. This is a snapshot for explaining a rollout, not continuous monitoring.
+A failed release writes `deployment-diagnostics.json`. It records the failed phase, pod readiness/restarts, migration Job counts, event reasons, recognized error signatures from bounded current/previous logs, and resource usage when available. Raw log lines, event messages, container environment, and Secrets stay out of the artifact. Missing APIs/logs are recorded as gaps.
 
-Follow [Explain a failed rollout with AI](../../gitops/README.md#9-explain-a-failed-rollout-with-ai) to get an explanation with one skill invocation. Use `deployment-diagnostics.json` to inspect your own release attempt.
+Locally, `release` automatically invokes the existing Codex CLI with the deployment skill, the collected evidence, a read-only sandbox, and the diagnosis response schema. It validates the response, prints the explanation and next steps, and writes `diagnosis.json` and `diagnosis.md`. Codex must already be installed and authenticated. If diagnosis fails, the original release still fails and the evidence remains available. The tool does not configure AI or cluster access.
 
-In CI, `diagnosis.md` contains validated advice with references to collected evidence. Validation rejects a model response that declares a failed deterministic check healthy, invents evidence IDs, or requests rollback without a verified predecessor. Advice never executes commands. GitHub Actions runs diagnosis in a separate job after rollout, even if the deployment failed, so the model has no cloud credentials. Failures before the release tool starts have no rollout artifact.
+In GitHub Actions, only failed deployments with collected evidence start the separate diagnosis job. That job uses `OPENAI_API_KEY` and has no cloud deployment credentials. It validates the response and uploads the diagnosis artifacts. Validation rejects invented evidence IDs, a healthy assessment after failed checks, and unsupported actions. Failures before the release tool starts have no rollout artifact.
 
-## Roll back application code
+For an independent explanation of recorded evidence, see [Explain a failed rollout with AI](../../gitops/README.md#9-explain-a-failed-rollout-with-ai).
 
-Each namespace has an `idea-board-release` ConfigMap containing the last verified Application specifications and the current attempted release. It contains no database credentials. A first deployment has no predecessor. Failed releases do not replace the verified checkpoint.
+## Recover by rolling forward
 
-Confirm that the preceding application version supports the **current** database schema, then supply the failed image/chart SHAs:
+Fix the reported cause, build and publish or load the corrected images, and run the same `release` command with the corrected image tag and chart revision. The tool waits for the requested versions and HTTP checks again. Diagnosis never changes the cluster.
 
-```bash
-uv run --project tools/deploy python tools/deploy/deploy.py rollback \
-  --cloud kind --environment staging \
-  --image-tag "$IMAGE_TAG" --revision "$CHART_REVISION" \
-  --context kind-idea-board --schema-compatible
-```
-
-Rollback restores both Argo sources and Helm values, pauses automatic sync, and requests an explicit Argo apply sync that skips hooks, including old migrations. It waits for that specific operation to succeed and verifies rollout and HTTP behavior before replacing the checkpoint. Database contents, schema, and credentials are not reverted. Automatic sync stays paused until the next regular release, which enables it again and runs migrations normally.
-
-For kind and cloud staging/production, rollback also validates and pauses the owning root or parent, then restores its desired child sources. The root or parent and the restored children stay paused until the next release.
-
-The tool checks both Applications before changing either. It refuses a mismatched failed SHA, an Application changed since the attempt, a missing predecessor, or an active Argo operation. Terminate a stuck sync in Argo CD and inspect its hooks before retrying. A partial rollback remains visible and can be retried after the underlying problem is resolved. GitHub Actions exposes the same operation as `operation=rollback` with `schema_compatible=true`; it uses the target's existing deployment Environment rules.
+There is no rollback command, release-history ConfigMap, or automatic restoration of an older version. Existing `idea-board-release` ConfigMaps from older deployments are ignored and can be removed separately. Database credentials and volumes remain in place across releases; an application release does not undo database migrations.
 
 ## Verification
 
@@ -62,7 +51,7 @@ uv run --project tools/deploy --locked mypy tools/deploy --check-untyped-defs --
 uv run --project tools/deploy --locked pytest tools/deploy/tests
 ```
 
-Tests cover independent sizing, environment limits, Argo CD Application configuration, Terraform input mapping, isolated database credentials, evidence filtering, unsupported model advice, rollback state/drift checks, preview ownership/cleanup, and PR provenance.
+Tests cover independent sizing, environment limits, Argo CD Application configuration, Terraform input mapping, isolated database credentials, evidence filtering, unsupported model advice, failed-release diagnosis, preview ownership/cleanup, and PR provenance.
 
 The Terraform CI jobs also run `tests/check_terraform.py` for generated staging and production sizing against the cluster and application projects for both clouds using native provider mocks. This validates resource wiring without account credentials; it does not establish cloud permissions, quotas, or regional capacity.
 

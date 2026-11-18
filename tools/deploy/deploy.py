@@ -35,20 +35,26 @@ def cleanup_closed_preview(cluster, target):
 
 
 def release(cluster, target, recommendation):
-    from diagnosis import collect
-    from rollback import checkpoint, record_healthy, state
+    from diagnosis import collect, diagnose
 
-    documents = manifests(target, recommendation)
-    root = None
-    if target.uses_cloud_root:
-        current = cluster.get("application", "idea-board", "argocd")
-        if not current:
-            raise ValueError("install the cloud root through cluster-core-services first")
-        root = cloud_root(target, [], current)
-    outcome = "failed"
-    phase = "database"
-    rollback_available = False
+    argo_project, backend_application, frontend_application = manifests(target, recommendation)
+    service_applications = [backend_application, frontend_application]
+    cloud_root_application = None
+    phase = "setup"
+    # Do not let a previous run's files describe this attempt.
+    for filename in (
+        "deployment-result.json",
+        "deployment-diagnostics.json",
+        "diagnosis.json",
+        "diagnosis.md",
+    ):
+        Path(filename).unlink(missing_ok=True)
     try:
+        if target.uses_cloud_root:
+            existing_cloud_root_application = cluster.get("application", "idea-board", "argocd")
+            if not existing_cloud_root_application:
+                raise ValueError("install the cloud root through cluster-core-services first")
+            cloud_root_application = cloud_root(target, [], existing_cloud_root_application)
         if target.cloud == "aws":
             phase = "ingress_controller"
             cluster.run(
@@ -61,44 +67,46 @@ def release(cluster, target, recommendation):
             )
             phase = "database"
         cluster.ensure_namespace(target.environment)
-        rollback_available = bool(state(cluster)["healthy"])
         if not target.uses_cloud_root:
             ensure_database_secret(cluster)
-        release_documents = documents
+        release_manifests = [argo_project, *service_applications]
         if target.cloud == "kind":
-            release_documents = [documents[0], parent_application(target, documents[1:])]
+            release_manifests = [argo_project, parent_application(target, service_applications)]
         elif target.uses_cloud_root:
-            release_documents = [cloud_root(target, documents[1:], root)]
+            release_manifests = [cloud_root(target, service_applications, cloud_root_application)]
         Path("applications.json").write_text(
-            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_documents}, indent=2)
+            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_manifests}, indent=2)
             + "\n"
         )
-        checkpoint(cluster, target, documents[1:])
         if not target.uses_cloud_root:
-            cluster.apply(documents[0])
+            cluster.apply(argo_project)
         if target.cloud == "kind":
             # Keep the serving frontend while the new backend runs its migration and checks.
-            existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
-            children = [documents[1]] + ([existing_frontend] if existing_frontend else [])
+            existing_frontend_application = cluster.get(
+                "application", f"{target.namespace}-frontend", "argocd"
+            )
+            backend_phase_children = [backend_application]
+            if existing_frontend_application:
+                backend_phase_children.append(existing_frontend_application)
             phase = "backend"
-            parent = parent_application(target, children)
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[1]])
+            environment_parent_application = parent_application(target, backend_phase_children)
+            cluster.apply(environment_parent_application)
+            cluster.wait([environment_parent_application])
+            cluster.wait([backend_application])
             phase = "frontend"
-            parent = parent_application(target, documents[1:])
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[2]])
+            environment_parent_application = parent_application(target, service_applications)
+            cluster.apply(environment_parent_application)
+            cluster.wait([environment_parent_application])
+            cluster.wait([frontend_application])
         elif target.uses_cloud_root:
-            for application in documents[1:]:
+            for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
-                root = cloud_root(target, [application], root)
-                cluster.apply(root)
-                cluster.wait([root])
+                cloud_root_application = cloud_root(target, [application], cloud_root_application)
+                cluster.apply(cloud_root_application)
+                cluster.wait([cloud_root_application])
                 cluster.wait([application])
         else:
-            for application in documents[1:]:
+            for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
                 cluster.apply(application)
                 cluster.wait([application])
@@ -106,13 +114,25 @@ def release(cluster, target, recommendation):
         cluster.verify()
         phase = "public_http" if target.cloud != "kind" else "http"
         url = cluster.public_url() if target.cloud != "kind" else None
-        record_healthy(cluster, documents[1:])
-        outcome = "healthy"
+    except (ValueError, RuntimeError, KeyError, OSError, subprocess.SubprocessError):
+        # Save bounded facts before asking AI; never replace the deployment failure with advice.
+        evidence = collect(cluster, "failed", phase)
+        Path("deployment-diagnostics.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        if not os.environ.get("GITHUB_ACTIONS"):
+            print(
+                "Release failed. Asking Codex to diagnose deployment-diagnostics.json...",
+                flush=True,
+            )
+            try:
+                diagnose(evidence)
+            except (ValueError, OSError, subprocess.SubprocessError) as error:
+                print(
+                    f"AI diagnosis unavailable ({type(error).__name__}); "
+                    "deployment-diagnostics.json contains the failure evidence.",
+                    file=sys.stderr,
+                )
+        raise
     finally:
-        # Collect facts even when credentials or the API are unavailable; no raw logs are saved.
-        Path("deployment-diagnostics.json").write_text(
-            json.dumps(collect(cluster, outcome, rollback_available, phase), indent=2) + "\n"
-        )
         closed = cleanup_closed_preview(cluster, target)
     if closed:
         raise RuntimeError("PR closed during release; preview resources were cleaned up")
@@ -178,9 +198,7 @@ def cleanup(cluster, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "command", choices=("prompt", "render", "prepare", "release", "cleanup", "rollback")
-    )
+    parser.add_argument("command", choices=("prompt", "render", "prepare", "release", "cleanup"))
     parser.add_argument("--cloud", choices=("kind", "aws", "gcp"), required=True)
     parser.add_argument(
         "--environment", choices=("preview", "staging", "production"), required=True
@@ -192,7 +210,6 @@ def main():
     parser.add_argument("--recommendation", type=Path)
     parser.add_argument("--context")
     parser.add_argument("--output-dir", type=Path, default=Path("release-plan"))
-    parser.add_argument("--schema-compatible", action="store_true")
     arguments = parser.parse_args()
     target = Target(
         arguments.cloud,
@@ -203,15 +220,6 @@ def main():
     )
     if arguments.command == "prompt":
         print(prompt(target, arguments.request))
-        return
-    if arguments.command == "rollback":
-        from rollback import rollback
-
-        result = rollback(
-            Cluster(arguments.context, target.namespace), target, arguments.schema_compatible
-        )
-        Path("deployment-result.json").write_text(json.dumps(result, indent=2) + "\n")
-        print(json.dumps(result, indent=2))
         return
     if arguments.command == "cleanup":
         cleanup(Cluster(arguments.context, target.namespace), target)
