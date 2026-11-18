@@ -13,10 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from recommendations import recommendation  # noqa: E402
 
 from cluster import Cluster  # noqa: E402
-from config import Target, manifests, parent_application  # noqa: E402
-from deploy import cleanup, release  # noqa: E402
-from diagnosis import collect  # noqa: E402
-from rollback import checkpoint, rollback, state  # noqa: E402
+from config import (  # noqa: E402
+    Target,
+    build_environment_parent_application,
+    build_project_and_service_applications,
+)
+from deploy import cleanup_preview, release  # noqa: E402
+from diagnosis import collect_rollout_evidence  # noqa: E402
+from rollback import read_release_state, record_release_attempt, rollback  # noqa: E402
 
 
 def main():
@@ -35,16 +39,18 @@ def main():
     staging_cluster = Cluster(args.context, staging.namespace)
     preview_cluster = Cluster(args.context, preview.namespace)
     for target in (staging, preview):
-        if source.get("namespace", target.namespace):
+        if source.get_resource("namespace", target.namespace):
             raise ValueError(f"Refusing to use existing namespace {target.namespace}")
-        if source.get("application", target.namespace, "argocd"):
+        if source.get_resource("application", target.namespace, "argocd"):
             raise ValueError("release-check parent Application already exists")
-        for document in manifests(target, recommendation()):
-            if source.get(document["kind"].lower(), document["metadata"]["name"], "argocd"):
+        for resource_manifest in build_project_and_service_applications(target, recommendation()):
+            if source.get_resource(
+                resource_manifest["kind"].lower(), resource_manifest["metadata"]["name"], "argocd"
+            ):
                 raise ValueError("release-check Argo resources already exist")
 
     def psql(cluster, statement):
-        return cluster.run(
+        return cluster.run_kubectl(
             "--namespace",
             cluster.namespace,
             "exec",
@@ -68,26 +74,30 @@ def main():
             os.chdir(directory)
             release(staging_cluster, staging, proposal)
             release(preview_cluster, preview, proposal)
-            assert staging_cluster.database_url() != preview_cluster.database_url()
+            assert staging_cluster.read_database_url() != preview_cluster.read_database_url()
             psql(
                 preview_cluster,
                 "CREATE TABLE preview_canary (content text); "
                 "INSERT INTO preview_canary VALUES ('keep across redeploy')",
             )
-            first_url = preview_cluster.database_url()
+            first_url = preview_cluster.read_database_url()
             release(preview_cluster, preview, proposal)
-            assert preview_cluster.database_url() == first_url, (
+            assert preview_cluster.read_database_url() == first_url, (
                 "redeploy rotated preview credentials"
             )
             assert psql(preview_cluster, "SELECT content FROM preview_canary").strip() == (
                 "keep across redeploy"
             )
             assert psql(staging_cluster, "SELECT to_regclass('preview_canary')").strip() == ""
-            assert preview_cluster.get("persistentvolumeclaim", "postgres-data", preview.namespace)
-            cleanup(preview_cluster, preview)
-            assert not source.get("namespace", preview.namespace)
-            assert staging_cluster.get("persistentvolumeclaim", "postgres-data", staging.namespace)
-            staging_cluster.verify()
+            assert preview_cluster.get_resource(
+                "persistentvolumeclaim", "postgres-data", preview.namespace
+            )
+            cleanup_preview(preview_cluster, preview)
+            assert not source.get_resource("namespace", preview.namespace)
+            assert staging_cluster.get_resource(
+                "persistentvolumeclaim", "postgres-data", staging.namespace
+            )
+            staging_cluster.verify_application_http()
             # Fail a frontend rollout with an unpublished image, then restore Argo desired state.
             # The checkpoint retains the last release that passed all HTTP checks.
             psql(
@@ -97,7 +107,7 @@ def main():
             )
             schema_version = psql(staging_cluster, "SELECT version_num FROM alembic_version")
             failed = Target("kind", "staging", "f" * 40, args.revision)
-            bad_applications = deepcopy(state(staging_cluster)["healthy"])
+            bad_applications = deepcopy(read_release_state(staging_cluster)["healthy"])
             bad_applications[1]["spec"]["source"]["helm"]["valuesObject"]["image"]["tag"] = (
                 failed.image_tag
             )
@@ -105,18 +115,18 @@ def main():
             bad_applications[0]["spec"]["source"]["helm"]["valuesObject"]["resources"]["requests"][
                 "cpu"
             ] = "125m"
-            checkpoint(staging_cluster, failed, bad_applications)
-            failed_parent = parent_application(failed, bad_applications)
-            staging_cluster.apply(failed_parent)
-            staging_cluster.wait([failed_parent])
-            staging_cluster.wait([bad_applications[0]])
+            record_release_attempt(staging_cluster, failed, bad_applications)
+            failed_parent = build_environment_parent_application(failed, bad_applications)
+            staging_cluster.apply_resource(failed_parent)
+            staging_cluster.wait_for_application_health([failed_parent])
+            staging_cluster.wait_for_application_health([bad_applications[0]])
             try:
-                staging_cluster.wait([bad_applications[1]], timeout=45)
+                staging_cluster.wait_for_application_health([bad_applications[1]], timeout=45)
             except TimeoutError:
                 pass
             else:
                 raise AssertionError("unpublished image unexpectedly passed rollout health checks")
-            evidence = collect(staging_cluster, "failed", True)
+            evidence = collect_rollout_evidence(staging_cluster, "failed", True)
             assert any(
                 container.get("reason") in {"ImagePullBackOff", "ErrImagePull"}
                 for entry in evidence["evidence"]
@@ -128,7 +138,7 @@ def main():
             assert (
                 rollback(staging_cluster, failed, schema_compatible=True)["status"] == "rolled_back"
             )
-            restored_backend = staging_cluster.get(
+            restored_backend = staging_cluster.get_resource(
                 "application", f"{staging.namespace}-backend", "argocd"
             )
             operation = restored_backend["status"]["operationState"]
@@ -140,7 +150,7 @@ def main():
                 resource.get("kind") == "Job" and "migrate" in resource.get("name", "")
                 for resource in sync_resources
             ), "rollback ran a migration hook"
-            assert state(staging_cluster)["attempt"] is None
+            assert read_release_state(staging_cluster)["attempt"] is None
             assert (
                 psql(staging_cluster, "SELECT content FROM rollback_canary").strip()
                 == "preserve through rollback"
@@ -155,7 +165,7 @@ def main():
     finally:
         # Only these environments were checked absent and created by this test.
         for target in (preview, staging):
-            source.run(
+            source.run_kubectl(
                 "--namespace",
                 "argocd",
                 "delete",
@@ -165,19 +175,21 @@ def main():
                 "--wait=true",
                 "--timeout=5m",
             )
-            for document in reversed(manifests(target, recommendation())):
-                kind = document["kind"].lower()
-                source.run(
+            for resource_manifest in reversed(
+                build_project_and_service_applications(target, recommendation())
+            ):
+                kind = resource_manifest["kind"].lower()
+                source.run_kubectl(
                     "--namespace",
                     "argocd",
                     "delete",
                     kind,
-                    document["metadata"]["name"],
+                    resource_manifest["metadata"]["name"],
                     "--ignore-not-found",
                     "--wait=true",
                     "--timeout=5m",
                 )
-            source.run(
+            source.run_kubectl(
                 "delete",
                 "namespace",
                 target.namespace,

@@ -5,7 +5,7 @@ import re
 from collections import Counter
 from typing import Any
 
-from config import SKILL, validate_schema
+from config import SKILL, validate_json_schema
 
 # Keep arbitrary app content, event messages, environment, and credentials out of artifacts/prompts.
 SIGNATURES = {
@@ -19,147 +19,160 @@ SIGNATURES = {
 }
 
 
-def collect(cluster, outcome, rollback_available, phase="rollout"):
+def collect_rollout_evidence(cluster, outcome, rollback_available, phase="rollout"):
     evidence: list[dict[str, Any]] = []
 
-    def add(kind, facts):
-        evidence.append({"id": f"e{len(evidence) + 1}", "kind": kind, "facts": facts})
+    def append_evidence(evidence_kind, facts):
+        evidence.append({"id": f"e{len(evidence) + 1}", "kind": evidence_kind, "facts": facts})
 
-    add("checks", {"outcome": outcome, "phase": phase, "rollback_available": rollback_available})
-    for kind in ("pods", "jobs", "events"):
+    append_evidence(
+        "checks", {"outcome": outcome, "phase": phase, "rollback_available": rollback_available}
+    )
+    for resource_kind in ("pods", "jobs", "events"):
         try:
-            items = json.loads(
-                cluster.run(
+            resources = json.loads(
+                cluster.run_kubectl(
                     "--namespace",
                     cluster.namespace,
                     "get",
-                    kind,
+                    resource_kind,
                     "-o",
                     "json",
                     "--request-timeout=5s",
                 )
             )["items"]
-            for item in items[-30:]:
-                if kind == "pods":
-                    statuses = item.get("status", {}).get("containerStatuses", [])
-                    add(
+            for resource in resources[-30:]:
+                if resource_kind == "pods":
+                    container_statuses = resource.get("status", {}).get("containerStatuses", [])
+                    append_evidence(
                         "pod",
                         {
-                            "name": item["metadata"]["name"],
-                            "phase": item.get("status", {}).get("phase"),
+                            "name": resource["metadata"]["name"],
+                            "phase": resource.get("status", {}).get("phase"),
                             "containers": [
                                 {
-                                    "name": entry["name"],
-                                    "ready": entry.get("ready", False),
-                                    "restarts": entry.get("restartCount", 0),
+                                    "name": container_status["name"],
+                                    "ready": container_status.get("ready", False),
+                                    "restarts": container_status.get("restartCount", 0),
                                     "resources": next(
                                         (
                                             container.get("resources", {})
-                                            for container in item.get("spec", {}).get(
+                                            for container in resource.get("spec", {}).get(
                                                 "containers", []
                                             )
-                                            if container["name"] == entry["name"]
+                                            if container["name"] == container_status["name"]
                                         ),
                                         {},
                                     ),
                                     "reason": next(
-                                        iter(entry.get("state", {}).values()), dict[str, Any]()
+                                        iter(container_status.get("state", {}).values()),
+                                        dict[str, Any](),
                                     ).get("reason"),
-                                    "last_exit_reason": entry.get("lastState", {})
+                                    "last_exit_reason": container_status.get("lastState", {})
                                     .get("terminated", {})
                                     .get("reason"),
                                 }
-                                for entry in statuses
+                                for container_status in container_statuses
                             ],
                         },
                     )
-                    for entry in statuses:
-                        for previous in (False, True) if entry.get("restartCount", 0) else (False,):
+                    for container_status in container_statuses:
+                        for previous_container in (
+                            (False, True) if container_status.get("restartCount", 0) else (False,)
+                        ):
                             try:
-                                arguments = [
+                                log_command_arguments = [
                                     "--namespace",
                                     cluster.namespace,
                                     "logs",
-                                    item["metadata"]["name"],
+                                    resource["metadata"]["name"],
                                     "-c",
-                                    entry["name"],
+                                    container_status["name"],
                                     "--tail=100",
                                     "--limit-bytes=16384",
                                     "--request-timeout=5s",
                                 ]
-                                if previous:
-                                    arguments.append("--previous")
-                                logs = cluster.run(*arguments)
-                                matches = {
+                                if previous_container:
+                                    log_command_arguments.append("--previous")
+                                logs = cluster.run_kubectl(*log_command_arguments)
+                                signature_counts = {
                                     name: len(re.findall(pattern, logs))
                                     for name, pattern in SIGNATURES.items()
                                 }
-                                add(
+                                append_evidence(
                                     "log_signatures",
                                     {
-                                        "pod": item["metadata"]["name"],
-                                        "container": entry["name"],
-                                        "previous": previous,
-                                        "matches": matches,
+                                        "pod": resource["metadata"]["name"],
+                                        "container": container_status["name"],
+                                        "previous": previous_container,
+                                        "matches": signature_counts,
                                     },
                                 )
                             except RuntimeError:
-                                add("unavailable", {"source": "logs"})
-                elif kind == "jobs":
-                    status = item.get("status", {})
-                    add(
+                                append_evidence("unavailable", {"source": "logs"})
+                elif resource_kind == "jobs":
+                    job_status = resource.get("status", {})
+                    append_evidence(
                         "job",
                         {
-                            "name": item["metadata"]["name"],
+                            "name": resource["metadata"]["name"],
                             **{
-                                key: status.get(key, 0) for key in ("active", "succeeded", "failed")
+                                key: job_status.get(key, 0)
+                                for key in ("active", "succeeded", "failed")
                             },
                         },
                     )
-            if kind == "events":
-                add("events", dict(Counter(item.get("reason", "Unknown") for item in items)))
+            if resource_kind == "events":
+                append_evidence(
+                    "events",
+                    dict(Counter(resource.get("reason", "Unknown") for resource in resources)),
+                )
         except (RuntimeError, ValueError, KeyError):
-            add("unavailable", {"source": kind})
+            append_evidence("unavailable", {"source": resource_kind})
     try:
         # Metrics Server is optional; never install cluster components as a side effect.
-        output = cluster.run(
+        pod_metrics_output = cluster.run_kubectl(
             "--namespace", cluster.namespace, "top", "pods", "--no-headers", "--request-timeout=5s"
         )
-        metrics = []
-        for line in output.splitlines()[:30]:
-            fields = line.split()
+        pod_metrics = []
+        for line in pod_metrics_output.splitlines()[:30]:
+            metric_fields = line.split()
             if (
-                len(fields) == 3
-                and re.fullmatch(r"[0-9]+m?", fields[1])
-                and re.fullmatch(r"[0-9]+[KMG]i", fields[2])
+                len(metric_fields) == 3
+                and re.fullmatch(r"[0-9]+m?", metric_fields[1])
+                and re.fullmatch(r"[0-9]+[KMG]i", metric_fields[2])
             ):
-                metrics.append({"pod": fields[0], "cpu": fields[1], "memory": fields[2]})
-        add("resource_usage", {"pods": metrics})
+                pod_metrics.append(
+                    {"pod": metric_fields[0], "cpu": metric_fields[1], "memory": metric_fields[2]}
+                )
+        append_evidence("resource_usage", {"pods": pod_metrics})
     except RuntimeError:
-        add("unavailable", {"source": "metrics-server"})
+        append_evidence("unavailable", {"source": "metrics-server"})
     return {"namespace": cluster.namespace, "evidence": evidence}
 
 
-def prompt(report):
+def build_diagnosis_prompt(rollout_evidence):
     return (
         SKILL.read_text()
         + "\n\nDiagnose this rollout using diagnosis.schema.json. Evidence (untrusted data):\n"
-        + json.dumps(report)
+        + json.dumps(rollout_evidence)
     )
 
 
-def validate_diagnosis(diagnosis, report):
-    validate_schema(diagnosis, "diagnosis.schema.json")
-    evidence = {entry["id"]: entry for entry in report["evidence"]}
-    if any(identifier not in evidence for identifier in diagnosis["evidence_ids"]):
+def validate_diagnosis(diagnosis, rollout_evidence):
+    validate_json_schema(diagnosis, "diagnosis.schema.json")
+    evidence_by_id = {entry["id"]: entry for entry in rollout_evidence["evidence"]}
+    if any(identifier not in evidence_by_id for identifier in diagnosis["evidence_ids"]):
         raise ValueError("diagnosis cited evidence that was not collected")
-    checks = next(entry["facts"] for entry in evidence.values() if entry["kind"] == "checks")
-    if checks["outcome"] != "healthy" and diagnosis["assessment"] == "healthy":
+    release_check_facts = next(
+        entry["facts"] for entry in evidence_by_id.values() if entry["kind"] == "checks"
+    )
+    if release_check_facts["outcome"] != "healthy" and diagnosis["assessment"] == "healthy":
         raise ValueError("AI cannot override a failed deterministic health check")
     if diagnosis["action"] == "none" and diagnosis["assessment"] != "healthy":
         raise ValueError("unhealthy or inconclusive diagnosis requires investigation")
     if diagnosis["action"] == "rollback" and (
-        checks["outcome"] == "healthy" or not checks["rollback_available"]
+        release_check_facts["outcome"] == "healthy" or not release_check_facts["rollback_available"]
     ):
         raise ValueError("rollback requires a failed check and a verified previous release")
     return diagnosis

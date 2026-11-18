@@ -16,13 +16,13 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
 ):
     monkeypatch.chdir(tmp_path)
     evidence = Mock(return_value={"evidence": []})
-    monkeypatch.setattr("diagnosis.collect", evidence)
+    monkeypatch.setattr("diagnosis.collect_rollout_evidence", evidence)
     cluster = Mock(namespace="idea-board-staging")
-    cluster.get.return_value = None
+    cluster.get_resource.return_value = None
     if failed_check == "backend":
-        cluster.wait.side_effect = TimeoutError("backend failed")
+        cluster.wait_for_application_health.side_effect = TimeoutError("backend failed")
     elif failed_check == "http":
-        cluster.verify.side_effect = RuntimeError("HTTP failed")
+        cluster.verify_application_http.side_effect = RuntimeError("HTTP failed")
     if failed_check:
         with pytest.raises((TimeoutError, RuntimeError)):
             release(cluster, Target("kind", "staging", SHA, SHA), recommendation())
@@ -32,7 +32,7 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
         assert json.loads((tmp_path / "deployment-result.json").read_text())["status"] == "healthy"
     snapshots = [
         json.loads(call.args[0]["data"]["release.json"])
-        for call in cluster.apply.call_args_list
+        for call in cluster.apply_resource.call_args_list
         if call.args[0]["kind"] == "ConfigMap"
     ]
     assert snapshots[0]["healthy"] is None
@@ -46,8 +46,8 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
         assert evidence.call_args.args[1] == "healthy"
     credentials = next(
         call.args[0]["stringData"]
-        for call in cluster.apply.call_args_list
+        for call in cluster.apply_resource.call_args_list
         if call.args[0]["kind"] == "Secret"
     )
     assert credentials["POSTGRES_PASSWORD"] not in json.dumps(snapshots)
-    cluster.run.assert_not_called()
+    cluster.run_kubectl.assert_not_called()

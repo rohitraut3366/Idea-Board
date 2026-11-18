@@ -5,61 +5,66 @@ import os
 import subprocess
 
 
-def api(path):
-    return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+def get_github_json(api_path):
+    return json.loads(subprocess.check_output(["gh", "api", api_path], text=True))
 
 
-def check_release(repository, image_tag, environment, pr=0):
+def validate_release_provenance(repository, image_tag, environment, pr=0):
     if environment == "preview":
-        pull = api(f"repos/{repository}/pulls/{pr}")
+        pull_request = get_github_json(f"repos/{repository}/pulls/{pr}")
         if (
-            pull["state"] != "open"
-            or pull["head"]["sha"] != image_tag
-            or pull["head"]["repo"]["full_name"] != repository
+            pull_request["state"] != "open"
+            or pull_request["head"]["sha"] != image_tag
+            or pull_request["head"]["repo"]["full_name"] != repository
         ):
             raise ValueError("preview requires the current head of an open, same-repository PR")
-    runs = api(
+    workflow_runs_response = get_github_json(
         f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={image_tag}&status=success&per_page=100"
     )
-    if not any(run["conclusion"] == "success" for run in runs["workflow_runs"]):
+    if not any(
+        workflow_run["conclusion"] == "success"
+        for workflow_run in workflow_runs_response["workflow_runs"]
+    ):
         raise ValueError("image commit has no successful CI run")
 
 
-def preview_matrix(event, event_name, repository, cloud):
+def build_preview_job_matrix(event, event_name, repository, cloud):
     if cloud not in {"aws", "gcp"}:
         return []  # Previews stay off until an operator configures PREVIEW_CLOUD.
     if event_name == "workflow_run":
-        run = event["workflow_run"]
+        workflow_run = event["workflow_run"]
         if (
-            run["conclusion"] != "success"
-            or run["event"] != "pull_request"
-            or run["head_repository"]["full_name"] != repository
+            workflow_run["conclusion"] != "success"
+            or workflow_run["event"] != "pull_request"
+            or workflow_run["head_repository"]["full_name"] != repository
         ):
             return []
-        pulls = api(f"repos/{repository}/commits/{run['head_sha']}/pulls")
+        pull_requests = get_github_json(
+            f"repos/{repository}/commits/{workflow_run['head_sha']}/pulls"
+        )
         return [
             {
-                "pr": pull["number"],
+                "pr": pull_request["number"],
                 "cloud": cloud,
-                "image_tag": run["head_sha"],
+                "image_tag": workflow_run["head_sha"],
                 "operation": "release",
             }
-            for pull in pulls
-            if pull["state"] == "open"
-            and pull["head"]["sha"] == run["head_sha"]
-            and pull["head"]["repo"]["full_name"] == repository
+            for pull_request in pull_requests
+            if pull_request["state"] == "open"
+            and pull_request["head"]["sha"] == workflow_run["head_sha"]
+            and pull_request["head"]["repo"]["full_name"] == repository
         ]
-    pull = event["pull_request"]
+    pull_request = event["pull_request"]
     if (
         event_name == "pull_request_target"
         and event["action"] == "closed"
-        and pull["head"]["repo"]["full_name"] == repository
+        and pull_request["head"]["repo"]["full_name"] == repository
     ):
         return [
             {
-                "pr": pull["number"],
+                "pr": pull_request["number"],
                 "cloud": cloud,
-                "image_tag": pull["head"]["sha"],
+                "image_tag": pull_request["head"]["sha"],
                 "operation": "cleanup",
             }
         ]
@@ -68,7 +73,7 @@ def preview_matrix(event, event_name, repository, cloud):
 
 if __name__ == "__main__":
     event = json.loads(open(os.environ["GITHUB_EVENT_PATH"]).read())
-    matrix = preview_matrix(
+    matrix = build_preview_job_matrix(
         event,
         os.environ["GITHUB_EVENT_NAME"],
         os.environ["GITHUB_REPOSITORY"],

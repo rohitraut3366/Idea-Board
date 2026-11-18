@@ -7,12 +7,12 @@ from recommendations import recommendation
 
 from config import (
     Target,
-    deployment_manifests,
-    manifests,
-    terraform_variables,
+    build_project_and_service_applications,
+    build_release_manifests,
+    build_terraform_sizing_variables,
     validate_recommendation,
 )
-from planning import prepare
+from planning import write_release_plan
 
 SHA = "a" * 40
 
@@ -21,8 +21,8 @@ SHA = "a" * 40
 def test_prepare_writes_cloud_sizing_and_release_plan(cloud, tmp_path):
     target = Target(cloud, "production", SHA, SHA)
     proposal = recommendation(cloud, "production")
-    prepare(target, proposal, tmp_path, Path("recommendation.json"))
-    generated = terraform_variables(target, proposal)
+    write_release_plan(target, proposal, tmp_path, Path("recommendation.json"))
+    generated = build_terraform_sizing_variables(target, proposal)
     assert generated["cluster"]["node_count"] == 2
     assert (
         generated["applications/idea-board"][
@@ -36,7 +36,7 @@ def test_prepare_writes_cloud_sizing_and_release_plan(cloud, tmp_path):
         assert json.loads(path.read_text()) == values
         assert f"--working-dir infra/terraform/{cloud}/production/YOUR_REGION/{project}" in plan
     applications = json.loads((tmp_path / "applications.json").read_text())["items"]
-    assert applications == deployment_manifests(target, proposal)
+    assert applications == build_release_manifests(target, proposal)
 
 
 def test_model_can_size_services_independently():
@@ -44,7 +44,9 @@ def test_model_can_size_services_independently():
     proposal["backend"].update(
         replicas=3, cpu_millicores=350, memory_request_mib=320, memory_limit_mib=768
     )
-    _, backend, frontend = manifests(Target("kind", "staging", SHA, SHA), proposal)
+    _, backend, frontend = build_project_and_service_applications(
+        Target("kind", "staging", SHA, SHA), proposal
+    )
     backend_values = backend["spec"]["source"]["helm"]["valuesObject"]
     frontend_values = frontend["spec"]["source"]["helm"]["valuesObject"]
     assert backend_values["replicas"] == 3 and frontend_values["replicas"] == 1
@@ -78,7 +80,7 @@ def test_invalid_configuration_fails_before_rendering(mutation):
 
 
 def test_preview_does_not_generate_shared_infrastructure(tmp_path):
-    prepare(
+    write_release_plan(
         Target("aws", "staging", SHA, SHA),
         recommendation("aws"),
         tmp_path,
@@ -86,18 +88,20 @@ def test_preview_does_not_generate_shared_infrastructure(tmp_path):
     )
     target = Target("aws", "preview", SHA, SHA, 42)
     proposal = recommendation("aws", "preview")
-    assert terraform_variables(target, proposal) is None
-    prepare(target, proposal, tmp_path, Path("recommendation.json"))
+    assert build_terraform_sizing_variables(target, proposal) is None
+    write_release_plan(target, proposal, tmp_path, Path("recommendation.json"))
     assert not list(tmp_path.rglob("*.tfvars.json"))
     invalid = deepcopy(proposal)
     invalid["infrastructure"] = recommendation("aws")["infrastructure"]
     with pytest.raises(ValueError, match="shared infrastructure"):
-        prepare(target, invalid, tmp_path, Path("recommendation.json"))
+        write_release_plan(target, invalid, tmp_path, Path("recommendation.json"))
 
 
 def test_json_schema_integer_is_rendered_as_a_kubernetes_integer():
     proposal = recommendation()
     # JSON Schema accepts an integral float, while Kubernetes replicas requires an integer.
     proposal["backend"]["replicas"] = 2.0
-    backend = manifests(Target("kind", "staging", SHA, SHA), proposal)[1]
+    backend = build_project_and_service_applications(Target("kind", "staging", SHA, SHA), proposal)[
+        1
+    ]
     assert type(backend["spec"]["source"]["helm"]["valuesObject"]["replicas"]) is int
