@@ -38,13 +38,14 @@ def release(cluster, target, recommendation):
     from diagnosis import collect
     from rollback import checkpoint, record_healthy, state
 
-    documents = manifests(target, recommendation)
-    root = None
+    argo_project, backend_application, frontend_application = manifests(target, recommendation)
+    service_applications = [backend_application, frontend_application]
+    cloud_root_application = None
     if target.uses_cloud_root:
-        current = cluster.get("application", "idea-board", "argocd")
-        if not current:
+        existing_cloud_root_application = cluster.get("application", "idea-board", "argocd")
+        if not existing_cloud_root_application:
             raise ValueError("install the cloud root through cluster-core-services first")
-        root = cloud_root(target, [], current)
+        cloud_root_application = cloud_root(target, [], existing_cloud_root_application)
     outcome = "failed"
     phase = "database"
     rollback_available = False
@@ -64,41 +65,45 @@ def release(cluster, target, recommendation):
         rollback_available = bool(state(cluster)["healthy"])
         if not target.uses_cloud_root:
             ensure_database_secret(cluster)
-        release_documents = documents
+        release_manifests = [argo_project, *service_applications]
         if target.cloud == "kind":
-            release_documents = [documents[0], parent_application(target, documents[1:])]
+            release_manifests = [argo_project, parent_application(target, service_applications)]
         elif target.uses_cloud_root:
-            release_documents = [cloud_root(target, documents[1:], root)]
+            release_manifests = [cloud_root(target, service_applications, cloud_root_application)]
         Path("applications.json").write_text(
-            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_documents}, indent=2)
+            json.dumps({"apiVersion": "v1", "kind": "List", "items": release_manifests}, indent=2)
             + "\n"
         )
-        checkpoint(cluster, target, documents[1:])
+        checkpoint(cluster, target, service_applications)
         if not target.uses_cloud_root:
-            cluster.apply(documents[0])
+            cluster.apply(argo_project)
         if target.cloud == "kind":
             # Keep the serving frontend while the new backend runs its migration and checks.
-            existing_frontend = cluster.get("application", f"{target.namespace}-frontend", "argocd")
-            children = [documents[1]] + ([existing_frontend] if existing_frontend else [])
+            existing_frontend_application = cluster.get(
+                "application", f"{target.namespace}-frontend", "argocd"
+            )
+            backend_phase_applications = [backend_application] + (
+                [existing_frontend_application] if existing_frontend_application else []
+            )
             phase = "backend"
-            parent = parent_application(target, children)
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[1]])
+            environment_parent_application = parent_application(target, backend_phase_applications)
+            cluster.apply(environment_parent_application)
+            cluster.wait([environment_parent_application])
+            cluster.wait([backend_application])
             phase = "frontend"
-            parent = parent_application(target, documents[1:])
-            cluster.apply(parent)
-            cluster.wait([parent])
-            cluster.wait([documents[2]])
+            environment_parent_application = parent_application(target, service_applications)
+            cluster.apply(environment_parent_application)
+            cluster.wait([environment_parent_application])
+            cluster.wait([frontend_application])
         elif target.uses_cloud_root:
-            for application in documents[1:]:
+            for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
-                root = cloud_root(target, [application], root)
-                cluster.apply(root)
-                cluster.wait([root])
+                cloud_root_application = cloud_root(target, [application], cloud_root_application)
+                cluster.apply(cloud_root_application)
+                cluster.wait([cloud_root_application])
                 cluster.wait([application])
         else:
-            for application in documents[1:]:
+            for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
                 cluster.apply(application)
                 cluster.wait([application])
@@ -106,7 +111,7 @@ def release(cluster, target, recommendation):
         cluster.verify()
         phase = "public_http" if target.cloud != "kind" else "http"
         url = cluster.public_url() if target.cloud != "kind" else None
-        record_healthy(cluster, documents[1:])
+        record_healthy(cluster, service_applications)
         outcome = "healthy"
     finally:
         # Collect facts even when credentials or the API are unavailable; no raw logs are saved.
