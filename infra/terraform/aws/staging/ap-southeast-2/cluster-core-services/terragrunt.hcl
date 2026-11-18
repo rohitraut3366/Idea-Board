@@ -1,5 +1,6 @@
 include "root" {
-  path = find_in_parent_folders("root.hcl")
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
 }
 
 dependency "cluster" {
@@ -11,6 +12,10 @@ dependency "networking" {
 }
 
 inputs = {
-  cluster_name = dependency.cluster.outputs.cluster_name
-  vpc_id       = dependency.networking.outputs.vpc_id
+  name   = include.root.locals.environment.inputs.name
+  region = include.root.locals.region.name
+
+  cluster_name    = dependency.cluster.outputs.cluster_name
+  vpc_id          = dependency.networking.outputs.vpc_id
+  gitops_revision = "master"
 }

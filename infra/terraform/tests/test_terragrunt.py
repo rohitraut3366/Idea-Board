@@ -102,14 +102,14 @@ class TerragruntTests(unittest.TestCase):
                 keys.add(state["key"])
         self.assertEqual(len(keys), len(self.configurations))
 
-    def test_shared_inputs_cover_each_project_without_tfvars(self):
+    def test_project_inputs_resolve_shared_settings_without_tfvars(self):
         for directory, config in self.configurations.items():
             with self.subTest(project=directory):
                 self.assertEqual(config["inputs"]["name"], "idea-board-staging")
                 self.assertEqual(config["inputs"]["region"], directory.relative_to(ROOT).parts[2])
                 if directory.relative_to(ROOT).parts[0] == "gcp":
                     self.assertEqual(config["inputs"]["project_id"], "test-project")
-                self.assertNotIn("admin_role_arn", config["inputs"])
+                self.assertIsNone(config["inputs"].get("admin_role_arn"))
 
     def test_dependency_order_covers_infrastructure_and_platform(self):
         graph = {}
