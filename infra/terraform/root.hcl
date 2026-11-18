@@ -29,7 +29,3 @@ remote_state {
     disable_bucket_update = true
   }
 }
-
-inputs = merge(local.environment.inputs, {
-  region = local.region.name
-})

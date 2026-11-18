@@ -34,7 +34,7 @@ Terraform defines the resources. Terragrunt supplies their settings, state locat
 ```text
 infra/terraform/
 ├── state.hcl                         # Shared S3 state bucket and its region
-├── root.hcl                          # Shared state and input rules
+├── root.hcl                          # Shared settings, state, and execution rules
 ├── aws/staging/
 │   ├── environment.hcl               # Stack name
 │   └── ap-southeast-2/
@@ -47,7 +47,7 @@ infra/terraform/
 └── modules/                          # Reusable Terraform resources
 ```
 
-The checked-in declarations contain the stack name, regions, Kubernetes versions, machine sizes, and database settings. Change these files to change the deployment. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
+Every project's `terragrunt.hcl` lists its required inputs and intentional overrides. Shared names, regions, zones, and GCP project selection are read through the exposed root include. Optional settings use defaults from the project's `variables.tf` unless overridden. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
 
 Before deploying:
 

@@ -102,7 +102,7 @@ class TerragruntTests(unittest.TestCase):
                 keys.add(state["key"])
         self.assertEqual(len(keys), len(self.configurations))
 
-    def test_shared_inputs_cover_each_project_without_tfvars(self):
+    def test_project_inputs_resolve_shared_settings_without_tfvars(self):
         for directory, config in self.configurations.items():
             with self.subTest(project=directory):
                 self.assertEqual(config["inputs"]["name"], "idea-board-staging")

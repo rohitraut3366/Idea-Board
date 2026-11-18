@@ -1,5 +1,6 @@
 include "root" {
-  path = find_in_parent_folders("root.hcl")
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
 }
 
 dependency "networking" {
@@ -7,9 +8,10 @@ dependency "networking" {
 }
 
 inputs = {
+  name   = include.root.locals.environment.inputs.name
+  region = include.root.locals.region.name
+
   private_subnet_ids = dependency.networking.outputs.private_subnet_ids
 
   kubernetes_version = "1.35"
-  node_instance_type = "c7i-flex.large"
-  node_count         = 2
 }
