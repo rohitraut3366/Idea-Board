@@ -104,7 +104,7 @@ The base root is installed manually using `infra/terraform/modules/argocd/bootst
 | Cluster | `gitops/kind/config.yaml` declares one control-plane node running in Docker. Application replicas share this node and the host's resources. |
 | App overrides | `charts/idea-board-backend/values-kind.yaml` enables base PostgreSQL; `values-postgres.yaml` enables isolated PostgreSQL for tool-managed environments. `charts/idea-board-frontend/values-kind.yaml` enables base Traefik ingress. |
 | Database | The base chart supplies development credentials and a 1 GiB volume. Staging and previews use generated credentials with a separate PostgreSQL instance and 1 GiB volume per namespace. Replacing a PostgreSQL pod retains its volume; deleting its namespace or the cluster removes its data. |
-| Secrets | The local app profile uses Kubernetes Secrets without cloud secret managers or ExternalSecret resources. The separate core-service test can install the operator and CRDs; that does not exercise cloud secret retrieval. |
+| Secrets | The local app profile uses Kubernetes Secrets without cloud secret managers or ExternalSecret resources. |
 | Routing | Traefik routes `/api/` to the backend and other paths to the frontend. Host port `8081` maps to Traefik's NodePort `30080`. |
 | Addresses | Base: `http://localhost:8081`; staging: `http://idea-board-staging.localhost:8081`; preview: `http://idea-board-pr-<PR>.localhost:8081`. These are local demo addresses. |
 | Images and charts | Both app images are published in GHCR. Argo CD fetches chart sources from the Git repository; the selected chart revision must be pushed. The caller selects image and chart SHAs. |
@@ -114,7 +114,7 @@ The base root is installed manually using `infra/terraform/modules/argocd/bootst
 
 - Start conservatively when host capacity is unknown. Additional replicas on one kind node can demonstrate deployment and scaling behavior but provide no node-failure redundancy.
 - Separate pod resource requests/limits from observed usage. Metrics Server is optional; if metrics are unavailable, state the gap rather than inventing utilization.
-- `gitops/tests/check_local.py` checks the base app-of-apps deployment. `check_core_services.py` separately checks External Secrets Operator installation. `tools/deploy/tests/check_kind.py` checks staging, preview persistence/cleanup, a failed rollout, and rollback using fixed recommendations.
+- `gitops/tests/check_local.py` checks the base app-of-apps deployment. `tools/deploy/tests/check_kind.py` checks staging, preview persistence/cleanup, a failed rollout, and rollback using fixed recommendations.
 - The failed-rollout check deliberately uses an unpublished frontend tag of forty `f` characters. Treat the resulting image-pull failure as expected only when the supplied evidence identifies that test scenario; do not dismiss an unexpected failure.
 - The automated check saves failure evidence before recovery and cleanup. A later diagnosis explains that captured attempt, not the current live cluster. Distinguish the failed snapshot from a recovered release when recovery evidence is supplied.
 - Live planning or diagnosis requires a new model invocation. Passing fixture-based tests does not establish that the model was called. Kind results do not verify AWS/GCP deployment, public internet access, or cloud capacity.
