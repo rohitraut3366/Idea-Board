@@ -420,7 +420,7 @@ Stop the staging port-forward with Ctrl+C when you finish.
 
 ## 9. Explain a failed rollout with AI
 
-This second AI feature explains a failure using collected deployment evidence. The example uses a recorded attempt where an unpublished frontend image failed to start. The previous release was restored during that earlier test.
+This second AI feature explains a failure using collected deployment evidence. The example uses a recorded attempt where an unpublished frontend image failed to start.
 
 A failed local `release` now invokes Codex diagnosis automatically and saves `deployment-diagnostics.json`, `diagnosis.json`, and `diagnosis.md`. If Codex is unavailable, the release still fails and keeps its evidence. The command below is only for a separate explanation of recorded evidence; use `deployment-diagnostics.json` to revisit your own failure.
 
@@ -433,7 +433,7 @@ codex exec --sandbox read-only --ephemeral \
 
 This command analyzes the recorded attempt. GitHub Actions uses schema-validated JSON and saves its diagnosis as workflow artifacts.
 
-Diagnosis provides advice. Fix the cause and run the normal release command with the corrected image tag and chart revision. See [roll-forward recovery](../tools/deploy/README.md#recover-by-rolling-forward). The recorded test predates removal of the custom rollback implementation; its old rollback recommendation does not describe the current tool.
+Diagnosis provides advice. Fix the cause and run the normal release command with the corrected image tag and chart revision. See [roll-forward recovery](../tools/deploy/README.md#recover-by-rolling-forward).
 
 ## Inspect or stop
 

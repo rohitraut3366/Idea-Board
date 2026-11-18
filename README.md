@@ -315,7 +315,7 @@ The workflow passes that evidence to the AI. A diagnosis can say:
 
 > The new frontend is waiting for its image. The previous frontend and backend are still ready. Check that the image exists and can be pulled. Fix the cause and release a corrected version.
 
-The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. The [recorded diagnosis](gitops/kind/evidence/diagnosis.json) is a historical example from the former rollback implementation; current advice recommends investigating and rolling forward.
+The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**.
 
 Local failed releases invoke Codex automatically; cloud workflows run diagnosis in a separate job. Use the explanation to fix the cause and release the corrected version. Health checks determine whether the release works; the AI explains the evidence. The [local AI diagnosis example](gitops/README.md#9-explain-a-failed-rollout-with-ai) uses evidence captured by the kind deployment check.
 
@@ -334,7 +334,6 @@ The local Kubernetes demonstration is verified in kind:
 | App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts          |
 | Argo CD            | Local root, ingress and environment parents with backend/frontend children became Synced and Healthy |
 | Preview lifecycle  | Separate database/login, redeployment, and cleanup passed                                            |
-| Historical recovery | Earlier rollback checks passed; that mechanism has been removed in favor of corrected releases. See the [recorded run](gitops/kind/verification.md). |
 | Load and scaling   | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md)           |
 | AI integration     | Session-generated recommendation and diagnosis passed the tool's validation                          |
 

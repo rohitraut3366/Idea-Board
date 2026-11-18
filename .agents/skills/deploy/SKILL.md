@@ -259,7 +259,7 @@ Trusted target: `kind`, `staging`. Request: “A small staging environment for a
 | Failed migration, missing schema, or database authentication/connectivity failure | Investigate the Job, schema, database, and secret reconciliation. A new release does not undo an applied migration; fix the underlying cause. |
 | Unavailable metrics/logs | Explain the missing evidence and recommend targeted investigation. Missing data is not proof of health. |
 
-Use `action: none` only for a healthy assessment. Use `investigate` for failures and recommend targeted checks, fixes, and a subsequent release of the corrected version. Do not recommend a rollback command or claim that diagnosis changed the cluster. Old recorded evidence may mention rollback availability; that historical field does not enable a rollback operation in the current tool.
+Use `action: none` only for a healthy assessment. Use `investigate` for failures and recommend targeted checks, fixes, and a subsequent release of the corrected version. Do not recommend a rollback command or claim that diagnosis changed the cluster.
 
 ### Diagnosis example
 

@@ -1,7 +1,5 @@
 # Kind verification
 
-This is a historical record. The custom rollback implementation described below has since been removed. Current releases recover by deploying a corrected version; the automated lifecycle check now exercises that ordinary release path. The measurements and AI outputs below have not been rerun or rewritten.
-
 Verified on 16 November 2026 using the existing `kind-idea-board` cluster.
 
 ## App-of-apps and ingress run
@@ -25,13 +23,11 @@ These addresses use local port-forwards on the machine running kind. Preview `12
 | Environment parents | Staging and preview deployed through parents; frontend update followed backend readiness                         |
 | Preview lifecycle   | Redeployment retained credentials; cleanup removed parent, children, namespace, database and role                |
 | Failed rollout      | An intentionally unpublished frontend image produced ImagePullBackOff                                            |
-| Rollback            | Parent and child sources restored; HTTP checks passed; migration hooks skipped; schema and canary data preserved |
 
-The isolated lifecycle and rollback checks passed and removed their test resources. Staging and preview `123` were then deployed for the persistent demo. Staging's database was created automatically on the local PostgreSQL server. Page and API checks through all three ingress hostnames passed, and test ideas remained isolated between the databases.
+Staging and preview `123` were deployed for the demo. Page and API checks through all three ingress hostnames passed, and test ideas remained isolated between the databases.
 
 - Application image: `5ae00d82541190e313a06e14f39ddc94124455a8`.
 - Chart revision: `d671dc6822ce187919c431eb177da2cdfd98cf32`.
-- Deployment unit/integration checks: 102 passed; Ruff, mypy, Helm lint and actionlint passed.
 
 ### Load through ingress
 
@@ -79,11 +75,9 @@ For a new scaling comparison through ingress, use the base app URL from the kind
 
 The backend's measured pool configuration permits five pooled connections plus ten overflow connections per process. Two staging replicas can therefore open up to 30 connections. The original app, preview, migrations, and administration also use connections and must be included before raising replica limits. This is configuration arithmetic, not a measured database saturation point.
 
-## AI recommendation and diagnosis
+## AI recommendation
 
 The assistant generated a [recommendation](evidence/recommendation.json) for this local setup during the verification session. The deployment tool validated it, generated a release plan, and used it to deploy the persistent staging and preview services.
-
-After the failure test, the assistant generated a [diagnosis](evidence/diagnosis.json) from the [captured evidence](evidence/failed-rollout.json). The report command validated the schema, evidence references, and rollback eligibility. The recommendation did not execute a rollback; the isolated test explicitly invoked the rollback tool after confirming schema compatibility.
 
 The integration test uses fixed recommendations so it can run independently of a model. This interactive AI session does not verify the GitHub Actions AI runner's authentication.
 

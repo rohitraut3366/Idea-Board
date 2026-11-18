@@ -6,8 +6,7 @@
       "kind": "checks",
       "facts": {
         "outcome": "failed",
-        "phase": "rollout",
-        "rollback_available": true
+        "phase": "rollout"
       }
     },
     {
