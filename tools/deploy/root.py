@@ -58,7 +58,6 @@ def cloud_root(target, applications, current=None):
             **deepcopy(source_fields(application)),
             "syncPolicy": deepcopy(application["spec"]["syncPolicy"]),
         }
-    root["spec"]["syncPolicy"]["automated"]["enabled"] = True
     return {
         "apiVersion": root["apiVersion"],
         "kind": "Application",

@@ -302,7 +302,7 @@ def parent_application(target, applications):
                 "namespace": "argocd",
             },
             "syncPolicy": {
-                "automated": {"enabled": True, "prune": True, "selfHeal": True},
+                "automated": {"prune": True, "selfHeal": True},
                 "syncOptions": ["ServerSideApply=true"],
             },
         },
