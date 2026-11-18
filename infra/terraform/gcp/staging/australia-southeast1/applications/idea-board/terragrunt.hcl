@@ -22,9 +22,4 @@ inputs = {
 
   network_id   = dependency.networking.outputs.network_id
   cluster_name = dependency.cluster.outputs.cluster_name
-
-  database_tier       = "db-custom-1-3840"
-  database_storage_gb = 20
-  database_regional   = false
-  deletion_protection = true
 }

@@ -14,7 +14,4 @@ inputs = {
   private_subnet_ids = dependency.networking.outputs.private_subnet_ids
 
   kubernetes_version = "1.35"
-  admin_role_arn     = null # Resolve the current AWS login's IAM principal.
-  node_instance_type = "c7i-flex.large"
-  node_count         = 2
 }

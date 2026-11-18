@@ -47,7 +47,7 @@ infra/terraform/
 └── modules/                          # Reusable Terraform resources
 ```
 
-Every project's `terragrunt.hcl` lists all its Terraform inputs. Shared names, regions, zones, and GCP project selection are read through the exposed root include; project-specific versions, sizes, and protection settings are declared directly. Change these files to change the deployment. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
+Every project's `terragrunt.hcl` lists its required inputs and intentional overrides. Shared names, regions, zones, and GCP project selection are read through the exposed root include. Optional settings use defaults from the project's `variables.tf` unless overridden. AWS resolves cluster administrator access from your logged-in IAM identity. GCP uses `GOOGLE_CLOUD_PROJECT` or the project selected in gcloud. Database credentials are generated and stored in the cloud secret manager.
 
 Before deploying:
 

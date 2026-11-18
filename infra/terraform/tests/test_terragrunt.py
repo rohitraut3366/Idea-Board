@@ -109,7 +109,7 @@ class TerragruntTests(unittest.TestCase):
                 self.assertEqual(config["inputs"]["region"], directory.relative_to(ROOT).parts[2])
                 if directory.relative_to(ROOT).parts[0] == "gcp":
                     self.assertEqual(config["inputs"]["project_id"], "test-project")
-                self.assertIsNone(config["inputs"].get("admin_role_arn"))
+                self.assertNotIn("admin_role_arn", config["inputs"])
 
     def test_dependency_order_covers_infrastructure_and_platform(self):
         graph = {}

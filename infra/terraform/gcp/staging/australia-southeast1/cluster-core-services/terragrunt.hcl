@@ -12,6 +12,5 @@ inputs = {
   region     = include.root.locals.region.name
   project_id = include.root.locals.environment.inputs.project_id
 
-  cluster_name    = dependency.cluster.outputs.cluster_name
-  gitops_revision = "master"
+  cluster_name = dependency.cluster.outputs.cluster_name
 }

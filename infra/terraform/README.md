@@ -9,7 +9,7 @@ Each cloud has four separate Terraform projects: networking, cluster, core servi
 Terragrunt handles the configuration and execution shared by these projects:
 
 - **Shared state configuration:** `root.hcl` reads the bucket settings from `state.hcl` and derives a separate state key from each project's directory. Each project inherits the same encryption and locking settings.
-- **Explicit inputs:** each project's `terragrunt.hcl` lists every Terraform input, including capacity and protection settings. Shared names, regions, zones, and GCP project selection are read from environment and region files through the exposed root include. The root does not inject additional inputs.
+- **Explicit inputs:** each project's `terragrunt.hcl` lists required inputs and intentional overrides. Shared names, regions, zones, and GCP project selection are read from environment and region files through the exposed root include. Optional inputs use the defaults in that project's `variables.tf` unless overridden. The root does not inject additional inputs.
 - **Dependency outputs and ordering:** named `dependency` blocks read upstream outputs and pass them to Terraform as inputs, such as the networking project's private subnet IDs. They also order runs. The application keeps an order-only `dependencies` block for core services. `terragrunt run --all apply` creates networking before the cluster, then core services and the application database; destroy runs reverse that order.
 
 Plain Terraform could manage the same resources, but keeping these separate states would require passing the backend configuration and inputs to each project and coordinating their execution manually or through scripts or CI. Terragrunt centralizes that work while retaining separate plans and state for each project. The tradeoff is an additional pinned CLI and HCL configuration layer to maintain alongside Terraform.
@@ -48,7 +48,7 @@ Each project contains its Terraform files and a `terragrunt.hcl`. The directory 
 | `state.hcl`                           | Shared S3 bucket and its AWS region                                 |
 | `<cloud>/staging/environment.hcl`     | Stack name; GCP project comes from `GOOGLE_CLOUD_PROJECT` or gcloud |
 | `<cloud>/staging/<region>/region.hcl` | Deployment region and zones                                         |
-| Each project's `terragrunt.hcl`       | Complete input mapping and dependencies                             |
+| Each project's `terragrunt.hcl`       | Required inputs, intentional overrides, and dependencies             |
 | `root.hcl`                            | Reads shared settings; configures state and Terraform execution      |
 
 AWS staging uses Kubernetes 1.35 and two `c7i-flex.large` workers. Automated RDS backups default to disabled (`database_backup_retention_days = 0`). A positive retention value enables them. Final snapshots and deletion protection have their own settings.
@@ -65,7 +65,7 @@ Change the declarations in Git when settings need to change. A production deploy
 4. Sign in to GitHub CLI and export `GITHUB_TOKEN="$(gh auth token)"`. The token needs repository Contents read/write access to publish cluster values to `master`.
 5. For GCP, configure Application Default Credentials and select a billed project in gcloud, or set `GOOGLE_CLOUD_PROJECT`. Install `gke-gcloud-auth-plugin` for core services.
 
-AWS cluster administration uses the IAM role or user behind the current login when `admin_role_arn = null`. An assumed-role session is resolved to its source IAM role. To grant another principal access, change `admin_role_arn` in the cluster's Terragrunt `inputs`.
+AWS cluster administration defaults to the IAM role or user behind the current login. An assumed-role session is resolved to its source IAM role. To grant another principal access, add `admin_role_arn` to the cluster's Terragrunt `inputs`.
 
 The identity applying core services needs Kubernetes administrator access. AWS permissions must also cover the resources in these projects. Regional capacity, account-plan restrictions, and cloud quotas still apply.
 

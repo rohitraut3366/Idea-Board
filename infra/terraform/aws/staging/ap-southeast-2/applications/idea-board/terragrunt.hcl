@@ -23,11 +23,4 @@ inputs = {
   private_subnet_ids     = dependency.networking.outputs.private_subnet_ids
   node_security_group_id = dependency.cluster.outputs.node_security_group_id
   cluster_name           = dependency.cluster.outputs.cluster_name
-
-  database_instance_class        = "db.t4g.micro"
-  database_storage_gb            = 20
-  database_multi_az              = false
-  deletion_protection            = true
-  database_skip_final_snapshot   = false
-  database_backup_retention_days = 0
 }
