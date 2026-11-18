@@ -10,49 +10,55 @@ from pathlib import Path
 from cluster import Cluster
 from config import (
     Target,
-    chart_source,
-    deployment_manifests,
-    manifests,
-    parent_application,
-    prompt,
+    build_environment_parent_application,
+    build_project_and_service_applications,
+    build_recommendation_prompt,
+    build_release_manifests,
+    get_application_chart_source,
     validate_recommendation,
 )
 from database import ensure_database_secret
-from root import cloud_root
+from root import build_cloud_root_application
 
 
 def cleanup_closed_preview(cluster, target):
     if target.environment != "preview" or target.cloud == "kind":
         return False
     from config import REPOSITORY
-    from github import api
+    from github import get_github_json
 
     repository = REPOSITORY.removeprefix("https://github.com/").removesuffix(".git")
-    if api(f"repos/{repository}/pulls/{target.pr}")["state"] == "closed":
-        cleanup(cluster, target)
+    if get_github_json(f"repos/{repository}/pulls/{target.pr}")["state"] == "closed":
+        cleanup_preview(cluster, target)
         return True
     return False
 
 
 def release(cluster, target, recommendation):
-    from diagnosis import collect
-    from rollback import checkpoint, record_healthy, state
+    from diagnosis import collect_rollout_evidence
+    from rollback import read_release_state, record_healthy_release, record_release_attempt
 
-    argo_project, backend_application, frontend_application = manifests(target, recommendation)
+    argo_project, backend_application, frontend_application = (
+        build_project_and_service_applications(target, recommendation)
+    )
     service_applications = [backend_application, frontend_application]
     cloud_root_application = None
     if target.uses_cloud_root:
-        existing_cloud_root_application = cluster.get("application", "idea-board", "argocd")
+        existing_cloud_root_application = cluster.get_resource(
+            "application", "idea-board", "argocd"
+        )
         if not existing_cloud_root_application:
             raise ValueError("install the cloud root through cluster-core-services first")
-        cloud_root_application = cloud_root(target, [], existing_cloud_root_application)
+        cloud_root_application = build_cloud_root_application(
+            target, [], existing_cloud_root_application
+        )
     outcome = "failed"
     phase = "database"
     rollback_available = False
     try:
         if target.cloud == "aws":
             phase = "ingress_controller"
-            cluster.run(
+            cluster.run_kubectl(
                 "--namespace",
                 "kube-system",
                 "rollout",
@@ -62,92 +68,108 @@ def release(cluster, target, recommendation):
             )
             phase = "database"
         cluster.ensure_namespace(target.environment)
-        rollback_available = bool(state(cluster)["healthy"])
+        rollback_available = bool(read_release_state(cluster)["healthy"])
         if not target.uses_cloud_root:
             ensure_database_secret(cluster)
         release_manifests = [argo_project, *service_applications]
         if target.cloud == "kind":
-            release_manifests = [argo_project, parent_application(target, service_applications)]
+            release_manifests = [
+                argo_project,
+                build_environment_parent_application(target, service_applications),
+            ]
         elif target.uses_cloud_root:
-            release_manifests = [cloud_root(target, service_applications, cloud_root_application)]
+            release_manifests = [
+                build_cloud_root_application(target, service_applications, cloud_root_application)
+            ]
         Path("applications.json").write_text(
             json.dumps({"apiVersion": "v1", "kind": "List", "items": release_manifests}, indent=2)
             + "\n"
         )
-        checkpoint(cluster, target, service_applications)
+        record_release_attempt(cluster, target, service_applications)
         if not target.uses_cloud_root:
-            cluster.apply(argo_project)
+            cluster.apply_resource(argo_project)
         if target.cloud == "kind":
             # Keep the serving frontend while the new backend runs its migration and checks.
-            existing_frontend_application = cluster.get(
+            existing_frontend_application = cluster.get_resource(
                 "application", f"{target.namespace}-frontend", "argocd"
             )
             backend_phase_applications = [backend_application] + (
                 [existing_frontend_application] if existing_frontend_application else []
             )
             phase = "backend"
-            environment_parent_application = parent_application(target, backend_phase_applications)
-            cluster.apply(environment_parent_application)
+            environment_parent_application = build_environment_parent_application(
+                target, backend_phase_applications
+            )
+            cluster.apply_resource(environment_parent_application)
             cluster.wait_for_application_health([environment_parent_application])
             cluster.wait_for_application_health([backend_application])
             phase = "frontend"
-            environment_parent_application = parent_application(target, service_applications)
-            cluster.apply(environment_parent_application)
+            environment_parent_application = build_environment_parent_application(
+                target, service_applications
+            )
+            cluster.apply_resource(environment_parent_application)
             cluster.wait_for_application_health([environment_parent_application])
             cluster.wait_for_application_health([frontend_application])
         elif target.uses_cloud_root:
             for application in service_applications:
-                phase = chart_source(application)["helm"]["releaseName"]
-                cloud_root_application = cloud_root(target, [application], cloud_root_application)
-                cluster.apply(cloud_root_application)
+                phase = get_application_chart_source(application)["helm"]["releaseName"]
+                cloud_root_application = build_cloud_root_application(
+                    target, [application], cloud_root_application
+                )
+                cluster.apply_resource(cloud_root_application)
                 cluster.wait_for_application_health([cloud_root_application])
                 cluster.wait_for_application_health([application])
         else:
             for application in service_applications:
-                phase = chart_source(application)["helm"]["releaseName"]
-                cluster.apply(application)
+                phase = get_application_chart_source(application)["helm"]["releaseName"]
+                cluster.apply_resource(application)
                 cluster.wait_for_application_health([application])
         phase = "http"
-        cluster.verify()
+        cluster.verify_application_http()
         phase = "public_http" if target.cloud != "kind" else "http"
-        url = cluster.public_url() if target.cloud != "kind" else None
-        record_healthy(cluster, service_applications)
+        public_url = cluster.wait_for_public_http() if target.cloud != "kind" else None
+        record_healthy_release(cluster, service_applications)
         outcome = "healthy"
     finally:
         # Collect facts even when credentials or the API are unavailable; no raw logs are saved.
         Path("deployment-diagnostics.json").write_text(
-            json.dumps(collect(cluster, outcome, rollback_available, phase), indent=2) + "\n"
+            json.dumps(
+                collect_rollout_evidence(cluster, outcome, rollback_available, phase), indent=2
+            )
+            + "\n"
         )
-        closed = cleanup_closed_preview(cluster, target)
-    if closed:
+        preview_closed_during_release = cleanup_closed_preview(cluster, target)
+    if preview_closed_during_release:
         raise RuntimeError("PR closed during release; preview resources were cleaned up")
-    result = {
+    release_result = {
         "namespace": target.namespace,
         "image_tag": target.image_tag,
         "chart_revision": target.revision,
         "resources": {service: recommendation[service] for service in ("backend", "frontend")},
         "reason": recommendation["reason"],
         "status": "healthy",
-        "url": url,
+        "url": public_url,
     }
-    Path("deployment-result.json").write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps(result, indent=2))
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with Path(summary).open("a") as output:
-            output.write(f"\nRelease: `{target.image_tag}`\n\nNamespace: `{target.namespace}`\n")
-            if url:
-                output.write(f"\nApplication: {url}\n")
+    Path("deployment-result.json").write_text(json.dumps(release_result, indent=2) + "\n")
+    print(json.dumps(release_result, indent=2))
+    github_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if github_summary_path:
+        with Path(github_summary_path).open("a") as summary_file:
+            summary_file.write(
+                f"\nRelease: `{target.image_tag}`\n\nNamespace: `{target.namespace}`\n"
+            )
+            if public_url:
+                summary_file.write(f"\nApplication: {public_url}\n")
 
 
-def cleanup(cluster, target):
+def cleanup_preview(cluster, target):
     if target.environment != "preview":
         raise ValueError("automated cleanup is restricted to previews")
-    namespace = cluster.get("namespace", target.namespace)
-    if namespace:
+    existing_namespace = cluster.get_resource("namespace", target.namespace)
+    if existing_namespace:
         cluster.ensure_namespace("preview")
     if target.cloud == "kind":
-        cluster.run(
+        cluster.run_kubectl(
             "--namespace",
             "argocd",
             "delete",
@@ -159,7 +181,7 @@ def cleanup(cluster, target):
         )
     # Delete the Ingress owner first so cloud backends can detach before Service cleanup.
     for service in ("frontend", "backend"):
-        cluster.run(
+        cluster.run_kubectl(
             "--namespace",
             "argocd",
             "delete",
@@ -169,9 +191,9 @@ def cleanup(cluster, target):
             "--wait=true",
             "--timeout=10m",
         )
-    if namespace:
-        cluster.run("delete", "namespace", target.namespace, "--wait=true", "--timeout=5m")
-    cluster.run(
+    if existing_namespace:
+        cluster.run_kubectl("delete", "namespace", target.namespace, "--wait=true", "--timeout=5m")
+    cluster.run_kubectl(
         "--namespace",
         "argocd",
         "delete",
@@ -207,7 +229,7 @@ def main():
         arguments.pr or None,
     )
     if arguments.command == "prompt":
-        print(prompt(target, arguments.request))
+        print(build_recommendation_prompt(target, arguments.request))
         return
     if arguments.command == "rollback":
         from rollback import rollback
@@ -219,23 +241,23 @@ def main():
         print(json.dumps(result, indent=2))
         return
     if arguments.command == "cleanup":
-        cleanup(Cluster(arguments.context, target.namespace), target)
+        cleanup_preview(Cluster(arguments.context, target.namespace), target)
         return
     if not arguments.recommendation:
         parser.error("--recommendation is required for render, prepare, and release")
     recommendation = json.loads(arguments.recommendation.read_text())
     validate_recommendation(recommendation, target.environment, target.cloud)
     if arguments.command == "prepare":
-        from planning import prepare
+        from planning import write_release_plan
 
-        prepare(target, recommendation, arguments.output_dir, arguments.recommendation)
+        write_release_plan(target, recommendation, arguments.output_dir, arguments.recommendation)
     elif arguments.command == "render":
         print(
             json.dumps(
                 {
                     "apiVersion": "v1",
                     "kind": "List",
-                    "items": deployment_manifests(target, recommendation),
+                    "items": build_release_manifests(target, recommendation),
                 },
                 indent=2,
             )

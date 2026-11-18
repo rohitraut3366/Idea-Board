@@ -90,7 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python -c 'import os; from github import check_release; check_release(os.environ["GITHUB_REPOSITORY"], os.environ["IMAGE_TAG"], os.environ["DEPLOY_ENVIRONMENT"], int(os.environ["PR_NUMBER"]))'
+          python -c 'import os; from github import validate_release_provenance; validate_release_provenance(os.environ["GITHUB_REPOSITORY"], os.environ["IMAGE_TAG"], os.environ["DEPLOY_ENVIRONMENT"], int(os.environ["PR_NUMBER"]))'
       - name: Prepare the skill input
         env:
           DEPLOY_REQUEST: ${{ inputs.request }}
@@ -166,7 +166,7 @@ jobs:
         if: inputs.environment == 'preview' && inputs.operation == 'release'
         working-directory: tools/deploy
         run: |
-          python -c 'import os; from github import check_release; check_release(os.environ["GITHUB_REPOSITORY"], os.environ["IMAGE_TAG"], os.environ["DEPLOY_ENVIRONMENT"], int(os.environ["PR_NUMBER"]))'
+          python -c 'import os; from github import validate_release_provenance; validate_release_provenance(os.environ["GITHUB_REPOSITORY"], os.environ["IMAGE_TAG"], os.environ["DEPLOY_ENVIRONMENT"], int(os.environ["PR_NUMBER"]))'
       - name: Authenticate to AWS
         if: inputs.cloud == 'aws'
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5

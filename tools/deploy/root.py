@@ -2,15 +2,17 @@
 
 from copy import deepcopy
 
-from config import REPOSITORY, chart_source, source_fields
+from config import REPOSITORY, get_application_chart_source, get_application_source_fields
 
 
-def cloud_root(target, applications, current=None, automated=True):
+def build_cloud_root_application(
+    target, applications, existing_root_application=None, automated=True
+):
     if not target.uses_cloud_root:
         raise ValueError("the cloud root only manages staging and production")
-    root: dict = (
-        deepcopy(current)
-        if current
+    root_application: dict = (
+        deepcopy(existing_root_application)
+        if existing_root_application
         else {
             "apiVersion": "argoproj.io/v1alpha1",
             "kind": "Application",
@@ -34,34 +36,34 @@ def cloud_root(target, applications, current=None, automated=True):
             },
         }
     )
-    source = root["spec"]["source"]
-    values = source["helm"]["valuesObject"]
+    root_chart_source = root_application["spec"]["source"]
+    root_helm_values = root_chart_source["helm"]["valuesObject"]
     if (
-        root["metadata"]["name"] != "idea-board"
-        or root["spec"]["project"] != "idea-board"
-        or root["spec"]["destination"]
+        root_application["metadata"]["name"] != "idea-board"
+        or root_application["spec"]["project"] != "idea-board"
+        or root_application["spec"]["destination"]
         != {"server": "https://kubernetes.default.svc", "namespace": "argocd"}
-        or source["repoURL"] != REPOSITORY
-        or source["path"] != "gitops/applications"
-        or source["helm"].get("valueFiles") != [f"values-{target.cloud}.yaml"]
-        or values.get("cloud") != target.cloud
-        or values.get("clusterName") != target.namespace
+        or root_chart_source["repoURL"] != REPOSITORY
+        or root_chart_source["path"] != "gitops/applications"
+        or root_chart_source["helm"].get("valueFiles") != [f"values-{target.cloud}.yaml"]
+        or root_helm_values.get("cloud") != target.cloud
+        or root_helm_values.get("clusterName") != target.namespace
     ):
         raise ValueError("cloud root does not match the requested cloud and environment")
-    children = values.setdefault("applications", {})
+    child_application_settings = root_helm_values.setdefault("applications", {})
     for application in applications:
-        service = chart_source(application)["helm"]["releaseName"]
-        children[service] = {
+        service = get_application_chart_source(application)["helm"]["releaseName"]
+        child_application_settings[service] = {
             "enabled": True,
             "source": None,
             "sources": None,
-            **deepcopy(source_fields(application)),
+            **deepcopy(get_application_source_fields(application)),
             "syncPolicy": deepcopy(application["spec"]["syncPolicy"]),
         }
-    root["spec"]["syncPolicy"]["automated"]["enabled"] = automated
+    root_application["spec"]["syncPolicy"]["automated"]["enabled"] = automated
     return {
-        "apiVersion": root["apiVersion"],
+        "apiVersion": root_application["apiVersion"],
         "kind": "Application",
         "metadata": {"name": "idea-board", "namespace": "argocd"},
-        "spec": root["spec"],
+        "spec": root_application["spec"],
     }

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from recommendations import recommendation  # noqa: E402
 
-from config import Target, terraform_variables  # noqa: E402
+from config import Target, build_terraform_sizing_variables  # noqa: E402
 
 
 def main():
@@ -32,7 +32,7 @@ def main():
                     database_storage_gb=40,
                 )
             target = Target(args.cloud, environment, "a" * 40, "a" * 40)
-            for project, values in terraform_variables(target, proposal).items():
+            for project, values in build_terraform_sizing_variables(target, proposal).items():
                 variables = Path(directory) / f"{project.replace('/', '-')}.tfvars.json"
                 variables.write_text(json.dumps(values))
                 subprocess.run(
