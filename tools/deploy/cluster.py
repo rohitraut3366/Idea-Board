@@ -39,12 +39,11 @@ class Cluster:
         output = self.run(*arguments)
         return json.loads(output) if output.strip() else None
 
-    def apply(self, document, force=False):
+    def apply(self, document):
         self.run(
             "apply",
             "--server-side",
             "--field-manager=idea-board-deploy",
-            *(["--force-conflicts"] if force else []),
             "-f",
             "-",
             data=document,
@@ -85,14 +84,6 @@ class Cluster:
                 if not current:
                     continue
                 status = current.get("status", {})
-                if "operation" in expected:
-                    operation_state = status.get("operationState", {})
-                    if (
-                        operation_state.get("operation", {}).get("info")
-                        != expected["operation"]["info"]
-                        or operation_state.get("phase") != "Succeeded"
-                    ):
-                        continue
                 source = chart_source(expected)
                 compared = status.get("sync", {}).get("comparedTo", {}).get("source", {})
                 same_source = (

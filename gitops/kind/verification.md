@@ -1,5 +1,7 @@
 # Kind verification
 
+This is a historical record. The custom rollback implementation described below has since been removed. Current releases recover by deploying a corrected version; the automated lifecycle check now exercises that ordinary release path. The measurements and AI outputs below have not been rerun or rewritten.
+
 Verified on 16 November 2026 using the existing `kind-idea-board` cluster.
 
 ## App-of-apps and ingress run

@@ -16,7 +16,6 @@ from cluster import Cluster  # noqa: E402
 from config import Target, manifests, parent_application  # noqa: E402
 from deploy import cleanup, release  # noqa: E402
 from diagnosis import collect  # noqa: E402
-from rollback import checkpoint, rollback, state  # noqa: E402
 
 
 def main():
@@ -88,24 +87,21 @@ def main():
             assert not source.get("namespace", preview.namespace)
             assert staging_cluster.get("persistentvolumeclaim", "postgres-data", staging.namespace)
             staging_cluster.verify()
-            # Fail a frontend rollout with an unpublished image, then restore Argo desired state.
-            # The checkpoint retains the last release that passed all HTTP checks.
+            # Fail a frontend rollout, then recover using an ordinary corrected release.
             psql(
                 staging_cluster,
-                "CREATE TABLE rollback_canary (content text); "
-                "INSERT INTO rollback_canary VALUES ('preserve through rollback')",
+                "CREATE TABLE release_canary (content text); "
+                "INSERT INTO release_canary VALUES ('preserve through release')",
             )
             schema_version = psql(staging_cluster, "SELECT version_num FROM alembic_version")
             failed = Target("kind", "staging", "f" * 40, args.revision)
-            bad_applications = deepcopy(state(staging_cluster)["healthy"])
+            bad_applications = manifests(staging, proposal)[1:]
             bad_applications[1]["spec"]["source"]["helm"]["valuesObject"]["image"]["tag"] = (
                 failed.image_tag
             )
-            # Change the backend request too, so rollback must reconcile its old values.
             bad_applications[0]["spec"]["source"]["helm"]["valuesObject"]["resources"]["requests"][
                 "cpu"
             ] = "125m"
-            checkpoint(staging_cluster, failed, bad_applications)
             failed_parent = parent_application(failed, bad_applications)
             staging_cluster.apply(failed_parent)
             staging_cluster.wait([failed_parent])
@@ -116,7 +112,7 @@ def main():
                 pass
             else:
                 raise AssertionError("unpublished image unexpectedly passed rollout health checks")
-            evidence = collect(staging_cluster, "failed", True)
+            evidence = collect(staging_cluster, "failed", "frontend")
             assert any(
                 container.get("reason") in {"ImagePullBackOff", "ErrImagePull"}
                 for entry in evidence["evidence"]
@@ -125,32 +121,20 @@ def main():
             ), "failure evidence did not capture the image pull error"
             if evidence_output:
                 evidence_output.write_text(json.dumps(evidence, indent=2) + "\n")
+            corrected = deepcopy(proposal)
+            corrected["backend"]["cpu_millicores"] = 150
+            release(staging_cluster, staging, corrected)
+            assert not staging_cluster.get("configmap", "idea-board-release", staging.namespace)
             assert (
-                rollback(staging_cluster, failed, schema_compatible=True)["status"] == "rolled_back"
-            )
-            restored_backend = staging_cluster.get(
-                "application", f"{staging.namespace}-backend", "argocd"
-            )
-            operation = restored_backend["status"]["operationState"]
-            assert operation["phase"] == "Succeeded"
-            assert operation["operation"]["sync"]["syncStrategy"] == {"apply": {}}
-            assert restored_backend["spec"]["syncPolicy"]["automated"]["enabled"] is False
-            sync_resources = operation["syncResult"].get("resources", [])
-            assert not any(
-                resource.get("kind") == "Job" and "migrate" in resource.get("name", "")
-                for resource in sync_resources
-            ), "rollback ran a migration hook"
-            assert state(staging_cluster)["attempt"] is None
-            assert (
-                psql(staging_cluster, "SELECT content FROM rollback_canary").strip()
-                == "preserve through rollback"
+                psql(staging_cluster, "SELECT content FROM release_canary").strip()
+                == "preserve through release"
             )
             assert (
                 psql(staging_cluster, "SELECT version_num FROM alembic_version") == schema_version
             )
             print(
                 "Passed staging, preview persistence/cleanup, image failure detection, "
-                "Argo rollback, and HTTP checks."
+                "corrected release, and HTTP checks."
             )
     finally:
         # Only these environments were checked absent and created by this test.

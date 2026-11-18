@@ -84,7 +84,7 @@ The Service name matches the Helm release name: `backend` in this example. The f
 
 Readiness uses `/health`; startup and liveness use TCP probes. A database outage removes traffic without repeatedly restarting healthy API processes. Pods run as non-root, disable privilege escalation, and do not mount service-account tokens.
 
-With an external database, the database and Secret must exist before the migration hook runs. Helm rollback restores application manifests, not database migrations; migrations must remain compatible with the previous application version.
+With an external database, the database and Secret must exist before the migration hook runs. Releasing application code does not undo database migrations; fix migration failures and deploy a compatible corrected version.
 
 For local staging and PR previews, the deployment tool selects `values-postgres.yaml`. Each namespace gets its own PostgreSQL Deployment and volume. The tool creates a stable Kubernetes Secret with `DATABASE_URL` for the backend and `POSTGRES_PASSWORD` for PostgreSQL. `postgres.existingSecret` selects this Secret, so credentials are referenced rather than stored in Argo CD Application values.
 

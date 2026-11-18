@@ -265,7 +265,7 @@ def manifests(target, recommendation):
     return [project, *applications]
 
 
-def parent_application(target, applications, automated=True):
+def parent_application(target, applications):
     """Keep each environment's child sources in one declarative parent."""
     return {
         "apiVersion": "argoproj.io/v1alpha1",
@@ -302,7 +302,7 @@ def parent_application(target, applications, automated=True):
                 "namespace": "argocd",
             },
             "syncPolicy": {
-                "automated": {"enabled": automated, "prune": True, "selfHeal": True},
+                "automated": {"enabled": True, "prune": True, "selfHeal": True},
                 "syncOptions": ["ServerSideApply=true"],
             },
         },

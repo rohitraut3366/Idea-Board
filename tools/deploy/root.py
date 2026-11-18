@@ -5,7 +5,7 @@ from copy import deepcopy
 from config import REPOSITORY, chart_source, source_fields
 
 
-def cloud_root(target, applications, current=None, automated=True):
+def cloud_root(target, applications, current=None):
     if not target.uses_cloud_root:
         raise ValueError("the cloud root only manages staging and production")
     root: dict = (
@@ -58,7 +58,7 @@ def cloud_root(target, applications, current=None, automated=True):
             **deepcopy(source_fields(application)),
             "syncPolicy": deepcopy(application["spec"]["syncPolicy"]),
         }
-    root["spec"]["syncPolicy"]["automated"]["enabled"] = automated
+    root["spec"]["syncPolicy"]["automated"]["enabled"] = True
     return {
         "apiVersion": root["apiVersion"],
         "kind": "Application",

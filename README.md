@@ -20,7 +20,7 @@ This guide explains how the app works, how to run it locally, and how to test de
   - [Logs and cluster cleanup](gitops/README.md#inspect-or-stop)
 - [Cloud deployment: AWS and GCP](infra/cloud-deployment.md) and [Terraform reference](infra/terraform/README.md)
 - [AI integration and design](#ai-integration)
-- [Troubleshooting and rollback](#when-something-goes-wrong)
+- [Troubleshooting and recovery](#when-something-goes-wrong)
 - [Verification results and limits](#what-has-been-tested)
 
 ## Project structure
@@ -66,7 +66,7 @@ Idea-Board/
 │   │           └── helm-values/   # Writes generated chart values to GitHub
 │   ├── ingress/                   # Cloud routing configuration and guides
 │   └── cloud-deployment.md        # AWS and GCP deployment instructions
-├── tools/deploy/                  # Deployment planning, checks, diagnosis, rollback, and tests
+├── tools/deploy/                  # Deployment planning, checks, diagnosis, and tests
 ├── .agents/skills/deploy/         # AI instructions and response schemas
 ├── .github/workflows/             # CI, image publishing, deployment, and preview workflows
 ├── docker-compose.yml            # Run the complete app locally
@@ -253,9 +253,9 @@ GitHub Actions runs these checks for pull requests and pushes to `master`:
 | -------------------- | --------------------------------------------------------------------------------------------- |
 | Frontend and backend | App tests, types, and code formatting                                                         |
 | Docker Compose       | Container builds, migrations, page/API requests, backend replacement, and concurrent requests |
-| Kubernetes (kind)    | Argo CD sync, cluster services, releases, previews, cleanup, and rollback   |
+| Kubernetes (kind)    | Argo CD sync, cluster services, releases, previews, cleanup, and corrected releases   |
 | Terraform            | AWS and GCP Terraform validation and module tests using provider mocks                        |
-| Deployment tool      | AI response validation, resource settings, release checks, and rollback rules                 |
+| Deployment tool      | AI response validation, resource settings, release checks, and failure diagnosis                 |
 
 GitHub Actions creates a temporary kind cluster to run the Kubernetes deployment tests. Terraform provider mocks supply fake AWS/GCP responses to check configuration and resource wiring without contacting either cloud or creating resources. Cloud permissions, quotas, managed databases, and public routing require verification in the target accounts.
 
@@ -313,17 +313,17 @@ Suppose the new frontend image cannot start. The deployment tool collects the fa
 
 The workflow passes that evidence to the AI. A diagnosis can say:
 
-> The new frontend is waiting for its image. The previous frontend and backend are still ready. Check that the image exists and can be pulled. A previous verified release is available; confirm database schema compatibility before restoring it.
+> The new frontend is waiting for its image. The previous frontend and backend are still ready. Check that the image exists and can be pulled. Fix the cause and release a corrected version.
 
-The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. Our [recorded diagnosis](gitops/kind/evidence/diagnosis.json) shows this case.
+The workflow validates the diagnosis and saves `diagnosis.json` and `diagnosis.md` in its **Artifacts**. The [recorded diagnosis](gitops/kind/evidence/diagnosis.json) is a historical example from the former rollback implementation; current advice recommends investigating and rolling forward.
 
-You use the explanation to decide what to fix or whether to run the explicit rollback operation. Health checks determine whether the release works; the AI explains the evidence. The [local AI diagnosis example](gitops/README.md#9-explain-a-failed-rollout-with-ai) uses evidence captured by the kind deployment check.
+Local failed releases invoke Codex automatically; cloud workflows run diagnosis in a separate job. Use the explanation to fix the cause and release the corrected version. Health checks determine whether the release works; the AI explains the evidence. The [local AI diagnosis example](gitops/README.md#9-explain-a-failed-rollout-with-ai) uses evidence captured by the kind deployment check.
 
 ## When something goes wrong
 
 **Failed release:** inspect the workflow diagnostics, Argo CD Application status, pod events, and migration job logs.
 
-**Restore a previous version (rollback):** the deployment tool saves the last release that passed its checks. Run Deploy with `operation=rollback`, the failed image SHA, and `schema_compatible=true` after confirming the previous app supports the current schema. Rollback restores the application version and preserves the database schema and data. See the [rollback procedure](tools/deploy/README.md).
+**Roll forward:** fix the cause, build the corrected version, and run the normal release command with its image tag and chart revision. The tool waits for health and HTTP checks and asks AI to diagnose a failed release. There is no custom rollback history or restore operation. See [deployment recovery](tools/deploy/README.md#recover-by-rolling-forward).
 
 ## What has been tested
 
@@ -334,7 +334,7 @@ The local Kubernetes demonstration is verified in kind:
 | App and PostgreSQL | Page/API checks passed; saved data survived PostgreSQL pod replacement and backend restarts          |
 | Argo CD            | Local root, ingress and environment parents with backend/frontend children became Synced and Healthy |
 | Preview lifecycle  | Separate database/login, redeployment, and cleanup passed                                            |
-| Rollback           | Failed-image detection and recovery passed; schema and test data were preserved                      |
+| Historical recovery | Earlier rollback checks passed; that mechanism has been removed in favor of corrected releases. See the [recorded run](gitops/kind/verification.md). |
 | Load and scaling   | Measured with one and two backend replicas; see the [results](gitops/kind/verification.md)           |
 | AI integration     | Session-generated recommendation and diagnosis passed the tool's validation                          |
 
