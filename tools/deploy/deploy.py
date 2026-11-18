@@ -88,25 +88,25 @@ def release(cluster, target, recommendation):
             phase = "backend"
             environment_parent_application = parent_application(target, backend_phase_applications)
             cluster.apply(environment_parent_application)
-            cluster.wait([environment_parent_application])
-            cluster.wait([backend_application])
+            cluster.wait_for_application_health([environment_parent_application])
+            cluster.wait_for_application_health([backend_application])
             phase = "frontend"
             environment_parent_application = parent_application(target, service_applications)
             cluster.apply(environment_parent_application)
-            cluster.wait([environment_parent_application])
-            cluster.wait([frontend_application])
+            cluster.wait_for_application_health([environment_parent_application])
+            cluster.wait_for_application_health([frontend_application])
         elif target.uses_cloud_root:
             for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
                 cloud_root_application = cloud_root(target, [application], cloud_root_application)
                 cluster.apply(cloud_root_application)
-                cluster.wait([cloud_root_application])
-                cluster.wait([application])
+                cluster.wait_for_application_health([cloud_root_application])
+                cluster.wait_for_application_health([application])
         else:
             for application in service_applications:
                 phase = chart_source(application)["helm"]["releaseName"]
                 cluster.apply(application)
-                cluster.wait([application])
+                cluster.wait_for_application_health([application])
         phase = "http"
         cluster.verify()
         phase = "public_http" if target.cloud != "kind" else "http"

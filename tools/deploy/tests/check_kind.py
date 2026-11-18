@@ -108,10 +108,10 @@ def main():
             checkpoint(staging_cluster, failed, bad_applications)
             failed_parent = parent_application(failed, bad_applications)
             staging_cluster.apply(failed_parent)
-            staging_cluster.wait([failed_parent])
-            staging_cluster.wait([bad_applications[0]])
+            staging_cluster.wait_for_application_health([failed_parent])
+            staging_cluster.wait_for_application_health([bad_applications[0]])
             try:
-                staging_cluster.wait([bad_applications[1]], timeout=45)
+                staging_cluster.wait_for_application_health([bad_applications[1]], timeout=45)
             except TimeoutError:
                 pass
             else:

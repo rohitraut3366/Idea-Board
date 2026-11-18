@@ -157,7 +157,7 @@ def rollback(cluster, target, schema_compatible):
     for application in restored:
         # The parent owns these fields through SSA; takeover follows the drift guards above.
         cluster.apply(application, force=target.cloud == "kind" or target.uses_cloud_root)
-        cluster.wait([application])
+        cluster.wait_for_application_health([application])
         # An operation is a one-time request, not part of a release checkpoint.
         del application["operation"]
     if target.cloud == "kind" or target.uses_cloud_root:
@@ -175,7 +175,7 @@ def rollback(cluster, target, schema_compatible):
             },
         }
         cluster.apply(parent)
-        cluster.wait([parent])
+        cluster.wait_for_application_health([parent])
     cluster.verify()
     if target.cloud != "kind":
         cluster.public_url()

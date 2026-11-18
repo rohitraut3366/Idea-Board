@@ -77,7 +77,8 @@ def test_release_preserves_serving_frontend_until_backend_is_verified(monkeypatc
     backend_wait = next(
         i
         for i, entry in enumerate(events)
-        if entry[0] == "wait" and entry.args[0][0]["metadata"]["name"].endswith("-backend")
+        if entry[0] == "wait_for_application_health"
+        and entry.args[0][0]["metadata"]["name"].endswith("-backend")
     )
     final_apply = next(
         i for i, entry in enumerate(events) if entry[0] == "apply" and entry.args[0] == parents[1]

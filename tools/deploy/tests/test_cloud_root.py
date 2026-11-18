@@ -73,11 +73,11 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
     )
     if backend_fails:
 
-        def wait(applications):
+        def wait_for_backend_health(applications):
             if applications[0]["metadata"]["name"].endswith("-backend"):
                 raise TimeoutError("backend failed")
 
-        cluster.wait.side_effect = wait
+        cluster.wait_for_application_health.side_effect = wait_for_backend_health
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("diagnosis.collect", lambda *args: {})
     if backend_fails:
@@ -107,7 +107,8 @@ def test_cloud_release_updates_only_owning_root_and_preserves_frontend(
         backend_wait = next(
             i
             for i, call in enumerate(events)
-            if call[0] == "wait" and call.args[0][0]["metadata"]["name"].endswith("-backend")
+            if call[0] == "wait_for_application_health"
+            and call.args[0][0]["metadata"]["name"].endswith("-backend")
         )
         frontend_update = next(
             i for i, call in enumerate(events) if call[0] == "apply" and call.args[0] == parents[1]

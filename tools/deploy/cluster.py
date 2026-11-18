@@ -75,7 +75,8 @@ class Cluster:
             return None
         return base64.b64decode(secret["data"]["DATABASE_URL"]).decode()
 
-    def wait(self, applications, timeout=600):
+    def wait_for_application_health(self, applications, timeout=600):
+        """Wait for the requested Argo sources, sync/health, image, and replica rollout."""
         deadline = time.monotonic() + timeout
         pending = applications.copy()
         while pending and time.monotonic() < deadline:

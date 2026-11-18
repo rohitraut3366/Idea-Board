@@ -20,7 +20,7 @@ def test_checkpoint_is_promoted_only_after_rollout_and_http_pass(
     cluster = Mock(namespace="idea-board-staging")
     cluster.get.return_value = None
     if failed_check == "backend":
-        cluster.wait.side_effect = TimeoutError("backend failed")
+        cluster.wait_for_application_health.side_effect = TimeoutError("backend failed")
     elif failed_check == "http":
         cluster.verify.side_effect = RuntimeError("HTTP failed")
     if failed_check:

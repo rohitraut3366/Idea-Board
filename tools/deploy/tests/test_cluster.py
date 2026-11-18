@@ -108,7 +108,7 @@ def test_old_healthy_status_cannot_pass_new_release(monkeypatch, stale):
     monkeypatch.setattr("cluster.time.monotonic", lambda: next(clock))
     monkeypatch.setattr("cluster.time.sleep", lambda _: None)
     with pytest.raises(TimeoutError):
-        cluster.wait([app], timeout=3)
+        cluster.wait_for_application_health([app], timeout=3)
 
 
 def test_matching_healthy_release_passes(monkeypatch):
@@ -123,7 +123,7 @@ def test_matching_healthy_release_passes(monkeypatch):
             )
         ),
     )
-    cluster.wait([app], timeout=1)
+    cluster.wait_for_application_health([app], timeout=1)
 
 
 @pytest.mark.parametrize("phase", [None, "Running", "Failed", "Succeeded"])
@@ -155,10 +155,10 @@ def test_rollback_waits_for_its_own_successful_operation(monkeypatch, phase, mat
     monkeypatch.setattr("cluster.time.monotonic", lambda: next(clock))
     monkeypatch.setattr("cluster.time.sleep", lambda _: None)
     if phase == "Succeeded" and matching_operation:
-        cluster.wait([app], timeout=3)
+        cluster.wait_for_application_health([app], timeout=3)
     else:
         with pytest.raises(TimeoutError):
-            cluster.wait([app], timeout=3)
+            cluster.wait_for_application_health([app], timeout=3)
 
 
 def test_existing_unrelated_namespace_is_not_adopted(monkeypatch):
@@ -229,7 +229,7 @@ def test_cloud_root_wait_accepts_resolved_branch_revision(monkeypatch):
     }
     cluster = Cluster("test", target.namespace)
     monkeypatch.setattr(cluster, "get", Mock(return_value={"status": status}))
-    cluster.wait([root], timeout=1)
+    cluster.wait_for_application_health([root], timeout=1)
 
 
 @pytest.mark.parametrize("stale", [None, "chart_revision", "values_source"])
@@ -267,6 +267,6 @@ def test_multi_source_backend_checks_chart_revision_and_current_values(monkeypat
     monkeypatch.setattr("cluster.time.sleep", lambda _: None)
     if stale:
         with pytest.raises(TimeoutError):
-            cluster.wait([app], timeout=3)
+            cluster.wait_for_application_health([app], timeout=3)
     else:
-        cluster.wait([app], timeout=3)
+        cluster.wait_for_application_health([app], timeout=3)
