@@ -10,7 +10,7 @@ Terragrunt handles the configuration and execution shared by these projects:
 
 - **Shared state configuration:** `root.hcl` reads the bucket settings from `state.hcl` and derives a separate state key from each project's directory. Each project inherits the same encryption and locking settings.
 - **Shared inputs:** environment and region files supply the stack name, region, and cloud-specific settings. Each project's `terragrunt.hcl` adds its own settings, such as worker count or database backup retention, without repeating the common inputs.
-- **Ordered runs:** `dependencies` blocks let `terragrunt run --all apply` create networking before the cluster, then core services and the application database. Destroy runs reverse that order. Terraform's `terraform_remote_state` data sources still read the outputs; Terragrunt's dependency declarations control execution order.
+- **Dependency outputs and ordering:** named `dependency` blocks read upstream outputs and pass them to Terraform as inputs, such as the networking project's private subnet IDs. They also order runs. The application keeps an order-only `dependencies` block for core services. `terragrunt run --all apply` creates networking before the cluster, then core services and the application database; destroy runs reverse that order.
 
 Plain Terraform could manage the same resources, but keeping these separate states would require passing the backend configuration and inputs to each project and coordinating their execution manually or through scripts or CI. Terragrunt centralizes that work while retaining separate plans and state for each project. The tradeoff is an additional pinned CLI and HCL configuration layer to maintain alongside Terraform.
 
@@ -87,7 +87,7 @@ Terragrunt initializes the projects and applies them in this order:
 networking → cluster → cluster-core-services → applications/idea-board
 ```
 
-Terraform reads dependency outputs from each project's state. Terragrunt's declared dependencies ensure those states exist before planning and applying their consumers. A failed project stops its dependents.
+Terragrunt reads dependency outputs and passes them through `inputs`; Terraform projects accept ordinary variables and do not read other projects' state. A failed project stops its dependents.
 
 On a fresh stack, a complete plan cannot read outputs that have not been created yet. Use the ordered apply above, or review and apply one project at a time. For an existing stack:
 

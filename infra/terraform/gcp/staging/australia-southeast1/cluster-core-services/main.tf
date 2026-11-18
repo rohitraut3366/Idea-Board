@@ -7,17 +7,8 @@ provider "github" {
   owner = "rohitraut3366"
 }
 
-data "terraform_remote_state" "cluster" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = "${var.state_prefix}/cluster.tfstate"
-    region = var.state_region
-  }
-}
-
 data "google_container_cluster" "this" {
-  name     = data.terraform_remote_state.cluster.outputs.cluster_name
+  name     = var.cluster_name
   location = var.region
 }
 
@@ -37,13 +28,13 @@ module "argocd" {
   source          = "../../../../modules/argocd"
   gitops_revision = var.gitops_revision
   cloud           = "gcp"
-  cluster_name    = data.terraform_remote_state.cluster.outputs.cluster_name
+  cluster_name    = var.cluster_name
 }
 
 module "external_secrets" {
   source       = "../../../../modules/gcp/external-secrets"
   name         = var.name
-  cluster_name = data.terraform_remote_state.cluster.outputs.cluster_name
+  cluster_name = var.cluster_name
   project_id   = var.project_id
 }
 

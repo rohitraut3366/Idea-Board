@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TerragruntTests(unittest.TestCase):
+    configurations: dict[Path, dict]
+    outputs: dict
+
     @classmethod
     def setUpClass(cls):
         cls.configurations = {}
@@ -20,6 +24,54 @@ class TerragruntTests(unittest.TestCase):
             *ROOT.glob("*/*/*/*/terragrunt.hcl"),
             *ROOT.glob("*/*/*/applications/*/terragrunt.hcl"),
         ]
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        rendered_root = Path(temporary.name)
+        declarations = [
+            *ROOT.glob("*.hcl"),
+            *ROOT.glob("*/*/environment.hcl"),
+            *ROOT.glob("*/*/*/region.hcl"),
+            *paths,
+        ]
+        cls.outputs = {
+            "aws": {
+                "networking": {
+                    "vpc_id": "vpc-test",
+                    "private_subnet_ids": ["subnet-test-a", "subnet-test-b"],
+                },
+                "cluster": {
+                    "cluster_name": "aws-cluster-test",
+                    "node_security_group_id": "sg-test",
+                },
+            },
+            "gcp": {
+                "networking": {
+                    "network_id": "projects/test-project/global/networks/test",
+                    "subnetwork_id": "projects/test-project/regions/test/subnetworks/test",
+                    "pods_range_name": "test-pods",
+                    "services_range_name": "test-services",
+                },
+                "cluster": {"cluster_name": "gcp-cluster-test"},
+            },
+        }
+        for path in declarations:
+            relative = path.relative_to(ROOT)
+            destination = rendered_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            text = path.read_text()
+            if path.name == "terragrunt.hcl":
+                outputs = cls.outputs[relative.parts[0]]
+
+                # Mock output retrieval only in temporary test copies; deployments use real outputs.
+                def mock_dependency(match: re.Match[str], outputs: dict = outputs) -> str:
+                    return (
+                        match[0]
+                        + "\n  skip_outputs = true\n  mock_outputs = "
+                        + json.dumps(outputs[match[1]])
+                    )
+
+                text = re.sub(r'dependency "(\w+)" \{', mock_dependency, text)
+            destination.write_text(text)
         for path in sorted(paths):
             result = subprocess.run(
                 [
@@ -27,7 +79,7 @@ class TerragruntTests(unittest.TestCase):
                     "render",
                     "--json",
                     "--working-dir",
-                    str(path.parent),
+                    str(rendered_root / path.parent.relative_to(ROOT)),
                 ],
                 env={**os.environ, "GOOGLE_CLOUD_PROJECT": "test-project"},
                 check=True,
@@ -47,12 +99,6 @@ class TerragruntTests(unittest.TestCase):
                 self.assertTrue(state["use_lockfile"])
                 self.assertTrue(state["encrypt"])
                 self.assertTrue(state["disable_bucket_update"])
-                self.assertEqual(config["inputs"]["state_bucket"], state["bucket"])
-                self.assertEqual(config["inputs"]["state_region"], state["region"])
-                self.assertEqual(
-                    config["inputs"]["state_prefix"],
-                    f"infra/terraform/{Path(*path.parts[:3])}",
-                )
                 keys.add(state["key"])
         self.assertEqual(len(keys), len(self.configurations))
 
@@ -72,6 +118,10 @@ class TerragruntTests(unittest.TestCase):
             graph[directory] = [
                 (directory / path).resolve() for path in dependencies.get("paths", [])
             ]
+            graph[directory] += [
+                (directory / dependency["config_path"]).resolve()
+                for dependency in (config.get("dependency") or {}).values()
+            ]
             self.assertTrue(all(path in self.configurations for path in graph[directory]))
         order = list(TopologicalSorter(graph).static_order())
         for cloud, region in (
@@ -89,6 +139,41 @@ class TerragruntTests(unittest.TestCase):
             ]
             positions = [order.index(path) for path in projects]
             self.assertEqual(positions, sorted(positions))
+
+    def test_dependency_outputs_are_passed_as_terraform_inputs(self):
+        required_inputs = {
+            "aws": {
+                "cluster": {"private_subnet_ids"},
+                "cluster-core-services": {"vpc_id", "cluster_name"},
+                "idea-board": {
+                    "vpc_id",
+                    "private_subnet_ids",
+                    "cluster_name",
+                    "node_security_group_id",
+                },
+            },
+            "gcp": {
+                "cluster": {
+                    "network_id",
+                    "subnetwork_id",
+                    "pods_range_name",
+                    "services_range_name",
+                },
+                "cluster-core-services": {"cluster_name"},
+                "idea-board": {"network_id", "cluster_name"},
+            },
+        }
+        for directory, config in self.configurations.items():
+            cloud = directory.relative_to(ROOT).parts[0]
+            required = required_inputs[cloud].get(directory.name, set())
+            expected = {
+                key: value
+                for outputs in self.outputs[cloud].values()
+                for key, value in outputs.items()
+                if key in required
+            }
+            with self.subTest(project=directory):
+                self.assertEqual({key: config["inputs"][key] for key in required}, expected)
 
     def test_real_run_resolves_modules_and_ignores_legacy_tfvars(self):
         with tempfile.TemporaryDirectory() as temporary:

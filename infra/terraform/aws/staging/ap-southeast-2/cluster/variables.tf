@@ -31,17 +31,7 @@ variable "node_count" {
   default     = 2
 }
 
-variable "state_bucket" {
-  description = "Shared S3 bucket containing all Terraform project states."
-  type        = string
-}
-
-variable "state_prefix" {
-  description = "Repository-relative environment path, supplied by Terragrunt."
-  type        = string
-}
-
-variable "state_region" {
-  description = "AWS region containing the state bucket, supplied by Terragrunt."
-  type        = string
+variable "private_subnet_ids" {
+  description = "Private subnet IDs supplied by the networking Terragrunt dependency."
+  type        = list(string)
 }

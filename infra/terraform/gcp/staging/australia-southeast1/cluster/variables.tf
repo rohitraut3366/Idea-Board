@@ -47,17 +47,22 @@ variable "deletion_protection" {
   default     = true
 }
 
-variable "state_bucket" {
-  description = "Shared S3 bucket containing all Terraform project states."
+variable "network_id" {
+  description = "Network ID supplied by the networking Terragrunt dependency."
   type        = string
 }
 
-variable "state_prefix" {
-  description = "Repository-relative environment path, supplied by Terragrunt."
+variable "subnetwork_id" {
+  description = "Subnetwork ID supplied by the networking Terragrunt dependency."
   type        = string
 }
 
-variable "state_region" {
-  description = "AWS region containing the state bucket, supplied by Terragrunt."
+variable "pods_range_name" {
+  description = "Pods range name supplied by the networking Terragrunt dependency."
+  type        = string
+}
+
+variable "services_range_name" {
+  description = "Services range name supplied by the networking Terragrunt dependency."
   type        = string
 }
